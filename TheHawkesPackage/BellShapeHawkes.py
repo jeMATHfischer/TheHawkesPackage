@@ -20,9 +20,11 @@ class BellShapeHawkes():
 
     def __bound(self, T):
         if T - self.Events[-1] < self.ext:
-            return self.nonlinearity(self.temporal(T - self.Events).sum()) + self.temporal(self.ext)
+            return self.nonlinearity(np.sum(np.array([self.temporal(T - j)
+                                                               for j in self.Events if j < T]))) + self.temporal(self.ext)
         else:
-            return self.nonlinearity(self.temporal(T - self.Events).sum())
+            return self.nonlinearity(np.sum(np.array([self.temporal(T - j)
+                                                               for j in self.Events if j < T])))
 
     def propogate_by_amount(self, k):
         t = self.Events[-1]
@@ -36,8 +38,9 @@ class BellShapeHawkes():
             t = t + tau
             s = np.random.rand(1)
 
-            if s <= self.nonlinearity(self.temporal(t - self.Events).sum()) / upper_bd:
-                self.Events = np.append(self.Events, T)
+            if s <= self.nonlinearity(np.sum(np.array([self.temporal(t - j)
+                                                               for j in self.Events if j < t]))) / upper_bd:
+                self.Events = np.append(self.Events, t)
                 i += 1
 
         if self.Sim_num == 0:
@@ -47,8 +50,8 @@ class BellShapeHawkes():
 
     def intensity_over_interval(self, x):
         y = np.sort(np.append(x, self.Events))
-        return y, self.nonlinearity(np.array([np.sum(np.array([self.temporal(k - j)
-                                                               for j in self.Events])) for k in y]))
+        return y, self.nonlinearity(np.array([np.sum(np.array([self.temporal(t - j)
+                                                               for j in self.Events if j < t])) for t in y]))
 
 
 
