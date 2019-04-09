@@ -118,8 +118,6 @@ class Spatio_Temporal_Hawkes_Process():
             EventSpace = periodizer(mcmc_sampler(Spatial_density, np.array([[-np.pi, np.pi]])))
 
             NewEvent = np.array([EventTime, EventSpace])
-            print(self.Events)
-            print(NewEvent)
             self.Events = np.append(self.Events, NewEvent, axis=1)
 
         if self.Sim_num == 0:
