@@ -1,4 +1,4 @@
 from .BellShapeHawkes import BellShapeHawkes
 from .ExponentialHawkes import ExponentialHawkes
 from .MonotoneKernelHawkes import MonotoneKernelHawkes
-from .MCMC_sampler import mcmc_sampler
+from .SpatioTemporal_Hawkes_Monotone import Spatio_Temporal_Hawkes_Process
