@@ -20,7 +20,7 @@ class MonotoneKernelHawkes():
         i = 0
 
         while i in range(k):
-            upper_bd = self.nonlinearity(np.sum(np.array([self.temporal(t - item) for item in self.Events if item < t])))
+            upper_bd = self.nonlinearity(np.sum(self.temporal(t - self.Events)))
 
             u = np.random.rand(1)
             tau = -np.log(u) / upper_bd
@@ -35,6 +35,9 @@ class MonotoneKernelHawkes():
             self.Events = np.delete(self.Events, 0, 0)
 
         self.Sim_num += k
+
+    def simulate(self, k):
+        self.propagate_by_k_events(k)
 
     def intensity_over_interval(self, x):
         y = np.sort(np.append(x, self.Events))

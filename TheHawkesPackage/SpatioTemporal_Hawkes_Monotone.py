@@ -35,7 +35,7 @@ class Spatio_Temporal_Hawkes_Process():
         if monotone_temporal_kernel is not True:
             self.temporal_extremum = fmin(lambda t: -self.temporal(t), 0, disp=False)
 
-    def propogate_by_amount(self, k):
+    def propagate_by_amount(self, k):
 
         def periodizer(x):
             return (x - np.pi) % (2 * np.pi) - np.pi
@@ -59,15 +59,22 @@ class Spatio_Temporal_Hawkes_Process():
             def dist_temporal(t):
                 return np.array([self.temporal(t - time) for time in self.Events[0, :] if time < t and time != 0])
 
-            def dist_periodized_spatial(x,t):
-                return np.array([periodized_spatial(x - location) for location in self.Events[1, :] if self.Events[0, self.Events[1, :] == location] < t])
+            def dist_periodized_spatial(x, t):
+                return np.array([periodized_spatial(x - self.Events[1, i])
+                                 for i in range(self.Events.shape[1])
+                                 if self.Events[0, i] < t and self.Events[0, i] != 0])
 
-            def positive_periodized_spatial(x,t):
-                return np.array([max(0, periodized_spatial(x - location)) for location in self.Events[1, :] if self.Events[0, self.Events[1, :] == location] < t])
+            def positive_periodized_spatial(x, t):
+                return np.array([max(0, periodized_spatial(x - self.Events[1, i]))
+                                 for i in range(self.Events.shape[1])
+                                 if self.Events[0, i] < t and self.Events[0, i] != 0])
 
-            positive_int_spatial = lambda t: np.array([quad(positive_periodized_spatial
-                                                            , self.Space[0] - location, self.Space[1] - location)[0]
-                                                       for location in self.Events[1, :] if self.Events[0, self.Events[1, :] == location] < t])
+            positive_int_spatial = lambda t: np.array([
+                quad(positive_periodized_spatial,
+                     self.Space[0] - self.Events[1, i],
+                     self.Space[1] - self.Events[1, i])[0]
+                for i in range(self.Events.shape[1])
+                if self.Events[0, i] < t and self.Events[0, i] != 0])
 
             def Space_free_temporal_at_time_t(t):
 
@@ -113,7 +120,12 @@ class Spatio_Temporal_Hawkes_Process():
 
             def Spatial_density(x):
                 x = periodizer(x)
-                return max(0, self.Base(x) + np.multiply(dist_temporal(EventTime), np.array([periodized_spatial(x - location) for location in self.Events[1, :] if self.Events[0, self.Events[1, :] == location] < EventTime])).sum())/Norm_Stopped_full_intensity
+                return max(0, self.Base(x) + np.multiply(
+                    dist_temporal(EventTime),
+                    np.array([periodized_spatial(x - self.Events[1, i])
+                              for i in range(self.Events.shape[1])
+                              if self.Events[0, i] < EventTime and self.Events[0, i] != 0])
+                ).sum()) / Norm_Stopped_full_intensity
 
             EventSpace = periodizer(mcmc_sampler(Spatial_density, np.array([[-np.pi, np.pi]])))
 
@@ -124,3 +136,9 @@ class Spatio_Temporal_Hawkes_Process():
             self.Events = self.Events[:, 1:]
 
         self.Sim_num += k
+
+    # Deprecated alias kept for backward compatibility
+    propogate_by_amount = propagate_by_amount
+
+    def simulate(self, k):
+        self.propagate_by_amount(k)

@@ -2,3 +2,12 @@ from .BellShapeHawkes import BellShapeHawkes
 from .ExponentialHawkes import ExponentialHawkes
 from .MonotoneKernelHawkes import MonotoneKernelHawkes
 from .SpatioTemporal_Hawkes_Monotone import Spatio_Temporal_Hawkes_Process
+from .MCMC_sampler import mcmc_sampler
+
+# New domain-aware spatio-temporal classes
+from .spatio_temporal import (
+    SpatioTemporalHawkesProcess,
+    Circle,
+    Torus2D,
+    make_periodic,
+)

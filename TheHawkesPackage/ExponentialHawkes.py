@@ -11,6 +11,11 @@ class ExponentialHawkes():
 
     def __init__(self, param):
         self.param = param
+        if param[1] / param[2] >= 1:
+            raise ValueError(
+                f"Stability condition violated: alpha/beta = {param[1]/param[2]:.4f} >= 1. "
+                "The process will not be stationary."
+            )
         self.temporal = lambda x: self.param[1]*np.exp(-self.param[2]*x)
         self.Events = np.array([0])
         self.Sim_num = 0
@@ -21,7 +26,6 @@ class ExponentialHawkes():
 
         while i in range(k):
             upper_bd = self.param[0] + np.sum(np.array([self.temporal(self.Events[-1] - y) for y in self.Events]))
-            print(upper_bd)
 
             u = np.random.rand(1)
             tau = -np.log(u) / upper_bd
@@ -36,6 +40,9 @@ class ExponentialHawkes():
             self.Events = np.delete(self.Events, 0, 0)
 
         self.Sim_num += k
+
+    def simulate(self, k):
+        self.propagate_by_k_events(k)
 
     def intensity_over_interval(self, x):
         y = np.sort(np.append(x, self.Events))

@@ -26,7 +26,7 @@ class BellShapeHawkes():
             return self.nonlinearity(np.sum(np.array([self.temporal(T - j)
                                                                for j in self.Events if j < T])))
 
-    def propogate_by_amount(self, k):
+    def propagate_by_amount(self, k):
         t = self.Events[-1]
         i = 0
 
@@ -47,6 +47,12 @@ class BellShapeHawkes():
                 self.Events = np.delete(self.Events, 0, 0)
 
         self.Sim_num += k
+
+    # Deprecated alias kept for backward compatibility
+    propogate_by_amount = propagate_by_amount
+
+    def simulate(self, k):
+        self.propagate_by_amount(k)
 
     def intensity_over_interval(self, x):
         y = np.sort(np.append(x, self.Events))
