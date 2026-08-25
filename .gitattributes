@@ -1,0 +1,12 @@
+# Normalise line endings: LF in the repository, native in the working tree.
+# Without this every file committed from Windows produces CRLF warnings and
+# spurious whole-file diffs between contributors.
+* text=auto eol=lf
+
+# Notebooks are JSON; keep them diffable but never merge them automatically.
+*.ipynb text eol=lf merge=binary linguist-documentation
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.pdf binary

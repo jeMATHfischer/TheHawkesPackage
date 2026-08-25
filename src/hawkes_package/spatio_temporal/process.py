@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 r"""Domain-aware spatio-temporal Hawkes process simulation.
 
 The intensity is separable,
@@ -18,7 +17,8 @@ Metropolis-Hastings from the conditional spatial density at that time.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 from scipy.integrate import quad
@@ -82,7 +82,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         base: Callable[[Any], float],
         spatial: Callable[[float], float],
         temporal: Callable[[float], float],
-        domain: Optional[SpatialDomain] = None,
+        domain: SpatialDomain | None = None,
         monotone_temporal_kernel: bool = False,
         rng: SeedLike = None,
     ) -> None:
@@ -104,7 +104,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _past_event_indices(self, t: float, inclusive: bool = False) -> "list[int]":
+    def _past_event_indices(self, t: float, inclusive: bool = False) -> list[int]:
         """Column indices of events before time `t`, excluding the seed.
 
         `inclusive` also admits an event at exactly `t`, which the thinning
@@ -234,8 +234,8 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     def intensity_over_interval(
         self,
         times: Any,
-        points: Optional[Any] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        points: Any | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         r"""Evaluate the intensity on the tensor grid ``times`` x ``points``.
 
         Parameters
@@ -290,14 +290,11 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
                 points_arr = points_arr.reshape(-1, 1)
             if points_arr.shape[1] != ndim:
                 raise ValueError(
-                    f"points must have shape (n_x, {ndim}) for this domain, "
-                    f"got {points_arr.shape}"
+                    f"points must have shape (n_x, {ndim}) for this domain, got {points_arr.shape}"
                 )
 
         event_times = self.Events[0, :]
-        times_arr = np.unique(
-            np.append(np.asarray(times, dtype=float).ravel(), event_times)
-        )
+        times_arr = np.unique(np.append(np.asarray(times, dtype=float).ravel(), event_times))
 
         intensity = np.array(
             [

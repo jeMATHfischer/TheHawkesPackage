@@ -143,5 +143,5 @@ def test_instrumentation_detects_a_broken_bound(exp_kernel):
     proc._upper_bound = broken_bound
     state = instrument(proc, "_conditional_intensity")
     proc.simulate(50)
-    with pytest.raises(AssertionError, match="violated|every candidate was accepted"):
+    with pytest.raises(AssertionError, match=r"violated|every candidate was accepted"):
         _check(state, label="deliberately-broken")

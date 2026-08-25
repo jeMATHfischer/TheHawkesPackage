@@ -69,7 +69,7 @@ over the domain's image points.
 Every process takes `rng=`, accepting `None`, an `int` seed, or an existing `numpy.random.Generator`:
 
 ```python
-hp.ExponentialHawkes(param, rng=42)          # reproducible
+hp.ExponentialHawkes(param, rng=42)  # reproducible
 hp.ExponentialHawkes(param, rng=my_generator)  # share one stream
 ```
 

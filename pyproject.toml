@@ -7,7 +7,7 @@ name = "the-hawkes-package"
 dynamic = ["version"]
 description = "Simulation of temporal and spatio-temporal Hawkes processes via Ogata thinning."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Jens Fischer", email = "jefischer@posteo.de" }]
@@ -27,11 +27,11 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3 :: Only",
   "Topic :: Scientific/Engineering :: Mathematics",
   "Topic :: Scientific/Engineering :: Information Analysis",
@@ -101,12 +101,15 @@ include = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 src = ["src", "tests"]
 extend-exclude = ["docs/_build"]
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "NPY", "PT", "RET", "ARG", "TID", "D", "RUF"]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "NPY", "PT", "RET", "ARG", "D", "RUF"]
+# `TID` is deliberately absent: TID252 bans parent-relative imports, but
+# `from ..mcmc import mcmc_sampler` is exactly the right way for a subpackage to
+# reach its sibling and rewriting them as absolute would only add coupling.
 ignore = [
   "D105", # magic-method docstrings
   "D107", # __init__ docstring — documented on the class, numpydoc style
@@ -119,10 +122,15 @@ ignore = [
 convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "ARG", "B018"]
+# NPY002: tests/test_base.py calls np.random.seed on purpose, to prove that the
+# legacy global stream no longer influences simulations.
+"tests/**" = ["D", "ARG", "B018", "NPY002"]
 "src/hawkes_package/spatio_temporal/legacy.py" = ["D", "ARG", "B023"]
 "src/TheHawkesPackage/__init__.py" = ["D", "F401"]
 "docs/conf.py" = ["D", "INP001"]
+# Notebooks are narrative: throwaway kernel helpers do not need docstrings, and
+# demonstration loops legitimately ignore their index.
+"*.ipynb" = ["D", "ARG", "B007", "RET504", "E402"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -132,7 +140,11 @@ docstring-code-format = true
 # ---------------------------------------------------------------------------
 
 [tool.mypy]
-python_version = "3.9"
+# `python_version` is deliberately unset: NumPy's bundled stubs use PEP 695
+# `type` statements, which mypy can only parse when targeting 3.12+, so
+# pinning it to the 3.10 floor makes mypy fail on numpy rather than on us.
+# Syntax compatibility with the floor is enforced by ruff's target-version,
+# and the CI matrix runs the floor for real.
 files = ["src"]
 strict = true
 warn_unreachable = true

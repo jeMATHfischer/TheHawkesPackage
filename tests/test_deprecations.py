@@ -32,8 +32,12 @@ def _processes(exp_kernel, triangular_kernel, legacy_kernels):
         "MonotoneKernelHawkes": hp.MonotoneKernelHawkes(exp_kernel, rng=0),
         "BellShapeHawkes": hp.BellShapeHawkes(triangular_kernel, rng=0),
         "SpatioTemporalHawkesProcess": hp.SpatioTemporalHawkesProcess(
-            base, lambda d: max(0.0, 1 - d / np.pi), exp_kernel,
-            domain=hp.Circle(), monotone_temporal_kernel=True, rng=0,
+            base,
+            lambda d: max(0.0, 1 - d / np.pi),
+            exp_kernel,
+            domain=hp.Circle(),
+            monotone_temporal_kernel=True,
+            rng=0,
         ),
         "LegacySpatioTemporalHawkesProcess": hp.LegacySpatioTemporalHawkesProcess(
             base, spatial, temporal, rng=0
@@ -121,9 +125,7 @@ def test_unknown_top_level_attribute_raises_without_warning(recwarn):
 def test_legacy_space_keyword_warns(legacy_kernels):
     base, spatial, temporal = legacy_kernels
     with pytest.warns(DeprecationWarning, match=r"Space=\.\.\..*use.*space=\.\.\."):
-        p = hp.LegacySpatioTemporalHawkesProcess(
-            base, spatial, temporal, Space=[-1.0, 1.0], rng=0
-        )
+        p = hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, Space=[-1.0, 1.0], rng=0)
     assert p.space == (-1.0, 1.0)
 
 
@@ -159,7 +161,7 @@ def test_importing_the_shim_warns():
 
 def test_shim_forwards_attributes_to_the_same_objects():
     _purge_shim()
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
         shim = importlib.import_module("TheHawkesPackage")
     assert shim.ExponentialHawkes is hp.ExponentialHawkes
     assert shim.Circle is hp.Circle
@@ -190,14 +192,14 @@ def test_shim_submodule_imports_resolve_to_the_same_module(old_path, new_path):
     """A PEP 562 __getattr__ never fires for `import pkg.sub`, so the shim also
     aliases sys.modules. Both mechanisms are required."""
     _purge_shim()
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
         importlib.import_module("TheHawkesPackage")
     assert importlib.import_module(old_path) is importlib.import_module(new_path)
 
 
 def test_shim_dotted_from_import_yields_identical_classes():
     _purge_shim()
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
         importlib.import_module("TheHawkesPackage")
     mod = importlib.import_module("TheHawkesPackage.spatio_temporal.domains")
     assert mod.Circle is hp.Circle
@@ -210,14 +212,14 @@ def test_shim_attribute_is_the_class_not_the_module():
     the module object and broken every existing notebook.
     """
     _purge_shim()
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
         shim = importlib.import_module("TheHawkesPackage")
     assert isinstance(shim.ExponentialHawkes, type)
 
 
 def test_shim_dir_lists_names_and_submodules():
     _purge_shim()
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
         shim = importlib.import_module("TheHawkesPackage")
     listed = dir(shim)
     assert "ExponentialHawkes" in listed
@@ -228,7 +230,7 @@ def test_shim_dir_lists_names_and_submodules():
 
 def test_shim_unknown_attribute_raises_attribute_error():
     _purge_shim()
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
         shim = importlib.import_module("TheHawkesPackage")
     with pytest.raises(AttributeError, match="no attribute 'nope'"):
         shim.nope

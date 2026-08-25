@@ -14,7 +14,7 @@ function the simulator thins against is what keeps the two from diverging.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -23,7 +23,7 @@ from ._deprecation import DeprecatedAlias
 __all__ = ["HawkesProcess", "TemporalHawkesProcess"]
 
 #: Anything :func:`numpy.random.default_rng` accepts.
-SeedLike = Union[None, int, np.random.Generator, np.random.SeedSequence]
+SeedLike = int | np.random.Generator | np.random.SeedSequence | None
 
 
 class HawkesProcess(ABC):
@@ -111,7 +111,7 @@ class TemporalHawkesProcess(HawkesProcess):
 
     @abstractmethod
     def _upper_bound(self, t: float) -> float:
-        """A value M >= lambda(s | H_s) for all s >= `t` up to the next event.
+        """Return a value M >= lambda(s | H_s) for all s >= `t` until the next event.
 
         This is the ``M`` of Ogata's algorithm. It must dominate the intensity
         over the whole interval the next candidate can land in, or the thinning
@@ -138,7 +138,7 @@ class TemporalHawkesProcess(HawkesProcess):
             self.Events = self.Events[1:]  # drop the t=0 bootstrap event
         self.Sim_num += k
 
-    def intensity_over_interval(self, x: Any) -> Tuple[np.ndarray, np.ndarray]:
+    def intensity_over_interval(self, x: Any) -> tuple[np.ndarray, np.ndarray]:
         """Evaluate the conditional intensity on `x` merged with the event times.
 
         Parameters

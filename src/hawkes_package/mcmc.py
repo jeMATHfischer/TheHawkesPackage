@@ -1,44 +1,67 @@
-'''
-Random-walk Metropolis-Hastings sampler for drawing a single sample from an
-unnormalized density over a rectangular domain.
+"""Random-walk Metropolis-Hastings sampling over a rectangular domain."""
 
-Usage
------
-    sample = mcmc_sampler(density, space)
-    sample, acceptance_rate = mcmc_sampler(density, space, return_diagnostics=True)
+from __future__ import annotations
 
-Parameters
-----------
-density : callable
-    Unnormalized target density. Must accept a 1-D numpy array and return a
-    non-negative scalar.
-space : array-like of shape (ndim, 2)
-    Bounds for each dimension, e.g. [[-pi, pi]] for 1-D.
-n_iter : int
-    Total number of MCMC iterations (burn-in + sampling).
-burn_in : int
-    Number of initial iterations discarded as burn-in.
-proposal_std : float
-    Initial standard deviation for the isotropic Gaussian proposal.
-    Adapted every 50 steps to target an acceptance rate of 0.234.
-seed : int or None
-    Random seed for reproducibility.
-return_diagnostics : bool
-    If True, also return the post-burn-in acceptance rate as a second value.
-
-Returns
--------
-sample : np.ndarray of shape (ndim,)
-    A single sample from the target density (last state of the chain).
-acceptance_rate : float (only when return_diagnostics=True)
-    Fraction of proposals accepted during the post-burn-in phase.
-'''
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
+__all__ = ["mcmc_sampler"]
 
-def mcmc_sampler(density, space, n_iter=2000, burn_in=500,
-                 proposal_std=1.0, seed=None, return_diagnostics=False):
+
+def mcmc_sampler(
+    density: Callable[[Any], float],
+    space: Any,
+    n_iter: int = 2000,
+    burn_in: int = 500,
+    proposal_std: float = 1.0,
+    seed: int | np.random.Generator | np.random.SeedSequence | None = None,
+    return_diagnostics: bool = False,
+) -> Any:
+    """Draw a single sample from an unnormalised density.
+
+    Parameters
+    ----------
+    density : callable
+        Unnormalised target density. Must accept a 1-D numpy array and return a
+        non-negative scalar.
+    space : array_like of shape (ndim, 2)
+        Bounds for each dimension, e.g. ``[[-pi, pi]]`` in 1-D. Used to place
+        the initial state; see the caveat below.
+    n_iter : int
+        Total number of iterations, burn-in included.
+    burn_in : int
+        Number of leading iterations discarded.
+    proposal_std : float
+        Initial standard deviation of the isotropic Gaussian proposal. Adapted
+        every 50 steps during burn-in towards an acceptance rate of 0.234.
+    seed : None, int or numpy.random.Generator
+        Source of randomness. Passing a :class:`~numpy.random.Generator` shares
+        one stream with the caller and advances it.
+
+        .. versionchanged:: 0.2.0
+           A ``Generator`` is now accepted, not only an integer seed.
+    return_diagnostics : bool
+        If True, also return the post-burn-in acceptance rate.
+
+    Returns
+    -------
+    sample : numpy.ndarray of shape (ndim,)
+        The final state of the chain.
+    acceptance_rate : float
+        Only when `return_diagnostics` is True: the fraction of proposals
+        accepted after burn-in.
+
+    Notes
+    -----
+    `space` bounds the *initial* draw only. The proposal is an unbounded random
+    walk and out-of-domain proposals are not rejected, so the chain may wander
+    outside `space`. For a periodic domain this is harmless -- the density is
+    periodic too, and callers wrap the result -- but for a non-periodic density
+    the returned marginal will be wrong. Constraining the walk to `space` is
+    planned for 0.3.0.
+    """
     rng = np.random.default_rng(seed)
     space = np.asarray(space)
     dimension = space.shape[0]

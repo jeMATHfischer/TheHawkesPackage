@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -51,8 +52,8 @@ class MonotoneKernelHawkes(TemporalHawkesProcess):
 
     def __init__(
         self,
-        temporal: Callable[[np.ndarray], np.ndarray],
-        nonlinearity: Callable[[np.ndarray], np.ndarray] = lambda x: x + 2,
+        temporal: Callable[[Any], Any],
+        nonlinearity: Callable[[Any], Any] = lambda x: x + 2,
         rng: SeedLike = None,
     ) -> None:
         super().__init__(rng=rng)

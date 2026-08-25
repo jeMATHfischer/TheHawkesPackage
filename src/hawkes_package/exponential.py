@@ -72,7 +72,7 @@ class ExponentialHawkes(TemporalHawkesProcess):
         past = self.Events[self.Events < t]
         return float(self.mu + self.alpha * np.exp(-self.beta * (t - past)).sum())
 
-    def _upper_bound(self, t: float) -> float:
+    def _upper_bound(self, t: float) -> float:  # noqa: ARG002
         # The kernel decreases, so the intensity anywhere at or after the last
         # event is dominated by its value there. Independent of `t`.
         last = float(self.Events[-1])

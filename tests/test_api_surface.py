@@ -50,7 +50,7 @@ def test_all_is_sorted_and_unique(mod, label):
 
 def test_star_import_matches_all():
     namespace = {}
-    exec("from hawkes_package import *", namespace)  # noqa: S102
+    exec("from hawkes_package import *", namespace)
     exported = {k for k in namespace if not k.startswith("__")}
     assert exported == set(hp.__all__) - {"__version__"}
 
@@ -76,7 +76,7 @@ def test_requires_python_floor_matches_the_ci_matrix():
     silently stops covering the declared minimum.
     """
     requires = md.metadata(DISTRIBUTION)["Requires-Python"]
-    assert requires == ">=3.9"
+    assert requires == ">=3.10"
 
 
 def test_package_ships_type_information():
