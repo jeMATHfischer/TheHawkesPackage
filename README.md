@@ -17,7 +17,7 @@ wrong — and extends the construction to a spatial domain with periodic boundar
 pip install the-hawkes-package
 ```
 
-Requires Python 3.9+, NumPy and SciPy.
+Requires Python 3.10+, NumPy and SciPy.
 
 ## Quickstart
 
@@ -60,9 +60,19 @@ process = hp.SpatioTemporalHawkesProcess(
 process.simulate(50)
 ```
 
+The background may vary in space — `base=lambda x: 0.5 + 0.2*np.cos(x[0])` — and generalises
+unchanged to two dimensions, since a callable always receives a shape-`(ndim,)` point.
+
 `SpatialDomain` is an ABC — implement `distance`, `wrap`, `sample_uniform`, `volume` and `bounds`
-to simulate on your own geometry. `make_periodic` wraps an isotropic kernel so it sums correctly
-over the domain's image points.
+to simulate on your own geometry, subject to `volume == prod(bounds widths)`.
+
+`make_periodic` wraps an isotropic kernel so it sums correctly over the domain's image points, and
+can be passed straight in as `spatial=`:
+
+```python
+kernel = hp.make_periodic(lambda d: np.exp(-(d**2)), hp.Circle())
+process = hp.SpatioTemporalHawkesProcess(base, kernel, temporal, domain=hp.Circle())
+```
 
 ## Reproducibility
 
