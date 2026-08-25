@@ -6,8 +6,8 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from scipy.optimize import fmin
 
+from ._numerics import as_float, locate_peak
 from .base import SeedLike, TemporalHawkesProcess
 
 __all__ = ["BellShapeHawkes"]
@@ -45,11 +45,20 @@ class BellShapeHawkes(TemporalHawkesProcess):
     rng : None, int or numpy.random.Generator
         Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
 
+    peak_lag : float, optional
+        Lag at which `temporal` peaks. Supply it to skip the numerical search
+        -- necessary for a kernel with a spike narrower than the search grid.
+    peak_value : float, optional
+        The kernel's value at `peak_lag`; defaults to ``temporal(peak_lag)``.
+
     Attributes
     ----------
     ext : float
-        Lag at which `temporal` attains its maximum, located numerically with
-        :func:`scipy.optimize.fmin`.
+        Lag at which `temporal` attains its maximum, located by
+        :func:`~hawkes_package._numerics.locate_peak`.
+    peak : float
+        The kernel's value at :attr:`ext`. Guaranteed to dominate every value
+        the search observed -- the thinning bound depends on it.
 
     Examples
     --------
@@ -67,12 +76,20 @@ class BellShapeHawkes(TemporalHawkesProcess):
         temporal: Callable[[Any], Any],
         nonlinearity: Callable[[Any], Any] = lambda x: x + 2,
         rng: SeedLike = None,
+        *,
+        peak_lag: float | None = None,
+        peak_value: float | None = None,
     ) -> None:
         super().__init__(rng=rng)
         self.temporal = temporal
         self.nonlinearity = nonlinearity
-        self.ext = float(fmin(lambda s: -self.temporal(s), 0, disp=False)[0])
-        self._peak = float(self.temporal(self.ext))
+
+        if peak_lag is None:
+            located = locate_peak(temporal, name="temporal kernel")
+            self.ext, self.peak = located.lag, located.value
+        else:
+            self.ext = float(peak_lag)
+            self.peak = as_float(peak_value if peak_value is not None else temporal(self.ext))
 
     def _conditional_intensity(self, t: float) -> float:
         past = self.Events[self.Events < t]
@@ -87,5 +104,5 @@ class BellShapeHawkes(TemporalHawkesProcess):
         if past.size == 0:
             return float(self.nonlinearity(0.0))
         lags = t - past
-        factors = np.where(lags < self.ext, self._peak, self.temporal(lags))
+        factors = np.where(lags < self.ext, self.peak, self.temporal(lags))
         return float(self.nonlinearity(factors.sum()))

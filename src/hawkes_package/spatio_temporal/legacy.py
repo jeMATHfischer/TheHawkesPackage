@@ -17,9 +17,9 @@ from typing import Any
 
 import numpy as np
 from scipy.integrate import quad
-from scipy.optimize import fmin
 
 from .._deprecation import warn_renamed
+from .._numerics import as_float, locate_peak
 from ..base import HawkesProcess, SeedLike, _stalled_message
 from ..mcmc import mcmc_sampler
 
@@ -67,6 +67,8 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
         space: tuple[float, float] = (-np.pi, np.pi),
         monotone_temporal_kernel: bool = False,
         rng: SeedLike = None,
+        peak_lag: float | None = None,
+        peak_value: float | None = None,
         **kwargs: Any,
     ) -> None:
         if "Space" in kwargs:
@@ -88,7 +90,14 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
         self.Events = np.array([[0.0], [0.0]])
 
         if monotone_temporal_kernel is not True:
-            self.temporal_extremum = float(fmin(lambda t: -self.temporal(t), 0, disp=False)[0])
+            if peak_lag is None:
+                located = locate_peak(temporal, name="temporal kernel")
+                self.temporal_extremum, self.temporal_peak = located.lag, located.value
+            else:
+                self.temporal_extremum = float(peak_lag)
+                self.temporal_peak = as_float(
+                    peak_value if peak_value is not None else temporal(self.temporal_extremum)
+                )
 
     @property
     def Space(self) -> tuple[float, float]:
@@ -129,8 +138,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
             return lags
         values = np.array([float(self.temporal(lag)) for lag in lags])
         if bound and self.monotone_temporal_kernel is not True:
-            peak = float(self.temporal(self.temporal_extremum))
-            values = np.where(lags < self.temporal_extremum, peak, values)
+            values = np.where(lags < self.temporal_extremum, self.temporal_peak, values)
         return values
 
     def _dist_temporal(self, t: float) -> np.ndarray:
