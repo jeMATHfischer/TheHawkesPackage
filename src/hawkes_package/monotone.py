@@ -1,48 +1,69 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-monotonously decreasing kernel & monotonously increasing non-linearity
-"""
+"""Hawkes process with a monotone-decreasing kernel and a nonlinear intensity."""
+
+from __future__ import annotations
+
+from typing import Callable
 
 import numpy as np
 
+from .base import SeedLike, TemporalHawkesProcess
 
-class MonotoneKernelHawkes():
+__all__ = ["MonotoneKernelHawkes"]
 
-    def __init__(self, temporal, nonlinearity=lambda x: x + 2):
+
+class MonotoneKernelHawkes(TemporalHawkesProcess):
+    r"""Hawkes process with a monotone-decreasing kernel and nonlinearity.
+
+    The conditional intensity is
+
+    .. math::
+
+        \lambda(t \mid H_t) = \varphi\!\left( \sum_{t_i < t} \kappa(t - t_i) \right)
+
+    where :math:`\kappa` is monotone decreasing and :math:`\varphi` monotone
+    increasing. Both conditions matter: they are what make the thinning bound
+    below valid.
+
+    Parameters
+    ----------
+    temporal : callable
+        The kernel :math:`\kappa`, taking a non-negative time lag. It must
+        accept a NumPy array and return one elementwise.
+    nonlinearity : callable
+        The monotone-increasing :math:`\varphi`. Defaults to ``x + 2``.
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
+
+    Notes
+    -----
+    The upper bound sums over **all** events including the most recent one.
+    Excluding it — as versions before 0.2.0 did — makes ``M < lambda(t + eps)``,
+    so every candidate is accepted unconditionally and the result is a Poisson
+    process rather than a Hawkes one.
+
+    Examples
+    --------
+    >>> process = MonotoneKernelHawkes(lambda s: np.exp(-10 * s), rng=0)
+    >>> process.simulate(50)
+    >>> len(process.Events)
+    50
+    """
+
+    def __init__(
+        self,
+        temporal: Callable[[np.ndarray], np.ndarray],
+        nonlinearity: Callable[[np.ndarray], np.ndarray] = lambda x: x + 2,
+        rng: SeedLike = None,
+    ) -> None:
+        super().__init__(rng=rng)
         self.temporal = temporal
-        self.Events = np.array([0])
-        self.Sim_num = 0
         self.nonlinearity = nonlinearity
 
-    def propagate_by_k_events(self, k):
-        t = self.Events[-1]
-        i = 0
+    def _conditional_intensity(self, t: float) -> float:
+        past = self.Events[self.Events < t]
+        return float(self.nonlinearity(np.sum(self.temporal(t - past))))
 
-        while i in range(k):
-            upper_bd = self.nonlinearity(np.sum(self.temporal(t - self.Events)))
-
-            u = np.random.rand(1)
-            tau = -np.log(u) / upper_bd
-            t = t + tau
-            s = np.random.rand(1)
-
-            if s <= self.nonlinearity(self.temporal(t - self.Events).sum())/ upper_bd:
-                self.Events = np.append(self.Events, t)
-                i += 1
-
-        if self.Sim_num == 0:
-            self.Events = np.delete(self.Events, 0, 0)
-
-        self.Sim_num += k
-
-    def simulate(self, k):
-        self.propagate_by_k_events(k)
-
-    def intensity_over_interval(self, x):
-        y = np.sort(np.append(x, self.Events))
-        return y, self.nonlinearity(np.array([np.sum(np.array([self.temporal(t - j)
-                                                               for j in self.Events if j < t])) for t in y]))
-
-
-
+    def _upper_bound(self, t: float) -> float:
+        # Includes the event at t itself: the kernel decreases, so this
+        # dominates the intensity for every s >= t.
+        return float(self.nonlinearity(np.sum(self.temporal(t - self.Events))))

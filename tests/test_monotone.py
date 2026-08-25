@@ -1,82 +1,72 @@
-"""
-Regression tests for MonotoneKernelHawkes.
+"""Tests for MonotoneKernelHawkes.
 
-The critical bug was: the Ogata upper bound M(t) excluded the contribution
-of the event at t = Events[-1], making M(t) < λ(t+ε) and every candidate
-accepted unconditionally (Poisson, not Hawkes).
-
-These tests verify that the thinning invariant M ≥ λ holds everywhere.
+The historical bug this class carries scars from: the Ogata upper bound M(t)
+excluded the contribution of the event at ``t = Events[-1]``, making
+``M(t) < lambda(t + eps)``. Every candidate was then accepted unconditionally
+and the output was a Poisson process, not a Hawkes one. The invariant itself is
+checked in ``statistical/test_thinning_invariant.py``, which covers every class.
 """
 
 import numpy as np
 import pytest
-import hawkes_package as THP
+
+from hawkes_package import MonotoneKernelHawkes
+
+NONLINEARITIES = [
+    pytest.param(lambda x: x + 2, id="affine"),
+    pytest.param(lambda x: np.sqrt(x + 1), id="sqrt"),
+    pytest.param(np.exp, id="exp"),
+]
 
 
-def _simulate_with_invariant_check(temporal, nonlinearity, k, seed=0):
-    """Simulate k events and return (events, violations_count)."""
-    np.random.seed(seed)
-
-    class CheckedMonotone(THP.MonotoneKernelHawkes):
-        def propagate_by_k_events(self, k):
-            t = self.Events[-1]
-            i = 0
-            violations = 0
-            while i in range(k):
-                upper_bd = self.nonlinearity(np.sum(self.temporal(t - self.Events)))
-                u = np.random.rand(1)
-                tau = -np.log(u) / upper_bd
-                t = t + tau
-                s = np.random.rand(1)
-                true_intensity = self.nonlinearity(
-                    np.sum([self.temporal(t - item)
-                            for item in self.Events if item < t])
-                )
-                if true_intensity > upper_bd + 1e-9:
-                    violations += 1
-                if s <= true_intensity / upper_bd:
-                    self.Events = np.append(self.Events, t)
-                    i += 1
-            if self.Sim_num == 0:
-                self.Events = np.delete(self.Events, 0, 0)
-            self.Sim_num += k
-            return violations
-
-    H = CheckedMonotone(temporal, nonlinearity=nonlinearity)
-    v = H.propagate_by_k_events(k)
-    return H.Events, v
+def test_event_count(exp_kernel):
+    p = MonotoneKernelHawkes(exp_kernel, rng=42)
+    p.simulate(100)
+    assert len(p.Events) == 100
 
 
-def test_thinning_invariant_exponential_kernel():
-    temporal = lambda x: np.exp(-10 * x)
-    _, violations = _simulate_with_invariant_check(temporal, lambda x: x + 2, 300)
-    assert violations == 0, f"Thinning invariant violated {violations} times"
+def test_default_nonlinearity_is_affine(exp_kernel):
+    p = MonotoneKernelHawkes(exp_kernel, rng=0)
+    assert p.nonlinearity(0.0) == pytest.approx(2.0)
 
 
-def test_thinning_invariant_nonlinear():
-    # Use a bounded nonlinearity (sqrt(x+1)) to avoid explosion while still
-    # exercising the nonlinear code path
-    temporal = lambda x: np.exp(-5 * x)
-    _, violations = _simulate_with_invariant_check(temporal, lambda x: np.sqrt(x + 1), 200)
-    assert violations == 0
+@pytest.mark.parametrize("nonlinearity", NONLINEARITIES)
+def test_nonlinearity_paths(nonlinearity):
+    """Each nonlinearity must drive a terminating, well-ordered simulation."""
+    p = MonotoneKernelHawkes(
+        lambda x: np.exp(-10 * np.asarray(x, dtype=float)),
+        nonlinearity=nonlinearity,
+        rng=1,
+    )
+    p.simulate(40)
+    assert len(p.Events) == 40
+    assert np.all(np.diff(p.Events) > 0)
 
 
-def test_event_count():
-    np.random.seed(42)
-    H = THP.MonotoneKernelHawkes(lambda x: np.exp(-10 * x))
-    H.simulate(100)
-    assert len(H.Events) == 100
+def test_intensity_applies_the_nonlinearity(exp_kernel):
+    p = MonotoneKernelHawkes(exp_kernel, nonlinearity=lambda x: x + 2, rng=2)
+    p.simulate(20)
+    times, intensity = p.intensity_over_interval(np.linspace(0, float(p.Events[-1]), 60))
+    expected = np.array([2.0 + exp_kernel(t - p.Events[p.Events < t]).sum() for t in times])
+    np.testing.assert_allclose(intensity, expected)
 
 
-def test_events_strictly_increasing():
-    np.random.seed(2)
-    H = THP.MonotoneKernelHawkes(lambda x: 0.5 * np.exp(-3 * x))
-    H.simulate(150)
-    assert np.all(np.diff(H.Events) > 0)
+def test_intensity_non_negative(exp_kernel):
+    p = MonotoneKernelHawkes(exp_kernel, rng=3)
+    p.simulate(30)
+    _, intensity = p.intensity_over_interval(np.linspace(0, float(p.Events[-1]), 100))
+    assert np.all(intensity >= 0)
 
 
-def test_simulate_alias():
-    np.random.seed(9)
-    H = THP.MonotoneKernelHawkes(lambda x: np.exp(-10 * x))
-    H.simulate(20)
-    assert len(H.Events) == 20
+def test_upper_bound_includes_the_most_recent_event(exp_kernel):
+    """Regression for the Poisson-degeneracy bug.
+
+    The bound at the last event must dominate the intensity just after it,
+    which holds only if the bound counts that event.
+    """
+    p = MonotoneKernelHawkes(exp_kernel, rng=4)
+    p.simulate(10)
+    t_last = float(p.Events[-1])
+    assert p._upper_bound(t_last) >= p._conditional_intensity(t_last + 1e-9) - 1e-12
+    # strictly above the pre-jump intensity, i.e. the last event is counted
+    assert p._upper_bound(t_last) > p._conditional_intensity(t_last)

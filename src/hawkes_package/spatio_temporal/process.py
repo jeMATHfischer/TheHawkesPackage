@@ -1,158 +1,308 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+r"""Domain-aware spatio-temporal Hawkes process simulation.
+
+The intensity is separable,
+
+.. math::
+
+    \lambda(t, x \mid H_t) = \mu(x)
+        + \sum_{t_i < t} \kappa_t(t - t_i)\, \kappa_s\!\left( d(x, x_i) \right),
+
+where :math:`d(\cdot, \cdot)` is the geodesic distance on the domain.
+
+Event times come from Ogata's thinning applied to the space-integrated
+intensity; the location of each accepted event is then drawn by
+Metropolis-Hastings from the conditional spatial density at that time.
 """
-Domain-aware spatio-temporal Hawkes process simulation.
 
-The intensity is separable:
+from __future__ import annotations
 
-    λ(t, x | H_t) = μ(x) + Σ_{i: t_i < t} κ_t(t - t_i) · κ_s(d(x, x_i))
-
-where d(·, ·) is the geodesic distance on `domain`.
-
-Temporal thinning uses Ogata's algorithm; spatial coordinates are drawn by
-Metropolis-Hastings on the conditional spatial density.
-"""
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
-import random as rand
 from scipy.integrate import quad
 from scipy.optimize import fmin
 
+from ..base import HawkesProcess, SeedLike
 from ..mcmc import mcmc_sampler
 from .domains import Circle, SpatialDomain
 
+__all__ = ["SpatioTemporalHawkesProcess"]
 
-class SpatioTemporalHawkesProcess:
-    """Spatio-temporal Hawkes process on an arbitrary SpatialDomain.
+#: Sample count for the Monte Carlo spatial integral used when ndim >= 2.
+_MC_SAMPLES = 500
+
+
+class SpatioTemporalHawkesProcess(HawkesProcess):
+    """Spatio-temporal Hawkes process on an arbitrary :class:`SpatialDomain`.
 
     Parameters
     ----------
-    base : callable(x) -> float
-        Background intensity as a function of spatial coordinate.
-    spatial : callable(distance) -> float
+    base : callable
+        Background intensity ``mu(x)`` as a function of spatial coordinate.
+    spatial : callable
         Isotropic spatial kernel evaluated at a non-negative distance.
-    temporal : callable(dt) -> float
+    temporal : callable
         Temporal kernel evaluated at a non-negative time lag.
-    domain : SpatialDomain
-        Spatial domain (default: unit circle, equivalent to [0, 2π)).
+    domain : SpatialDomain, optional
+        Spatial domain. Defaults to the unit :class:`Circle`.
     monotone_temporal_kernel : bool
-        Set True if the temporal kernel is monotone decreasing (enables a
-        tighter upper bound and avoids the fmin search for the extremum).
+        Set ``True`` when `temporal` is monotone decreasing. This permits a
+        tighter thinning bound and skips the numerical search for the kernel's
+        maximum.
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
+
+        .. versionadded:: 0.2.0
+
+    Attributes
+    ----------
+    Events : numpy.ndarray
+        Shape ``(ndim + 1, n)``. Row 0 holds event times, rows 1.. hold
+        coordinates.
+
+    Examples
+    --------
+    >>> process = SpatioTemporalHawkesProcess(
+    ...     base=lambda x: 0.5,
+    ...     spatial=lambda d: max(0.0, 1 - d / np.pi),
+    ...     temporal=lambda dt: 0.9 * np.exp(-5 * dt),
+    ...     domain=Circle(),
+    ...     monotone_temporal_kernel=True,
+    ...     rng=0,
+    ... )
+    >>> process.simulate(5)
+    >>> process.Events.shape
+    (2, 5)
     """
 
-    def __init__(self, base, spatial, temporal,
-                 domain: SpatialDomain = None,
-                 monotone_temporal_kernel: bool = False):
+    def __init__(
+        self,
+        base: Callable[[Any], float],
+        spatial: Callable[[float], float],
+        temporal: Callable[[float], float],
+        domain: Optional[SpatialDomain] = None,
+        monotone_temporal_kernel: bool = False,
+        rng: SeedLike = None,
+    ) -> None:
+        super().__init__(rng=rng)
         self.base = base
         self.spatial = spatial
         self.temporal = temporal
         self.domain = domain if domain is not None else Circle()
         self.monotone_temporal_kernel = monotone_temporal_kernel
 
-        # Events stored as (ndim+1, n) array: row 0 = times, rows 1.. = coords
         ndim = self.domain.bounds.shape[0]
-        seed_coord = np.zeros(ndim)
-        self.Events = np.vstack([np.array([[0.0]]),
-                                 seed_coord.reshape(-1, 1)])
-        self.PoissEvent = np.array([])
-        self.Sim_num = 0
-        self._rng = np.random.default_rng()
+        # Bootstrap event at t=0, removed after the first simulate() call.
+        self.Events = np.vstack([np.array([[0.0]]), np.zeros(ndim).reshape(-1, 1)])
 
         if not monotone_temporal_kernel:
-            self.temporal_extremum = float(
-                fmin(lambda t: -self.temporal(t), 0, disp=False)[0]
-            )
+            self.temporal_extremum = float(fmin(lambda t: -self.temporal(t), 0, disp=False)[0])
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _past_event_indices(self, t: float):
-        """Column indices of events strictly before time t (excluding seed)."""
-        return [i for i in range(self.Events.shape[1])
-                if 0 < self.Events[0, i] < t]
+    def _past_event_indices(self, t: float, inclusive: bool = False) -> "list[int]":
+        """Column indices of events before time `t`, excluding the seed.
+
+        `inclusive` also admits an event at exactly `t`, which the thinning
+        bound needs: at the start of a step `t` *is* the most recent event time.
+        """
+        if inclusive:
+            return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] <= t]
+        return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] < t]
+
+    def _temporal_factors(self, t: float, bound: bool = False) -> np.ndarray:
+        """Temporal kernel factors at time `t`, or their future suprema.
+
+        With ``bound=True`` each event contributes the largest value its kernel
+        can still reach at any later time -- the peak if it has not yet peaked,
+        its current value if it has. For a monotone-decreasing kernel the two
+        coincide, so only the inclusive event set differs.
+        """
+        idx = self._past_event_indices(t, inclusive=bound)
+        lags = np.array([t - self.Events[0, i] for i in idx])
+        if lags.size == 0:
+            return lags
+        values = np.array([float(self.temporal(lag)) for lag in lags])
+        if bound and not self.monotone_temporal_kernel:
+            peak = float(self.temporal(self.temporal_extremum))
+            values = np.where(lags < self.temporal_extremum, peak, values)
+        return values
 
     def _dist_temporal(self, t: float) -> np.ndarray:
-        idx = self._past_event_indices(t)
-        return np.array([self.temporal(t - self.Events[0, i]) for i in idx])
+        return self._temporal_factors(t)
 
-    def _dist_spatial(self, x, t: float) -> np.ndarray:
-        idx = self._past_event_indices(t)
-        return np.array([self.spatial(self.domain.distance(x, self.Events[1:, i]))
-                         for i in idx])
+    def _dist_spatial(self, x: Any, t: float, bound: bool = False) -> np.ndarray:
+        idx = self._past_event_indices(t, inclusive=bound)
+        return np.array([self.spatial(self.domain.distance(x, self.Events[1:, i])) for i in idx])
 
-    def _full_intensity(self, x, t: float) -> float:
-        contrib = np.multiply(self._dist_temporal(t), self._dist_spatial(x, t)).sum()
-        return max(0.0, float(self.base(x)) + contrib)
+    def _full_intensity(self, x: Any, t: float, bound: bool = False) -> float:
+        contrib = np.multiply(
+            self._temporal_factors(t, bound=bound), self._dist_spatial(x, t, bound=bound)
+        ).sum()
+        return max(0.0, float(self.base(x)) + float(contrib))
 
-    def _integrated_intensity(self, t: float) -> float:
-        """Intensity integrated over the spatial domain at time t."""
+    def _integrated_intensity(self, t: float, bound: bool = False) -> float:
+        """Intensity integrated over the spatial domain at time `t`."""
         bounds = self.domain.bounds
         if bounds.shape[0] == 1:
-            val, _ = quad(lambda x: self._full_intensity(x, t),
-                          bounds[0, 0], bounds[0, 1])
+            val, _ = quad(
+                lambda x: self._full_intensity(x, t, bound=bound), bounds[0, 0], bounds[0, 1]
+            )
         else:
-            # For higher dimensions: Monte Carlo estimate over domain volume
-            n_mc = 500
-            rng = self._rng
-            pts = np.column_stack([rng.uniform(bounds[d, 0], bounds[d, 1], n_mc)
-                                   for d in range(bounds.shape[0])])
-            val = self.domain.volume * np.mean(
-                [self._full_intensity(pts[j], t) for j in range(n_mc)]
+            # No product quadrature in higher dimensions: Monte Carlo instead.
+            pts = np.column_stack(
+                [
+                    self.rng.uniform(bounds[d, 0], bounds[d, 1], _MC_SAMPLES)
+                    for d in range(bounds.shape[0])
+                ]
+            )
+            val = self.domain.volume * float(
+                np.mean([self._full_intensity(pts[j], t, bound=bound) for j in range(_MC_SAMPLES)])
             )
         return float(val)
 
     def _upper_bound(self, t: float) -> float:
-        base = self._integrated_intensity(t)
-        if self.monotone_temporal_kernel:
-            return base
-        # Bell-shaped kernel: add headroom for kernel still rising
-        last_event_time = self.Events[0, -1]
-        if t - last_event_time < self.temporal_extremum:
-            return base + self.temporal(self.temporal_extremum)
-        return base
+        # Integrating the per-event suprema dominates the integrated intensity
+        # at every later time, for monotone and bell-shaped kernels alike.
+        return self._integrated_intensity(t, bound=True)
 
     # ------------------------------------------------------------------
-    # Public API
+    # Simulation
     # ------------------------------------------------------------------
 
-    def propagate_by_amount(self, k: int):
-        """Simulate k new events and append them to self.Events."""
+    def _propagate(self, k: int) -> None:
         for _ in range(k):
-            self.PoissEvent = np.append(self.PoissEvent, rand.expovariate(1))
+            t = float(self.Events[0, -1])
 
-        poiss_times = np.cumsum(self.PoissEvent)
-
-        for _time in poiss_times[self.Sim_num:]:
-            T = float(self.Events[0, -1])
-
-            # --- Temporal thinning ---
+            # --- Temporal thinning on the space-integrated intensity ---
             while True:
-                upper_bd = self._upper_bound(T)
-                u = self._rng.uniform()
-                tau = -np.log(u) / upper_bd
-                T += tau
-                s = self._rng.uniform()
-                if s <= self._integrated_intensity(T) / upper_bd:
-                    event_time = T
+                bound = self._upper_bound(t)
+                if not bound > 0:
+                    raise RuntimeError(
+                        f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
+                        "background intensity must be positive somewhere."
+                    )
+                t += self.rng.exponential() / bound
+                if self.rng.uniform() * bound <= self._integrated_intensity(t):
                     break
+            event_time = t
 
-            # --- Spatial sampling via MCMC ---
-            def spatial_density(x):
-                return self._full_intensity(x, event_time)
+            # --- Spatial coordinate from the conditional density at that time ---
+            coord = mcmc_sampler(
+                lambda x: self._full_intensity(x, event_time),  # noqa: B023
+                self.domain.bounds,
+                seed=self.rng,
+            )
+            coord = self.domain.wrap(coord)
 
-            event_coord, _ = mcmc_sampler(spatial_density, self.domain.bounds,
-                                          return_diagnostics=True)
-            event_coord = self.domain.wrap(event_coord)
-
-            new_event = np.vstack([np.array([[event_time]]),
-                                   np.asarray(event_coord).reshape(-1, 1)])
+            new_event = np.vstack(
+                [np.array([[event_time]]), np.asarray(coord, dtype=float).reshape(-1, 1)]
+            )
             self.Events = np.append(self.Events, new_event, axis=1)
 
         if self.Sim_num == 0:
-            self.Events = self.Events[:, 1:]
-
+            self.Events = self.Events[:, 1:]  # drop the t=0 bootstrap event
         self.Sim_num += k
 
-    def simulate(self, k: int):
-        self.propagate_by_amount(k)
+    # ------------------------------------------------------------------
+    # Intensity accessors
+    # ------------------------------------------------------------------
+
+    def intensity(self, t: float, x: Any) -> float:
+        r"""Conditional intensity :math:`\lambda(t, x \mid H_t)` at one point.
+
+        Parameters
+        ----------
+        t : float
+            Time.
+        x : array_like
+            Spatial coordinate, of length ``ndim``.
+
+        Returns
+        -------
+        float
+            The intensity, including the background term and floored at zero.
+
+        .. versionadded:: 0.2.0
+        """
+        return self._full_intensity(np.asarray(x, dtype=float), float(t))
+
+    def intensity_over_interval(
+        self,
+        times: Any,
+        points: Optional[Any] = None,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        r"""Evaluate the intensity on the tensor grid ``times`` x ``points``.
+
+        Parameters
+        ----------
+        times : array_like, shape (n_t,)
+            Times to evaluate at. The realised event times are merged in and
+            the result is sorted and de-duplicated.
+        points : array_like, shape (n_x, ndim), optional
+            Spatial evaluation points. Defaults to 200 equispaced points across
+            the domain when ``ndim == 1``. **Required** when ``ndim >= 2``,
+            because no canonical ordering of a multi-dimensional grid exists.
+
+        Returns
+        -------
+        times : numpy.ndarray, shape (n_t',)
+            The sorted evaluation times, events merged in.
+        points : numpy.ndarray, shape (n_x, ndim)
+            The spatial points actually used.
+        intensity : numpy.ndarray, shape (n_x, n_t')
+            Rows index space, columns index time. This is the orientation
+            :func:`matplotlib.pyplot.contourf` expects, so a field plot is
+            ``plt.contourf(times, points[:, 0], intensity)``.
+
+        Raises
+        ------
+        ValueError
+            If `points` is omitted on a domain of two or more dimensions.
+
+        Notes
+        -----
+        `times` and `points` are both returned because `times` is modified
+        (events merged in) and `points` may have been defaulted; without them
+        the caller cannot label the axes of `intensity`.
+
+        .. versionadded:: 0.2.0
+           Before 0.2.0 there was no way to evaluate the field intensity
+           without re-implementing it by hand.
+        """
+        ndim = self.domain.bounds.shape[0]
+
+        if points is None:
+            if ndim != 1:
+                raise ValueError(
+                    f"points is required for a {ndim}-dimensional domain; there is no "
+                    "canonical default grid above one dimension."
+                )
+            lo, hi = self.domain.bounds[0]
+            points_arr = np.linspace(lo, hi, 200).reshape(-1, 1)
+        else:
+            points_arr = np.asarray(points, dtype=float)
+            if points_arr.ndim == 1:
+                points_arr = points_arr.reshape(-1, 1)
+            if points_arr.shape[1] != ndim:
+                raise ValueError(
+                    f"points must have shape (n_x, {ndim}) for this domain, "
+                    f"got {points_arr.shape}"
+                )
+
+        event_times = self.Events[0, :]
+        times_arr = np.unique(
+            np.append(np.asarray(times, dtype=float).ravel(), event_times)
+        )
+
+        intensity = np.array(
+            [
+                [self._full_intensity(points_arr[i], float(t)) for t in times_arr]
+                for i in range(points_arr.shape[0])
+            ]
+        )
+        return times_arr, points_arr, intensity

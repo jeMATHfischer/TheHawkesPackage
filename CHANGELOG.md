@@ -43,8 +43,28 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
   whichever class the import path picked.
 - `spatio_temporal/sampler.py` removed; it was a re-export of `mcmc_sampler`, still reachable at
   `hawkes_package.mcmc.mcmc_sampler`.
+- The vestigial `PoissEvent` attribute is gone from both spatio-temporal classes. It accumulated
+  exponential draws whose values were never read — only their count mattered — so it consumed
+  randomness to no effect.
 
 ### Fixed
+
+- **Two invalid Ogata thinning bounds, both of which silently biased the simulated distribution.**
+  Thinning is only correct while `M >= lambda`; where it fails, candidate events are accepted that
+  should have been rejected. Neither bug was reachable by the pre-0.2.0 tests, which checked the
+  invariant for `MonotoneKernelHawkes` only.
+  - `BellShapeHawkes` added a single peak's worth of headroom to the whole intensity. That is not
+    enough when two or more events are in their rising phase at once, and the invariant failed in
+    roughly 5% of steps. Each event is now bounded by its own future supremum — the peak value if it
+    has not yet peaked, its current value if it has.
+  - `SpatioTemporalHawkesProcess` and the legacy class excluded the event at exactly `t` from the
+    bound, which is precisely the `MonotoneKernelHawkes` bug the codebase already documented,
+    reproduced in the newer classes. At the start of a thinning step `t` *is* the most recent event
+    time, so its entire excitation was missing from the bound; the invariant failed in about 70% of
+    steps. Both classes now integrate the per-event suprema, which also removes a dimensionally
+    inconsistent correction term that added a bare temporal-kernel value to a space-integrated
+    intensity.
+
 
 - **NumPy 2.x compatibility.** `float()` on a shape-`(1,)` array raises `TypeError` since NumPy 2.0,
   which broke three code paths that no test reached:
