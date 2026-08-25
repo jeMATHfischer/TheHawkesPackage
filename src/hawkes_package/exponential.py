@@ -72,8 +72,9 @@ class ExponentialHawkes(TemporalHawkesProcess):
         past = self.Events[self.Events < t]
         return float(self.mu + self.alpha * np.exp(-self.beta * (t - past)).sum())
 
-    def _upper_bound(self, t: float) -> float:  # noqa: ARG002
-        # The kernel decreases, so the intensity anywhere at or after the last
-        # event is dominated by its value there. Independent of `t`.
-        last = float(self.Events[-1])
-        return float(self.mu + self.alpha * np.exp(-self.beta * (last - self.Events)).sum())
+    def _upper_bound(self, t: float) -> float:
+        # The kernel decreases and no event can arrive before the next accepted
+        # one, so the intensity at `t` dominates the whole interval. Bounding at
+        # `t` rather than at the last event is both tighter after a rejection
+        # and well defined when no events have occurred yet.
+        return float(self.mu + self.alpha * np.exp(-self.beta * (t - self.Events)).sum())

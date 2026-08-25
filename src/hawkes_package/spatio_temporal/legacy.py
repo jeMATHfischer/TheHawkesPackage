@@ -87,7 +87,8 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
         self.temporal = temporal
         self.space = (float(space[0]), float(space[1]))
         self.monotone_temporal_kernel = monotone_temporal_kernel
-        self.Events = np.array([[0.0], [0.0]])
+        # Empty: `Events` holds only real events at every moment.
+        self.Events = np.empty((2, 0), dtype=float)
 
         if monotone_temporal_kernel is not True:
             if peak_lag is None:
@@ -127,8 +128,8 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
 
     def _past_columns(self, t: float, inclusive: bool = False) -> list[int]:
         if inclusive:
-            return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] <= t]
-        return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] < t]
+            return [i for i in range(self.Events.shape[1]) if self.Events[0, i] <= t]
+        return [i for i in range(self.Events.shape[1]) if self.Events[0, i] < t]
 
     def _temporal_factors(self, t: float, bound: bool = False) -> np.ndarray:
         """Temporal kernel factors at `t`, or their suprema over all later times."""
@@ -174,7 +175,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
 
     def _propagate(self, k: int) -> None:
         for done in range(k):
-            t = float(self.Events[0, -1])
+            t = float(self.Events[0, -1]) if self.Events.shape[1] else 0.0
 
             while True:
                 bound = self._upper_bound(t)
@@ -199,10 +200,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
             event_space = float(np.ravel(self._periodize(coord))[0])
 
             self.Events = np.append(self.Events, np.array([[event_time], [event_space]]), axis=1)
-
-        if self.Sim_num == 0:
-            self.Events = self.Events[:, 1:]
-        self.Sim_num += k
+            self.Sim_num += 1
 
     # ------------------------------------------------------------------
     # Intensity accessors

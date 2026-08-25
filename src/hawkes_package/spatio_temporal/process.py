@@ -97,8 +97,9 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         self.monotone_temporal_kernel = monotone_temporal_kernel
 
         ndim = self.domain.bounds.shape[0]
-        # Bootstrap event at t=0, removed after the first simulate() call.
-        self.Events = np.vstack([np.array([[0.0]]), np.zeros(ndim).reshape(-1, 1)])
+        # Empty: `Events` holds only real events at every moment. See
+        # TemporalHawkesProcess.__init__ for why the bootstrap column is gone.
+        self.Events = np.empty((ndim + 1, 0), dtype=float)
 
         if not monotone_temporal_kernel:
             if peak_lag is None:
@@ -115,14 +116,18 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     # ------------------------------------------------------------------
 
     def _past_event_indices(self, t: float, inclusive: bool = False) -> list[int]:
-        """Column indices of events before time `t`, excluding the seed.
+        """Column indices of events before time `t`.
 
         `inclusive` also admits an event at exactly `t`, which the thinning
         bound needs: at the start of a step `t` *is* the most recent event time.
+
+        There is no ``0 < ...`` guard: it used to hide the bootstrap column, but
+        it also silently discarded any user-supplied event at a non-positive
+        time for the whole life of the object.
         """
         if inclusive:
-            return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] <= t]
-        return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] < t]
+            return [i for i in range(self.Events.shape[1]) if self.Events[0, i] <= t]
+        return [i for i in range(self.Events.shape[1]) if self.Events[0, i] < t]
 
     def _temporal_factors(self, t: float, bound: bool = False) -> np.ndarray:
         """Temporal kernel factors at time `t`, or their future suprema.
@@ -185,7 +190,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
     def _propagate(self, k: int) -> None:
         for done in range(k):
-            t = float(self.Events[0, -1])
+            t = float(self.Events[0, -1]) if self.Events.shape[1] else 0.0
 
             # --- Temporal thinning on the space-integrated intensity ---
             while True:
@@ -215,10 +220,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
                 [np.array([[event_time]]), np.asarray(coord, dtype=float).reshape(-1, 1)]
             )
             self.Events = np.append(self.Events, new_event, axis=1)
-
-        if self.Sim_num == 0:
-            self.Events = self.Events[:, 1:]  # drop the t=0 bootstrap event
-        self.Sim_num += k
+            self.Sim_num += 1
 
     # ------------------------------------------------------------------
     # Intensity accessors

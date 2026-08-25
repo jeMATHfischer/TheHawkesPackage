@@ -94,12 +94,14 @@ class HawkesProcess(ABC):
         ValueError
             If `k` is negative.
         """
-        k = int(k)
-        if k < 0:
-            raise ValueError(f"k must be non-negative, got {k}")
-        if k == 0:
+        k_int = int(k)
+        if k_int != k:
+            raise ValueError(f"k must be a whole number of events, got {k!r}")
+        if k_int < 0:
+            raise ValueError(f"k must be non-negative, got {k_int}")
+        if k_int == 0:
             return
-        self._propagate(k)
+        self._propagate(k_int)
 
     # -- Deprecated aliases -------------------------------------------------
     # Declared once here and inherited by every process, rather than repeated
@@ -118,9 +120,13 @@ class TemporalHawkesProcess(HawkesProcess):
 
     def __init__(self, *, rng: SeedLike = None) -> None:
         super().__init__(rng=rng)
-        # A fictitious event at t=0 bootstraps the first thinning step; it is
-        # removed once the first simulate() call completes.
-        self.Events = np.array([0.0])
+        # Empty: `Events` holds only real events, at every moment of the object's
+        # life. Before 0.2.0 a fictitious event sat at t=0 until the first
+        # simulate() call finished, and it contributed to every intensity sum in
+        # the meantime -- so the first events were drawn from a process with one
+        # phantom excitation, and the event it was conditioned on was then
+        # deleted from the recorded data.
+        self.Events = np.empty(0, dtype=float)
 
     @abstractmethod
     def _conditional_intensity(self, t: float) -> float:
@@ -136,7 +142,8 @@ class TemporalHawkesProcess(HawkesProcess):
         """
 
     def _propagate(self, k: int) -> None:
-        t = float(self.Events[-1])
+        # The bootstrap time is a local, not an element of `Events`.
+        t = float(self.Events[-1]) if self.Events.size else 0.0
         accepted = 0
 
         while accepted < k:
@@ -154,10 +161,9 @@ class TemporalHawkesProcess(HawkesProcess):
             if self.rng.uniform() * bound <= self._conditional_intensity(t):
                 self.Events = np.append(self.Events, t)
                 accepted += 1
-
-        if self.Sim_num == 0:
-            self.Events = self.Events[1:]  # drop the t=0 bootstrap event
-        self.Sim_num += k
+                # Counted per event, so `Sim_num == len(Events)` still holds if
+                # the loop raises partway through.
+                self.Sim_num += 1
 
     def intensity_over_interval(self, x: Any) -> tuple[np.ndarray, np.ndarray]:
         """Evaluate the conditional intensity on `x` merged with the event times.

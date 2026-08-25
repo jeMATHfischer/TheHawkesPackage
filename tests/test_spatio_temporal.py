@@ -138,8 +138,9 @@ def test_intensity_matches_hand_computation(flat_base, bump_spatial, exp_kernel)
     p = SpatioTemporalHawkesProcess(
         flat_base, bump_spatial, exp_kernel, domain=dom, monotone_temporal_kernel=True, rng=0
     )
-    # Inject a known history rather than simulating one.
-    p.Events = np.array([[0.0, 1.0, 2.0], [0.0, 0.5, -1.0]])
+    # Inject a known history rather than simulating one. There is no longer a
+    # hidden bootstrap column to skip: every column here is a real event.
+    p.Events = np.array([[1.0, 2.0], [0.5, -1.0]])
 
     t, x = 3.0, np.array([0.2])
     expected = 0.5

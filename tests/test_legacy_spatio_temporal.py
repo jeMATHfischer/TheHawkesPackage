@@ -88,7 +88,7 @@ def test_intensity_matches_the_hand_rolled_formula(legacy, legacy_kernels):
     """
     base, spatial, temporal = legacy_kernels
     p = legacy()
-    p.Events = np.array([[0.0, 1.0, 2.0], [0.0, 0.5, -1.0]])
+    p.Events = np.array([[1.0, 2.0], [0.5, -1.0]])
 
     def periodize(x):
         return (x + np.pi) % (2 * np.pi) - np.pi
