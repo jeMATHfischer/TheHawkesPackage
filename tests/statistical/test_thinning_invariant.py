@@ -88,26 +88,8 @@ TEMPORAL = [
 #: why every other configuration below shipped with a broken bound.
 SPATIO_TEMPORAL = [
     "st-circle",
-    pytest.param(
-        "st-torus",
-        marks=[
-            pytest.mark.slow,
-            pytest.mark.xfail(
-                reason="the >=2-D Monte Carlo integral is redrawn per call, so the bound "
-                "is a noisy estimate compared against an independent estimate; fixed by "
-                "the deterministic quadrature rule",
-                strict=True,
-            ),
-        ],
-    ),
-    pytest.param(
-        "st-signed",
-        marks=pytest.mark.xfail(
-            reason="sup(kappa_t) * kappa_s != sup(kappa_t * kappa_s) once the spatial "
-            "kernel goes negative; fixed by clipping the spatial factor in the bound",
-            strict=True,
-        ),
-    ),
+    pytest.param("st-torus", marks=pytest.mark.slow),
+    "st-signed",
     "st-delayed",  # monotone_temporal_kernel=False with a delayed kernel
     pytest.param(
         "st-periodic",

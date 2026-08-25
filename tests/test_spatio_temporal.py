@@ -96,8 +96,8 @@ def test_integrated_intensity_1d_matches_analytic(bump_spatial, exp_kernel):
     assert p._integrated_intensity(1.0) == pytest.approx(dom.volume * 0.5, rel=1e-6)
 
 
-def test_integrated_intensity_2d_monte_carlo_branch(bump_spatial, exp_kernel):
-    """The >=2-D branch must apply the domain volume to the sample mean."""
+def test_integrated_intensity_2d_uses_a_deterministic_rule(bump_spatial, exp_kernel):
+    """The >=2-D path must integrate exactly, not estimate."""
     dom = Torus2D(L1=2.0, L2=3.0)
     p = SpatioTemporalHawkesProcess(
         lambda x: 0.5,
@@ -107,25 +107,22 @@ def test_integrated_intensity_2d_monte_carlo_branch(bump_spatial, exp_kernel):
         monotone_temporal_kernel=True,
         rng=0,
     )
-    # A constant integrand makes the Monte Carlo estimate exact, isolating the
-    # volume factor from the sampling error.
     assert p._integrated_intensity(1.0) == pytest.approx(dom.volume * 0.5, rel=1e-9)
 
 
-@pytest.mark.statistical
 def test_integrated_intensity_2d_with_varying_background(bump_spatial, exp_kernel):
-    """A non-constant background: Monte Carlo now carries real sampling error."""
+    """A non-constant background integrates exactly, with no sampling error."""
     dom = Torus2D(L1=2 * np.pi, L2=2 * np.pi)
-
-    def base(x):
-        return 1.0 + 0.5 * np.sin(float(np.ravel(x)[0]))
-
     p = SpatioTemporalHawkesProcess(
-        base, bump_spatial, exp_kernel, domain=dom, monotone_temporal_kernel=True, rng=7
+        lambda x: 1.0 + 0.5 * np.sin(x[0]),
+        bump_spatial,
+        exp_kernel,
+        domain=dom,
+        monotone_temporal_kernel=True,
+        rng=7,
     )
     # The sine integrates to zero over a full period, leaving volume * 1.0.
-    estimates = [p._integrated_intensity(1.0) for _ in range(20)]
-    assert float(np.mean(estimates)) == pytest.approx(dom.volume, rel=0.1)
+    assert p._integrated_intensity(1.0) == pytest.approx(dom.volume, rel=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -260,3 +257,85 @@ def test_intensity_is_invariant_to_coordinate_shape(make_st_process):
     p.Events = np.array([[0.3, 0.6], [0.1, -0.4]])
     values = [p.intensity(1.0, s) for s in (0.15, [0.15], np.array([0.15]), np.array([[0.15]]))]
     assert values == pytest.approx([values[0]] * 4)
+
+
+def test_integrated_intensity_is_deterministic(bump_spatial, exp_kernel):
+    """The bound must be a bound, not an estimate.
+
+    A Monte Carlo integral redrawn on every call made `_upper_bound` an
+    unbiased estimate rather than an upper bound, and the acceptance test drew
+    an independent one to compare against: P(lambda_hat > M_hat) was 0.437
+    where Ogata's algorithm requires 0.
+    """
+    p = SpatioTemporalHawkesProcess(
+        lambda x: 0.5,
+        bump_spatial,
+        exp_kernel,
+        domain=Torus2D(),
+        monotone_temporal_kernel=True,
+        rng=0,
+    )
+    p.Events = np.array([[0.5, 0.8], [0.2, -1.0], [0.3, 1.1]])
+
+    state = p.rng.bit_generator.state
+    values = {p._integrated_intensity(1.0) for _ in range(20)}
+    assert len(values) == 1, "the spatial integral must not depend on the RNG"
+    assert p.rng.bit_generator.state == state, "integration must not consume the stream"
+
+    bounds = [p._upper_bound(1.0) for _ in range(20)]
+    lambdas = [p._integrated_intensity(1.0) for _ in range(20)]
+    assert all(lam <= m for lam, m in zip(lambdas, bounds, strict=True))
+
+
+def test_quadrature_agrees_with_a_refined_rule(bump_spatial, exp_kernel):
+    """Doubling the node count must not move the answer."""
+    kwargs = {
+        "base": lambda x: 0.5 + 0.2 * np.cos(x[0]),
+        "spatial": bump_spatial,
+        "temporal": exp_kernel,
+        "domain": Circle(),
+        "monotone_temporal_kernel": True,
+        "rng": 0,
+    }
+    coarse = SpatioTemporalHawkesProcess(**kwargs, n_quad=64)
+    fine = SpatioTemporalHawkesProcess(**kwargs, n_quad=512)
+    for p in (coarse, fine):
+        p.Events = np.array([[0.4], [0.1]])
+    assert coarse._integrated_intensity(1.0) == pytest.approx(
+        fine._integrated_intensity(1.0), rel=1e-3
+    )
+
+
+def test_non_box_domain_is_rejected(bump_spatial, exp_kernel):
+    """Integration runs over `bounds`, so volume must equal the box volume."""
+
+    class Disc(Circle):
+        @property
+        def volume(self):
+            return np.pi  # a disc, not its bounding box
+
+    with pytest.raises(ValueError, match="bounding box"):
+        SpatioTemporalHawkesProcess(lambda x: 0.5, bump_spatial, exp_kernel, domain=Disc(), rng=0)
+
+
+def test_narrow_spatial_kernel_warns_about_resolution(exp_kernel):
+    """A kernel narrower than the node spacing silently distorts the rate.
+
+    This replaces inspecting the error estimate `quad` returned and the code
+    discarded: with a width-0.005 kernel `quad` returned exactly the
+    background-only integral, so the excitation was invisible to the temporal
+    thinning while the spatial sampler still saw it.
+    """
+    narrow = lambda d: 20.0 * np.exp(-(d**2) / 5e-5)
+    with pytest.warns(UserWarning, match="too narrow"):
+        SpatioTemporalHawkesProcess(
+            lambda x: 0.5, narrow, exp_kernel, domain=Circle(), rng=0, n_quad=32
+        )
+
+
+def test_no_resolution_warning_at_a_higher_node_count(exp_kernel, recwarn):
+    narrow = lambda d: 20.0 * np.exp(-(d**2) / 5e-5)
+    SpatioTemporalHawkesProcess(
+        lambda x: 0.5, narrow, exp_kernel, domain=Circle(), rng=0, n_quad=8192
+    )
+    assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]

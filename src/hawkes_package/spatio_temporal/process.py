@@ -21,17 +21,14 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from scipy.integrate import quad
 
 from .._numerics import as_float, as_point, locate_peak
 from ..base import HawkesProcess, SeedLike, _stalled_message
 from ..mcmc import mcmc_sampler
+from . import _integration
 from .domains import Circle, SpatialDomain
 
 __all__ = ["SpatioTemporalHawkesProcess"]
-
-#: Sample count for the Monte Carlo spatial integral used when ndim >= 2.
-_MC_SAMPLES = 500
 
 
 class SpatioTemporalHawkesProcess(HawkesProcess):
@@ -80,7 +77,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     def __init__(
         self,
         base: Callable[[Any], float],
-        spatial: Callable[[float], float],
+        spatial: Callable[..., Any],
         temporal: Callable[[float], float],
         domain: SpatialDomain | None = None,
         monotone_temporal_kernel: bool = False,
@@ -88,6 +85,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         *,
         peak_lag: float | None = None,
         peak_value: float | None = None,
+        n_quad: int | None = None,
     ) -> None:
         super().__init__(rng=rng)
         self.base = base
@@ -98,6 +96,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
         ndim = self.domain.bounds.shape[0]
         self._ndim = ndim
+        self._build_quadrature(n_quad)
         # Empty: `Events` holds only real events at every moment. See
         # TemporalHawkesProcess.__init__ for why the bootstrap column is gone.
         self.Events = np.empty((ndim + 1, 0), dtype=float)
@@ -156,10 +155,14 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         # shape-(1,) array would otherwise build a (n, 1) column here, which
         # broadcasts against the (n,) temporal factors to an (n, n) outer
         # product -- silently computing (sum kappa_t)(sum kappa_s).
-        return np.array(
-            [as_float(self.spatial(self.domain.distance(x, self.Events[1:, i]))) for i in idx],
-            dtype=float,
-        )
+        values = np.array([self._spatial_at(x, self.Events[1:, i]) for i in idx], dtype=float)
+        if bound:
+            # sup_s kappa_t(s - t_i) * kappa_s(d) equals sup(kappa_t) * kappa_s(d)
+            # only where kappa_s(d) >= 0; where it is negative the supremum is 0,
+            # since kappa_t is non-negative and decays. Clipping *is* the
+            # supremum, so an inhibitory spatial kernel stays correctly bounded.
+            values = np.maximum(values, 0.0)
+        return values
 
     def _full_intensity(self, x: Any, t: float, bound: bool = False) -> float:
         # The single place a coordinate is normalised: `base` and `spatial` are
@@ -170,25 +173,49 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         ).sum()
         return max(0.0, as_float(self.base(x)) + float(contrib))
 
-    def _integrated_intensity(self, t: float, bound: bool = False) -> float:
-        """Intensity integrated over the spatial domain at time `t`."""
+    def _spatial_at(self, x: Any, y: Any) -> float:
+        """Evaluate the spatial kernel between two points.
+
+        A kernel marked ``pairwise`` consumes both endpoints; an ordinary one
+        consumes the geodesic distance between them. See
+        :class:`~hawkes_package.spatio_temporal.kernels.PairwiseKernel`.
+        """
+        if getattr(self.spatial, "pairwise", False) is True:
+            return as_float(self.spatial(x, y))
+        return as_float(self.spatial(self.domain.distance(x, y)))
+
+    def _build_quadrature(self, n_quad: int | None) -> None:
+        """Build the fixed spatial integration rule, once, at construction."""
         bounds = self.domain.bounds
-        if bounds.shape[0] == 1:
-            val, _ = quad(
-                lambda x: self._full_intensity(x, t, bound=bound), bounds[0, 0], bounds[0, 1]
+        widths = bounds[:, 1] - bounds[:, 0]
+        box_volume = float(np.prod(widths))
+        if abs(self.domain.volume - box_volume) > 1e-9 * max(box_volume, 1.0):
+            raise ValueError(
+                f"{type(self.domain).__name__} has volume {self.domain.volume} but a bounding "
+                f"box of volume {box_volume}. Integration runs over `bounds`, so a domain that "
+                "is a proper subset of its bounding box is not supported."
             )
-        else:
-            # No product quadrature in higher dimensions: Monte Carlo instead.
-            pts = np.column_stack(
-                [
-                    self.rng.uniform(bounds[d, 0], bounds[d, 1], _MC_SAMPLES)
-                    for d in range(bounds.shape[0])
-                ]
-            )
-            val = self.domain.volume * float(
-                np.mean([self._full_intensity(pts[j], t, bound=bound) for j in range(_MC_SAMPLES)])
-            )
-        return float(val)
+
+        self.n_quad = (
+            _integration.default_nodes_per_axis(self._ndim) if n_quad is None else int(n_quad)
+        )
+        self._quadrature = _integration.build(bounds, self.n_quad)
+
+        # The kernel is what the rule has to resolve; check it once, here,
+        # rather than silently returning a wrong integral for the whole run.
+        centre = bounds.mean(axis=1)
+        _integration.check_resolution(
+            self._quadrature, bounds, self.n_quad, lambda x: self._spatial_at(x, centre)
+        )
+
+    def _integrated_intensity(self, t: float, bound: bool = False) -> float:
+        """Intensity integrated over the spatial domain at time `t`.
+
+        Deterministic: the bound and the acceptance test use the same nodes and
+        strictly positive weights, so a pointwise-dominating integrand
+        integrates to a dominating value and ``M >= lambda`` holds exactly.
+        """
+        return self._quadrature.integrate(lambda x: self._full_intensity(x, t, bound=bound))
 
     def _upper_bound(self, t: float) -> float:
         # Integrating the per-event suprema dominates the integrated intensity

@@ -161,6 +161,7 @@ def test_zero_excitation_is_poisson_in_time_and_uniform_in_space():
 
 @pytest.mark.statistical
 @pytest.mark.slow
+@pytest.mark.filterwarnings("ignore::scipy.integrate.IntegrationWarning")
 def test_spatial_sampler_reproduces_the_conditional_density():
     """Locations must be drawn from the conditional spatial density itself.
 
