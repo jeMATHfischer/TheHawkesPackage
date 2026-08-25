@@ -74,12 +74,74 @@ def _check(state, *, label):
     )
 
 
-TEMPORAL = ["ExponentialHawkes", "MonotoneKernelHawkes", "BellShapeHawkes"]
+TEMPORAL = [
+    "ExponentialHawkes",
+    "MonotoneKernelHawkes",
+    "BellShapeHawkes",
+    # A kernel that is flat at lag 0 and peaks later. The old fmin-from-zero
+    # search returned 0 here, collapsing the peak value to 0 and silently
+    # disabling the bell-shaped bound: 46% of steps violated M >= lambda.
+    "DelayedBellShapeHawkes",
+]
+
+#: Spatio-temporal cases. Before 0.2.0 only `st-circle` was covered, which is
+#: why every other configuration below shipped with a broken bound.
+SPATIO_TEMPORAL = [
+    "st-circle",
+    pytest.param(
+        "st-torus",
+        marks=[
+            pytest.mark.slow,
+            pytest.mark.xfail(
+                reason="the >=2-D Monte Carlo integral is redrawn per call, so the bound "
+                "is a noisy estimate compared against an independent estimate; fixed by "
+                "the deterministic quadrature rule",
+                strict=True,
+            ),
+        ],
+    ),
+    pytest.param(
+        "st-signed",
+        marks=pytest.mark.xfail(
+            reason="sup(kappa_t) * kappa_s != sup(kappa_t * kappa_s) once the spatial "
+            "kernel goes negative; fixed by clipping the spatial factor in the bound",
+            strict=True,
+        ),
+    ),
+    "st-delayed",  # monotone_temporal_kernel=False with a delayed kernel
+    pytest.param(
+        "st-periodic",
+        marks=pytest.mark.xfail(
+            reason="make_periodic returns a two-point kernel but `spatial` is called "
+            "with a single distance; fixed by the PairwiseKernel protocol",
+            strict=True,
+        ),
+    ),
+    "legacy",
+]
 
 
 @pytest.fixture
-def build(exp_kernel, triangular_kernel, legacy_kernels, bump_spatial):
+def build(
+    exp_kernel,
+    triangular_kernel,
+    legacy_kernels,
+    bump_spatial,
+    delayed_bump_kernel,
+    signed_spatial,
+):
     base, spatial, temporal = legacy_kernels
+
+    def _spatio_temporal(**kwargs):
+        defaults = {
+            "base": lambda x: 0.5,
+            "spatial": bump_spatial,
+            "temporal": exp_kernel,
+            "domain": hp.Circle(),
+            "monotone_temporal_kernel": True,
+        }
+        defaults.update(kwargs)
+        return hp.SpatioTemporalHawkesProcess(**defaults)
 
     def _build(name, seed):
         if name == "ExponentialHawkes":
@@ -88,15 +150,20 @@ def build(exp_kernel, triangular_kernel, legacy_kernels, bump_spatial):
             return hp.MonotoneKernelHawkes(exp_kernel, rng=seed)
         if name == "BellShapeHawkes":
             return hp.BellShapeHawkes(triangular_kernel, rng=seed)
-        if name == "SpatioTemporalHawkesProcess":
-            return hp.SpatioTemporalHawkesProcess(
-                lambda x: 0.5,
-                bump_spatial,
-                exp_kernel,
-                domain=hp.Circle(),
-                monotone_temporal_kernel=True,
-                rng=seed,
+        if name == "DelayedBellShapeHawkes":
+            return hp.BellShapeHawkes(delayed_bump_kernel, rng=seed)
+        if name == "st-circle":
+            return _spatio_temporal(rng=seed)
+        if name == "st-torus":
+            return _spatio_temporal(domain=hp.Torus2D(), rng=seed)
+        if name == "st-signed":
+            return _spatio_temporal(spatial=signed_spatial, rng=seed)
+        if name == "st-delayed":
+            return _spatio_temporal(
+                temporal=delayed_bump_kernel, monotone_temporal_kernel=False, rng=seed
             )
+        if name == "st-periodic":
+            return _spatio_temporal(spatial=hp.make_periodic(bump_spatial, hp.Circle()), rng=seed)
         return hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, rng=seed)
 
     return _build
@@ -113,15 +180,12 @@ def test_temporal_thinning_invariant(build, name, seed):
 
 
 @pytest.mark.statistical
-@pytest.mark.slow
-@pytest.mark.parametrize(
-    "name", ["SpatioTemporalHawkesProcess", "LegacySpatioTemporalHawkesProcess"]
-)
+@pytest.mark.parametrize("name", SPATIO_TEMPORAL)
 def test_spatio_temporal_thinning_invariant(build, name):
     """Same invariant, but thinning runs against the space-integrated intensity."""
     proc = build(name, 11)
     state = instrument(proc, "_integrated_intensity")
-    proc.simulate(15)
+    proc.simulate(8 if name == "st-torus" else 15)
     _check(state, label=name)
 
 

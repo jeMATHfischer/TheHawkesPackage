@@ -66,3 +66,42 @@ def test_bound_dominates_intensity_across_the_rise(triangular_kernel):
     bound = p._upper_bound(t_last)
     grid = np.linspace(t_last + 1e-9, t_last + p.ext, 60)
     assert np.all([p._conditional_intensity(t) <= bound + 1e-9 for t in grid])
+
+
+def test_delayed_kernel_peak_is_located(delayed_bump_kernel):
+    """Regression: the old fmin-from-zero search returned ext=0, peak=0 here.
+
+    The `np.where(lags < ext, peak, ...)` branch then never fired and the bound
+    silently degraded to the monotone one, invalid while the kernel rises.
+    """
+    p = BellShapeHawkes(delayed_bump_kernel, rng=0)
+    assert p.ext == pytest.approx(2.5, abs=1e-2)
+    assert p.peak == pytest.approx(1.0, abs=1e-6)
+
+
+def test_delayed_kernel_bound_dominates_the_rise(delayed_bump_kernel):
+    p = BellShapeHawkes(delayed_bump_kernel, rng=0)
+    p.simulate(20)
+    t_last = float(p.Events[-1])
+    bound = p._upper_bound(t_last)
+    grid = np.linspace(t_last + 1e-9, t_last + p.ext, 80)
+    assert all(p._conditional_intensity(float(t)) <= bound + 1e-9 for t in grid)
+
+
+def test_kernel_written_for_scalars_constructs():
+    """The search used to hand the kernel an array, so this spelling crashed."""
+    p = BellShapeHawkes(lambda dt: 2.0 * np.exp(-2.0 * float(dt)), rng=0)
+    assert p.peak == pytest.approx(2.0)
+
+
+def test_explicit_peak_lag_skips_the_search():
+    calls = {"n": 0}
+
+    def kernel(s):
+        calls["n"] += 1
+        return np.maximum(0.0, 1.0 - abs(np.asarray(s, dtype=float) - 0.5) * 2.0)
+
+    p = BellShapeHawkes(kernel, rng=0, peak_lag=0.5, peak_value=1.0)
+    assert p.ext == 0.5
+    assert p.peak == 1.0
+    assert calls["n"] == 0, "peak_lag= and peak_value= must bypass the search entirely"

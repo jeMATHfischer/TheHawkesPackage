@@ -103,3 +103,28 @@ def legacy_kernels():
         return 2 * a / b * dt * rise + ((-2 * a / b) * dt + 2 * a) * decay
 
     return base, spatial, temporal
+
+
+@pytest.fixture
+def delayed_bump_kernel():
+    """Unimodal kernel that is exactly zero near lag 0 and peaks at lag 2.5.
+
+    A local search started at 0 cannot see this peak: the kernel is flat at the
+    start point, so the search returns 0, the peak value collapses to 0, and the
+    bell-shaped bound silently degrades to the monotone one while the kernel is
+    still rising. Before the fix that violated M >= lambda in 46% of steps.
+
+    Total mass 0.5, so with the default phi(x) = x + 2 the process is stable.
+    """
+
+    def kernel(s):
+        s = np.asarray(s, dtype=float)
+        return np.maximum(0.0, 1.0 - np.abs(s - 2.5) * 2.0) * ((s > 2.0) & (s < 3.0))
+
+    return kernel
+
+
+@pytest.fixture
+def signed_spatial():
+    """Spatial kernel with an excitatory core and an inhibitory ring."""
+    return lambda d: 2.0 * np.exp(-4.0 * d**2) - 0.8 * np.exp(-2.0 * (d - 2.0) ** 2)

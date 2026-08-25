@@ -22,8 +22,8 @@ from typing import Any
 
 import numpy as np
 from scipy.integrate import quad
-from scipy.optimize import fmin
 
+from .._numerics import as_float, locate_peak
 from ..base import HawkesProcess, SeedLike, _stalled_message
 from ..mcmc import mcmc_sampler
 from .domains import Circle, SpatialDomain
@@ -85,6 +85,9 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         domain: SpatialDomain | None = None,
         monotone_temporal_kernel: bool = False,
         rng: SeedLike = None,
+        *,
+        peak_lag: float | None = None,
+        peak_value: float | None = None,
     ) -> None:
         super().__init__(rng=rng)
         self.base = base
@@ -98,7 +101,14 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         self.Events = np.vstack([np.array([[0.0]]), np.zeros(ndim).reshape(-1, 1)])
 
         if not monotone_temporal_kernel:
-            self.temporal_extremum = float(fmin(lambda t: -self.temporal(t), 0, disp=False)[0])
+            if peak_lag is None:
+                located = locate_peak(temporal, name="temporal kernel")
+                self.temporal_extremum, self.temporal_peak = located.lag, located.value
+            else:
+                self.temporal_extremum = float(peak_lag)
+                self.temporal_peak = as_float(
+                    peak_value if peak_value is not None else temporal(self.temporal_extremum)
+                )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -128,8 +138,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
             return lags
         values = np.array([float(self.temporal(lag)) for lag in lags])
         if bound and not self.monotone_temporal_kernel:
-            peak = float(self.temporal(self.temporal_extremum))
-            values = np.where(lags < self.temporal_extremum, peak, values)
+            values = np.where(lags < self.temporal_extremum, self.temporal_peak, values)
         return values
 
     def _dist_temporal(self, t: float) -> np.ndarray:
