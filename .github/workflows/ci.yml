@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[dev]"
+      - name: ruff check
+        run: ruff check --output-format=github .
+      - name: ruff format
+        run: ruff format --check .
+      - name: mypy
+        run: mypy
+
+  test:
+    name: Test ${{ matrix.python-version }} on ${{ matrix.os }}
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest entry must match requires-python in pyproject.toml;
+        # tests/test_api_surface.py asserts the declared floor so the two
+        # cannot drift apart unnoticed.
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[test]"
+      - name: Run the fast suite
+        run: pytest -m "not slow" -q
+
+  coverage:
+    name: Coverage
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e ".[test]"
+      # The full suite, slow tests included, so the gate is never computed on a
+      # truncated run.
+      - name: Run the full suite with coverage
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  build:
+    name: Build and verify the wheel
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+
+      # A src-layout packaging slip is invisible to an editable install, so the
+      # wheel's actual contents are checked here rather than in the test suite.
+      - name: Wheel contains both packages and the typing marker
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          names = zipfile.ZipFile(wheel).namelist()
+          for required in ("hawkes_package/__init__.py",
+                           "hawkes_package/py.typed",
+                           "TheHawkesPackage/__init__.py"):
+              assert required in names, f"{required} missing from {wheel.name}"
+          print(f"{wheel.name}: all required members present")
+          PY
+
+      - name: Import both names from a clean environment
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/python -m pip install --quiet dist/*.whl
+          # The canonical import must be completely silent.
+          /tmp/clean/bin/python -W error::DeprecationWarning -c "
+          import hawkes_package as hp
+          print('hawkes_package', hp.__version__)
+          "
+          # The compat shim must still work, and must warn.
+          /tmp/clean/bin/python -c "
+          import warnings
+          with warnings.catch_warnings(record=True) as caught:
+              warnings.simplefilter('always')
+              import TheHawkesPackage as THP
+          assert any(issubclass(w.category, DeprecationWarning) for w in caught), 'shim did not warn'
+          import hawkes_package
+          assert THP.ExponentialHawkes is hawkes_package.ExponentialHawkes
+          from TheHawkesPackage.spatio_temporal.domains import Circle
+          assert Circle is hawkes_package.Circle
+          print('TheHawkesPackage shim OK')
+          "
