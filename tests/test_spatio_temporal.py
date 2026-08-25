@@ -3,7 +3,12 @@
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, SpatioTemporalHawkesProcess, Torus2D
+from hawkes_package import (
+    Circle,
+    SpatioTemporalHawkesProcess,
+    Torus2D,
+    make_periodic,
+)
 
 ONE_D = [pytest.param(Circle(), id="circle"), pytest.param(Circle(radius=2.0), id="circle-r2")]
 
@@ -339,3 +344,30 @@ def test_no_resolution_warning_at_a_higher_node_count(exp_kernel, recwarn):
         lambda x: 0.5, narrow, exp_kernel, domain=Circle(), rng=0, n_quad=8192
     )
     assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
+
+
+def test_periodic_kernel_composes_with_the_process(exp_kernel):
+    """Regression: `make_periodic` could not be used as `spatial=` at all.
+
+    It returns a two-point kernel, but `spatial` was called with a single
+    geodesic distance, so the second event raised TypeError. README presents
+    `make_periodic` as the way to build a domain-respecting kernel.
+    """
+    domain = Circle()
+    kernel = make_periodic(lambda d: np.exp(-(d**2)), domain)
+    p = SpatioTemporalHawkesProcess(
+        lambda x: 0.5,
+        kernel,
+        exp_kernel,
+        domain=domain,
+        monotone_temporal_kernel=True,
+        rng=0,
+    )
+    p.simulate(3)
+    assert p.Events.shape == (2, 3)
+
+    # and the intensity uses the image sum, not a bare geodesic distance
+    p.Events = np.array([[1.0], [0.4]])
+    x = np.array([0.15])
+    expected = 0.5 + exp_kernel(2.0 - 1.0) * kernel(x, np.array([0.4]))
+    assert p.intensity(2.0, x) == pytest.approx(expected)

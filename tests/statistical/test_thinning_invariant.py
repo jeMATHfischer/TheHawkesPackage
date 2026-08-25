@@ -91,14 +91,7 @@ SPATIO_TEMPORAL = [
     pytest.param("st-torus", marks=pytest.mark.slow),
     "st-signed",
     "st-delayed",  # monotone_temporal_kernel=False with a delayed kernel
-    pytest.param(
-        "st-periodic",
-        marks=pytest.mark.xfail(
-            reason="make_periodic returns a two-point kernel but `spatial` is called "
-            "with a single distance; fixed by the PairwiseKernel protocol",
-            strict=True,
-        ),
-    ),
+    "st-periodic",
     "legacy",
 ]
 
