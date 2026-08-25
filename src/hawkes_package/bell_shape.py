@@ -1,63 +1,90 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Hawkes process simulation that allows smooth kernels with one global maximum. Non-linearities need to be monotonously
-growing.
-"""
+"""Hawkes process for kernels with a single interior maximum."""
+
+from __future__ import annotations
+
+from typing import Callable
 
 import numpy as np
 from scipy.optimize import fmin
 
+from .base import SeedLike, TemporalHawkesProcess
 
-class BellShapeHawkes():
+__all__ = ["BellShapeHawkes"]
 
-    def __init__(self, temporal, nonlinearity=lambda x: x + 2):
+
+class BellShapeHawkes(TemporalHawkesProcess):
+    r"""Hawkes process whose kernel rises before it decays.
+
+    The conditional intensity has the same form as
+    :class:`~hawkes_package.monotone.MonotoneKernelHawkes`,
+
+    .. math::
+
+        \lambda(t \mid H_t) = \varphi\!\left( \sum_{t_i < t} \kappa(t - t_i) \right),
+
+    but :math:`\kappa` is no longer monotone: excitation ramps up to a peak at
+    lag :attr:`ext` before decaying. The bound used by
+    :class:`~hawkes_package.monotone.MonotoneKernelHawkes` is therefore invalid
+    while the kernel is still rising, so each event is instead bounded by its
+    own future supremum -- the peak value if that event has not yet peaked, its
+    current value if it has.
+
+    .. versionchanged:: 0.2.0
+       Before 0.2.0 the bound added a single peak's worth of headroom to the
+       whole intensity. That is not enough when two or more events are rising
+       at once, and the thinning invariant ``M >= lambda`` failed in a few
+       percent of steps -- silently biasing the simulated process.
+
+    Parameters
+    ----------
+    temporal : callable
+        The kernel :math:`\kappa`, with one global maximum on ``[0, inf)``.
+    nonlinearity : callable
+        The monotone-increasing :math:`\varphi`. Defaults to ``x + 2``.
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
+
+    Attributes
+    ----------
+    ext : float
+        Lag at which `temporal` attains its maximum, located numerically with
+        :func:`scipy.optimize.fmin`.
+
+    Examples
+    --------
+    >>> def triangular(s):
+    ...     s = np.asarray(s, dtype=float)
+    ...     return 2 * s * ((s > 0) & (s < 0.5)) + (-2 * s + 2) * ((s >= 0.5) & (s < 1))
+    >>> process = BellShapeHawkes(triangular, rng=0)
+    >>> process.simulate(20)
+    >>> len(process.Events)
+    20
+    """
+
+    def __init__(
+        self,
+        temporal: Callable[[np.ndarray], np.ndarray],
+        nonlinearity: Callable[[np.ndarray], np.ndarray] = lambda x: x + 2,
+        rng: SeedLike = None,
+    ) -> None:
+        super().__init__(rng=rng)
         self.temporal = temporal
-        self.Events = np.array([0])
-        self.Sim_num = 0
         self.nonlinearity = nonlinearity
-        self.ext = float(fmin(lambda x: -self.temporal(x), 0, disp=False)[0])
+        self.ext = float(fmin(lambda s: -self.temporal(s), 0, disp=False)[0])
+        self._peak = float(self.temporal(self.ext))
 
-    def __bound(self, T):
-        if T - self.Events[-1] < self.ext:
-            return self.nonlinearity(np.sum(np.array([self.temporal(T - j)
-                                                               for j in self.Events if j < T]))) + self.temporal(self.ext)
-        else:
-            return self.nonlinearity(np.sum(np.array([self.temporal(T - j)
-                                                               for j in self.Events if j < T])))
+    def _conditional_intensity(self, t: float) -> float:
+        past = self.Events[self.Events < t]
+        return float(self.nonlinearity(np.sum(self.temporal(t - past))))
 
-    def propagate_by_amount(self, k):
-        t = self.Events[-1]
-        i = 0
-
-        while i in range(k):
-            upper_bd = self.__bound(t)
-
-            u = np.random.rand(1)
-            tau = -np.log(u) / upper_bd
-            t = t + tau
-            s = np.random.rand(1)
-
-            if s <= self.nonlinearity(np.sum(np.array([self.temporal(t - j)
-                                                               for j in self.Events if j < t]))) / upper_bd:
-                self.Events = np.append(self.Events, t)
-                i += 1
-
-        if self.Sim_num == 0:
-                self.Events = np.delete(self.Events, 0, 0)
-
-        self.Sim_num += k
-
-    # Deprecated alias kept for backward compatibility
-    propogate_by_amount = propagate_by_amount
-
-    def simulate(self, k):
-        self.propagate_by_amount(k)
-
-    def intensity_over_interval(self, x):
-        y = np.sort(np.append(x, self.Events))
-        return y, self.nonlinearity(np.array([np.sum(np.array([self.temporal(t - j)
-                                                               for j in self.Events if j < t])) for t in y]))
-
-
-
+    def _upper_bound(self, t: float) -> float:
+        # Bound each event's future contribution by its own supremum: an event
+        # that has not yet peaked can still climb to the peak, one that has is
+        # already decaying. Events at exactly `t` count -- at the start of a
+        # thinning step `t` *is* the most recent event time.
+        past = self.Events[self.Events <= t]
+        if past.size == 0:
+            return float(self.nonlinearity(0.0))
+        lags = t - past
+        factors = np.where(lags < self.ext, self._peak, self.temporal(lags))
+        return float(self.nonlinearity(factors.sum()))

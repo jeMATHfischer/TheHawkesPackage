@@ -1,51 +1,79 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Basic linear Hawkes process with exponential kernel. Give parameters a,b to see behaviour.
-"""
+"""Linear Hawkes process with an exponential excitation kernel."""
+
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
+from .base import SeedLike, TemporalHawkesProcess
 
-class ExponentialHawkes():
+__all__ = ["ExponentialHawkes"]
 
-    def __init__(self, param):
-        self.param = param
-        if param[1] / param[2] >= 1:
+
+class ExponentialHawkes(TemporalHawkesProcess):
+    r"""Linear Hawkes process with kernel :math:`\kappa(s) = \alpha e^{-\beta s}`.
+
+    The conditional intensity is
+
+    .. math::
+
+        \lambda(t \mid H_t) = \mu + \sum_{t_i < t} \alpha e^{-\beta (t - t_i)}.
+
+    Parameters
+    ----------
+    param : array_like of shape (3,)
+        ``[mu, alpha, beta]`` — background rate, excitation size and decay rate.
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
+
+    Raises
+    ------
+    ValueError
+        If `param` does not have exactly three entries, if ``beta <= 0``, if
+        `mu` or `alpha` is negative, or if ``alpha / beta >= 1``. The last is
+        the stationarity condition: the branching ratio is ``alpha / beta``, so
+        at or above 1 each event spawns at least one offspring on average and
+        the simulation would not terminate.
+
+    Examples
+    --------
+    >>> process = ExponentialHawkes(np.array([2.0, 0.5, 1.0]), rng=42)
+    >>> process.simulate(100)
+    >>> len(process.Events)
+    100
+    """
+
+    def __init__(self, param: Any, rng: SeedLike = None) -> None:
+        param = np.asarray(param, dtype=float).ravel()
+        if param.size != 3:
             raise ValueError(
-                f"Stability condition violated: alpha/beta = {param[1]/param[2]:.4f} >= 1. "
+                f"param must have exactly 3 entries [mu, alpha, beta], got {param.size}"
+            )
+        mu, alpha, beta = (float(v) for v in param)
+        if beta <= 0:
+            raise ValueError(f"beta must be positive, got {beta}")
+        if mu < 0 or alpha < 0:
+            raise ValueError(f"mu and alpha must be non-negative, got mu={mu}, alpha={alpha}")
+        if alpha / beta >= 1:
+            raise ValueError(
+                f"Stability condition violated: alpha/beta = {alpha / beta:.4f} >= 1. "
                 "The process will not be stationary."
             )
-        self.temporal = lambda x: self.param[1]*np.exp(-self.param[2]*x)
-        self.Events = np.array([0])
-        self.Sim_num = 0
 
-    def propagate_by_k_events(self, k):
-        t = self.Events[-1]
-        i = 0
+        super().__init__(rng=rng)
+        self.param = param
+        self.mu = mu
+        self.alpha = alpha
+        self.beta = beta
+        self.temporal = lambda s: alpha * np.exp(-beta * np.asarray(s, dtype=float))
 
-        while i in range(k):
-            upper_bd = self.param[0] + np.sum(np.array([self.temporal(self.Events[-1] - y) for y in self.Events]))
+    def _conditional_intensity(self, t: float) -> float:
+        past = self.Events[self.Events < t]
+        return float(self.mu + self.alpha * np.exp(-self.beta * (t - past)).sum())
 
-            u = np.random.rand(1)
-            tau = -np.log(u) / upper_bd
-            t = t + tau
-            s = np.random.rand(1)
-
-            if s <= (self.param[0] + np.sum(np.array([self.temporal(t - y) for y in self.Events if y < t])))/ upper_bd:
-                self.Events = np.append(self.Events, t)
-                i += 1
-
-        if self.Sim_num == 0:
-            self.Events = np.delete(self.Events, 0, 0)
-
-        self.Sim_num += k
-
-    def simulate(self, k):
-        self.propagate_by_k_events(k)
-
-    def intensity_over_interval(self, x):
-        y = np.sort(np.append(x, self.Events))
-        return y, np.array([np.sum(np.array([self.temporal(t - j) for j in self.Events if j < t])) for t in y])
-
-
+    def _upper_bound(self, t: float) -> float:
+        # The kernel decreases, so the intensity anywhere at or after the last
+        # event is dominated by its value there. Independent of `t`.
+        last = float(self.Events[-1])
+        return float(self.mu + self.alpha * np.exp(-self.beta * (last - self.Events)).sum())
