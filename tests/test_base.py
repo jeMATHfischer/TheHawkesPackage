@@ -35,7 +35,7 @@ def test_abstract_base_cannot_be_instantiated():
 
 
 def test_simulate_zero_is_a_noop(temporal_cls, exp_kernel, triangular_kernel):
-    """simulate(0) must not consume the bootstrap event or the RNG."""
+    """simulate(0) must leave the process untouched and still usable."""
     p = _make(temporal_cls, exp_kernel, triangular_kernel, rng=0)
     before = p.Events.copy()
     p.simulate(0)
@@ -61,10 +61,14 @@ def test_sim_num_accumulates(temporal_cls, exp_kernel, triangular_kernel):
     assert len(p.Events) == 12
 
 
-def test_bootstrap_event_dropped_exactly_once(temporal_cls, exp_kernel, triangular_kernel):
-    """The fictitious t=0 event must vanish after the first call and not again."""
+def test_events_start_empty(temporal_cls, exp_kernel, triangular_kernel):
+    """`Events` must contain only real events, at every moment.
+
+    Before 0.2.0 a fictitious event sat at t=0 until the first simulate() call
+    finished, contributing to every intensity sum in the meantime.
+    """
     p = _make(temporal_cls, exp_kernel, triangular_kernel, rng=2)
-    assert p.Events.tolist() == [0.0]
+    assert p.Events.size == 0
     p.simulate(3)
     assert len(p.Events) == 3
     assert np.all(p.Events > 0)
@@ -144,3 +148,52 @@ def test_exploding_process_raises_instead_of_hanging():
     )
     with pytest.raises(RuntimeError, match="exploding"):
         p.simulate(500)
+
+
+def test_intensity_before_any_event_is_the_baseline():
+    """With no history the intensity is exactly mu.
+
+    Before 0.2.0 a phantom event at t=0 added an excitation term here, so the
+    process the simulator drew from was not the documented one.
+    """
+    mu = 1.0
+    p = ExponentialHawkes(np.array([mu, 0.5, 2.0]), rng=0)
+    assert p.Events.size == 0
+    assert p._conditional_intensity(1.0) == pytest.approx(mu)
+    assert p._upper_bound(1.0) == pytest.approx(mu)
+
+
+def test_split_simulate_equals_one_call(temporal_cls, exp_kernel, triangular_kernel):
+    """simulate(1); simulate(1) must be bit-identical to simulate(2).
+
+    The docstring promises that repeated calls continue the same realisation.
+    Before 0.2.0 the bootstrap event was deleted at the end of the first call,
+    so the second started from a different history: over 1500 seeds the mean
+    second gap was 28.17 against 22.58, KS p = 4.2e-06.
+    """
+    split = _make(temporal_cls, exp_kernel, triangular_kernel, rng=3)
+    split.simulate(1)
+    split.simulate(1)
+
+    single = _make(temporal_cls, exp_kernel, triangular_kernel, rng=3)
+    single.simulate(2)
+
+    np.testing.assert_array_equal(split.Events, single.Events)
+    assert split.Sim_num == single.Sim_num == 2
+
+
+def test_simulate_rejects_a_fractional_count(temporal_cls, exp_kernel, triangular_kernel):
+    p = _make(temporal_cls, exp_kernel, triangular_kernel, rng=0)
+    with pytest.raises(ValueError, match="whole number"):
+        p.simulate(2.7)
+
+
+def test_state_is_consistent_after_a_failure():
+    """A caught failure must leave Sim_num agreeing with the recorded events."""
+    p = MonotoneKernelHawkes(
+        lambda x: np.exp(-10 * np.asarray(x, dtype=float)), nonlinearity=np.exp, rng=7
+    )
+    with pytest.raises(RuntimeError, match="exploding"):
+        p.simulate(500)
+    assert p.Sim_num == len(p.Events)
+    assert np.all(p.Events > 0), "no phantom event may survive a failure"

@@ -181,8 +181,8 @@ def test_spatial_sampler_reproduces_the_conditional_density():
         monotone_temporal_kernel=True,
         rng=0,
     )
-    # One real event at the origin (column 0 is the t=0 bootstrap event).
-    p.Events = np.array([[0.0, 1.0], [0.0, 0.0]])
+    # One real event at the origin.
+    p.Events = np.array([[1.0], [0.0]])
 
     def density(x):
         return p._full_intensity(x, 1.5)
