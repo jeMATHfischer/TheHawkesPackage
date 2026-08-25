@@ -98,7 +98,7 @@ The returned intensity excluded $\mu$, while the simulator's bound included it,
 so plots sat a constant $\mu$ below the intensity actually being simulated. The
 accessor and the simulator now share one implementation.
 
-**Three thinning bounds were invalid.** Thinning is only correct while
+**Five thinning bounds were invalid.** Thinning is only correct while
 $M \geq \lambda$; where that fails, candidates are accepted that should have
 been rejected, biasing the simulated distribution towards Poisson.
 
@@ -110,8 +110,39 @@ been rejected, biasing the simulated distribution towards Poisson.
   event time, so its entire excitation was missing. The invariant failed in
   about 70% of steps.
 
-Series generated with 0.0.1 under these classes were not draws from the
-intended process. Regenerate them.
+- The kernel peak was located by a local search started at lag 0. On a kernel
+  that is flat there — the standard delayed-excitation shape — it returned 0, so
+  the bell-shaped bound collapsed to the monotone one and the invariant failed in
+  **46.3%** of steps.
+- On a domain of two or more dimensions the spatial integral was Monte Carlo,
+  redrawn per call, so the bound was an estimate rather than a bound and was
+  compared against a second independent estimate: `P(lambda_hat > M_hat) = 0.437`.
+- The bound multiplied `sup(kappa_t)` by `kappa_s`, which is the supremum of the
+  product only where the spatial kernel is non-negative.
+
+Series generated with 0.0.1 under any of these configurations were not draws
+from the intended process. Regenerate them.
+
+**The phantom event at `t = 0`.** Every process was seeded with a fictitious
+event that contributed to the intensity until the first `simulate` call deleted
+it. `E[T1]` was 12.77 where the model gives `1/mu = 20.0`, and
+`simulate(1); simulate(1)` did not equal `simulate(2)`. Both are now correct.
+`Events` starts empty, so `process.Events[-1]` before the first `simulate` raises
+`IndexError` instead of returning `0.0`.
+
+**Every location in the legacy class came from the wrong density**, through an
+array-shape broadcast: `intensity(1.0, 0.15)` gave 1.191369 but
+`intensity(1.0, [0.15])` gave 1.717217, and the sampler used the latter.
+
+**The MCMC chain now stays inside the domain.** Proposals outside it are
+rejected, and `proposal_std` defaults to a tenth of each axis's width instead of
+a fixed 1.0, so locations on a large or anisotropic domain change — for the
+better: on `Circle(radius=10)` only 30.3% of draws had landed in a peak holding
+52.2% of the mass.
+
+**User callables now always receive a shape-`(ndim,)` point.** A `base` or
+`spatial` written against the old float-on-one-path behaviour may need adjusting;
+`base=lambda x: 0.5 + 0.2*np.cos(x[0])` is the spelling that works everywhere.
 
 **The legacy class ignored a non-default `Space`.** The spatial sampler
 hard-coded $[-\pi, \pi]$, so a custom interval was accepted and silently

@@ -11,9 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Rename the public attributes `Events` → `events` and `Sim_num` → `n_simulated` (0.3.0).
   Deferred from 0.2.0 because every existing notebook cell touches them.
-- `mcmc_sampler` currently proposes an unbounded random walk and never rejects out-of-domain
-  proposals; the caller merely wraps the final draw. Harmless for periodic kernels, wrong for a
-  non-periodic `base(x)`. Minimal fix: accept a `transform` callback and pass `domain.wrap` (0.3.0).
+- Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
+  buffer redesign, because the intensity hooks read `Events` mid-loop (0.3.0).
 
 ## [0.2.0] — unreleased
 
@@ -46,13 +45,22 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 - The vestigial `PoissEvent` attribute is gone from both spatio-temporal classes. It accumulated
   exponential draws whose values were never read — only their count mattered — so it consumed
   randomness to no effect.
+- `Events` starts **empty** rather than holding a fictitious event at `t = 0`, so
+  `process.Events[-1]` before the first `simulate` now raises `IndexError` instead of returning 0.0.
+- User callables (`base`, `spatial`) always receive a shape-`(ndim,)` point, on every code path.
+- The spatial integral is a deterministic quadrature rule at every dimension, replacing both
+  `scipy.integrate.quad` and Monte Carlo. `SpatialDomain` implementations must now satisfy
+  `volume == prod(bounds widths)`, and gain a `periodic` flag (default `False`) that governs whether
+  MCMC proposals may be folded rather than rejected.
 
 ### Fixed
 
-- **Two invalid Ogata thinning bounds, both of which silently biased the simulated distribution.**
+- **Four invalid Ogata thinning bounds, all of which silently biased the simulated distribution.**
   Thinning is only correct while `M >= lambda`; where it fails, candidate events are accepted that
-  should have been rejected. Neither bug was reachable by the pre-0.2.0 tests, which checked the
-  invariant for `MonotoneKernelHawkes` only.
+  should have been rejected — silently, since a too-tight bound raises nothing. None of these were
+  reachable by the pre-0.2.0 tests, which exercised only `Circle()`, monotone temporal kernels and
+  non-negative spatial kernels; the invariant harness now covers a delayed kernel, `Torus2D`, a
+  sign-changing spatial kernel and `make_periodic`.
   - `BellShapeHawkes` added a single peak's worth of headroom to the whole intensity. That is not
     enough when two or more events are in their rising phase at once, and the invariant failed in
     roughly 5% of steps. Each event is now bounded by its own future supremum — the peak value if it
@@ -64,6 +72,66 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
     steps. Both classes now integrate the per-event suprema, which also removes a dimensionally
     inconsistent correction term that added a bare temporal-kernel value to a space-integrated
     intensity.
+  - The kernel's peak was located by `scipy.optimize.fmin` started at lag 0, with no validation of
+    the result. On a kernel that is flat near zero — the standard delayed-excitation shape — it
+    returned 0, so the peak value collapsed to `temporal(0) = 0` and the bell-shaped bound silently
+    degraded to the monotone one. The invariant failed in **46.3%** of steps, worst excess 4.278.
+    Replaced by a global scan with an adaptively expanded window; `peak_lag=` bypasses it.
+  - For a domain of two or more dimensions the spatial integral was a 500-point Monte Carlo estimate
+    redrawn on every call, so the bound was an unbiased estimate rather than an upper bound — and
+    the acceptance test drew a second, independent estimate to compare against. On `Torus2D`,
+    `P(lambda_hat > M_hat) = 0.437` where Ogata's algorithm requires 0. It also stole 500·ndim
+    variates per evaluation from the stream driving the simulation. Replaced by a deterministic
+    Gauss-Legendre tensor rule, which makes `M >= lambda` exact by construction and is ~8x faster
+    than the `quad` it also replaces in one dimension.
+  - The bound took `sup(kappa_t)` and multiplied by `kappa_s`, which is the supremum of the product
+    only where `kappa_s >= 0`. With an inhibitory spatial kernel the invariant failed in 3 of 71
+    steps. The spatial factor is now clipped at zero in bound mode, which *is* the correct supremum.
+
+- **The phantom `t = 0` event.** `Events` was seeded with a fictitious event to bootstrap the first
+  thinning step, and that event contributed to every intensity sum until the first `simulate` call
+  deleted it. `E[T1]` was 12.77 where the model gives `1/mu = 20.0`, and `simulate(1); simulate(1)`
+  differed from `simulate(2)` (mean second gap 28.17 against 22.58, KS p = 4.2e-06) despite the
+  docstring promising they continue one realisation. `Events` now starts empty and holds only real
+  events at every moment; `Sim_num` is counted per event, so it still agrees with `len(Events)` after
+  a caught failure.
+- **Every event location in the legacy class was drawn from the wrong density.** `spatial` applied to
+  a shape-`(1,)` offset returns a shape-`(1,)` value, so the spatial factors formed an `(n, 1)`
+  column; multiplied by the `(n,)` temporal factors that broadcasts to an `(n, n)` outer product, and
+  the sum computed `(Σ kappa_t)(Σ kappa_s)` instead of `Σ kappa_t·kappa_s`. Since `mcmc_sampler`
+  always passes an array, this was the sampling density — while the temporal thinning, fed scalars by
+  `quad`, used the correct one. With three past events, `intensity(1.0, 0.15)` gave 1.191369 and
+  `intensity(1.0, [0.15])` gave 1.717217.
+- **No non-constant background could be written.** User callables received a Python float from the
+  quadrature path and a shape-`(ndim,)` array from Monte Carlo and the MCMC sampler, so
+  `base=lambda x: 0.5 + 0.2*np.cos(x[0])` raised on one path and
+  `base=lambda x: 0.5 + 0.2*np.cos(x)` on the other. They now always receive a shape-`(ndim,)` point.
+- **`make_periodic` could not be used as a `spatial` kernel.** It returns a two-point callable while
+  `spatial` was called with a single geodesic distance, so passing it raised `TypeError` on the
+  second event — although `README.md` presents it as the way to build a domain-respecting kernel.
+  Such a kernel now declares itself with `pairwise = True`. Its image sum was also taken about the
+  raw difference, so beyond `n_images` periods the nearest image fell outside the window and the
+  kernel decayed to zero instead of staying periodic.
+- **The MCMC chain was not confined to the domain.** The proposal was an unbounded random walk that
+  never rejected an out-of-domain move; `space` bounded only the initial draw. Correct for a target
+  periodic with the domain, wrong otherwise: with a non-periodic background the marginal was
+  indistinguishable from uniform (chi-square p = 7.6e-07 against the true target, 0.21 against
+  uniform), and on a domain whose `wrap` clips, **all** event locations landed on a boundary.
+  Proposals outside `space` are now rejected; folding is opt-in through `transform=` and used only
+  where `domain.periodic`.
+- **`mcmc_sampler` could return silent garbage.** A failed search for a starting point fell through
+  into `density(proposal) / density(x)` with a zero denominator: `ZeroDivisionError` for 2 of 30
+  seeds with a Python float, and with a NumPy float `0/0 -> nan`, where `min(1.0, nan) == 1.0` made
+  the chain accept every proposal. It now raises, and the acceptance test is written without
+  division. `proposal_std` also defaults to a tenth of each axis's width rather than a fixed 1.0,
+  which could not equilibrate on a wide domain (30.3% of draws in a peak holding 52.2% of the mass)
+  and was wrong on both axes of an anisotropic one.
+- `quad`'s error estimate was discarded while `IntegrationWarning` was silenced globally, so a failed
+  integration was invisible: with a width-0.005 spatial kernel `quad` returned exactly the
+  background-only value, making the excitation invisible to the temporal thinning while the spatial
+  sampler still saw it. A construction-time resolution check replaces it.
+- `Circle.distance` silently measured only the first component of a longer vector;
+  `Torus2D.distance` raised on a scalar and on a `(2, 1)` column. `simulate(2.7)` truncated silently.
 
 
 - **NumPy 2.x compatibility.** `float()` on a shape-`(1,)` array raises `TypeError` since NumPy 2.0,
@@ -92,6 +160,14 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 
 ### Added
 
+- `peak_lag=` and `peak_value=` on `BellShapeHawkes` and both spatio-temporal classes, to bypass the
+  numerical peak search for a kernel with a spike narrower than the search grid.
+- `n_quad=` on both spatio-temporal classes: quadrature nodes per axis.
+- `proposal_std=` and `n_iter=` on `SpatioTemporalHawkesProcess`, forwarded to the spatial sampler.
+- `x0=`, `transform=` and `max_init_tries=` on `mcmc_sampler`.
+- `PairwiseKernel` and the `pairwise = True` protocol, so a kernel can consume both endpoints
+  instead of a geodesic distance.
+
 - `pyproject.toml` (hatchling), `LICENSE` (MIT), `README.md`, this changelog, and a `src/` layout.
 - `py.typed` marker — the package ships inline type information.
 - `intensity` and `intensity_over_interval` on both spatio-temporal classes. Previously there was no
@@ -99,7 +175,7 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 - A `HawkesProcess` / `TemporalHawkesProcess` base class carrying the shared Ogata thinning loop.
 - Test suite expanded with domain-contract, periodic-kernel, deprecation and statistical
   correctness tests, at a 90% coverage gate.
-- CI (lint, 3.9–3.13 on Linux and Windows, coverage, wheel-import check), a trusted-publishing
+- CI (lint, 3.10–3.14 on Linux and Windows, coverage, wheel-import check), a trusted-publishing
   release workflow, and a Sphinx documentation site.
 
 ## [0.0.1] — 2019-03-20
