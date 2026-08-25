@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Legacy spatio-temporal Hawkes process on a periodic interval.
 
 Originally written in 2018 to simulate on ``[-pi, pi] x [0, inf)`` with periodic
@@ -13,7 +12,8 @@ and is kept so that results published with it remain reproducible.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 from scipy.integrate import quad
@@ -64,7 +64,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
         Base: Callable[[Any], float],
         spatial: Callable[[Any], Any],
         temporal: Callable[[Any], Any],
-        space: Tuple[float, float] = (-np.pi, np.pi),
+        space: tuple[float, float] = (-np.pi, np.pi),
         monotone_temporal_kernel: bool = False,
         rng: SeedLike = None,
         **kwargs: Any,
@@ -75,7 +75,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
                 f"{type(self).__name__}(space=...)",
                 stacklevel=3,
             )
-            space = tuple(kwargs.pop("Space"))  # type: ignore[assignment]
+            space = tuple(kwargs.pop("Space"))
         if kwargs:
             raise TypeError(f"unexpected keyword arguments: {sorted(kwargs)}")
 
@@ -91,7 +91,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
             self.temporal_extremum = float(fmin(lambda t: -self.temporal(t), 0, disp=False)[0])
 
     @property
-    def Space(self) -> Tuple[float, float]:
+    def Space(self) -> tuple[float, float]:
         """Deprecated alias for :attr:`space`."""
         warn_renamed(
             f"{type(self).__name__}.Space",
@@ -116,7 +116,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
     def _periodized_spatial(self, x: Any) -> Any:
         return self.spatial(self._periodize(x))
 
-    def _past_columns(self, t: float, inclusive: bool = False) -> "list[int]":
+    def _past_columns(self, t: float, inclusive: bool = False) -> list[int]:
         if inclusive:
             return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] <= t]
         return [i for i in range(self.Events.shape[1]) if 0 < self.Events[0, i] < t]
@@ -181,15 +181,13 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
             event_time = t
 
             coord = mcmc_sampler(
-                lambda x: self._full_intensity(self._periodize(x), event_time),  # noqa: B023
+                lambda x: self._full_intensity(self._periodize(x), event_time),
                 np.array([self.space]),
                 seed=self.rng,
             )
             event_space = float(np.ravel(self._periodize(coord))[0])
 
-            self.Events = np.append(
-                self.Events, np.array([[event_time], [event_space]]), axis=1
-            )
+            self.Events = np.append(self.Events, np.array([[event_time], [event_space]]), axis=1)
 
         if self.Sim_num == 0:
             self.Events = self.Events[:, 1:]
@@ -209,8 +207,8 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
     def intensity_over_interval(
         self,
         times: Any,
-        points: Optional[Any] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        points: Any | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Evaluate the intensity on the tensor grid ``times`` x ``points``.
 
         Parameters
@@ -237,9 +235,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
         else:
             points_arr = np.asarray(points, dtype=float).ravel()
 
-        times_arr = np.unique(
-            np.append(np.asarray(times, dtype=float).ravel(), self.Events[0, :])
-        )
+        times_arr = np.unique(np.append(np.asarray(times, dtype=float).ravel(), self.Events[0, :]))
         intensity = np.array(
             [[self._full_intensity(x, float(t)) for t in times_arr] for x in points_arr]
         )

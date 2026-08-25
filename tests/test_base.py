@@ -109,9 +109,7 @@ def test_different_seeds_differ(temporal_cls, exp_kernel, triangular_kernel):
     assert not np.array_equal(a.Events, b.Events)
 
 
-def test_global_numpy_seed_does_not_control_simulation(
-    temporal_cls, exp_kernel, triangular_kernel
-):
+def test_global_numpy_seed_does_not_control_simulation(temporal_cls, exp_kernel, triangular_kernel):
     """Regression for the 0.2.0 breaking change: np.random.seed is irrelevant."""
     np.random.seed(4)
     a = _make(temporal_cls, exp_kernel, triangular_kernel, rng=11)

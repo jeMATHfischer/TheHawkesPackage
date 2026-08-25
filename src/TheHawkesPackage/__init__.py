@@ -6,7 +6,7 @@ submodule is forwarded to :mod:`hawkes_package`; the objects are *identical*
 
 This shim is present in 0.2.x and 0.3.x and removed in 0.4.0. Migrate with::
 
-    import hawkes_package as hp        # instead of: import TheHawkesPackage
+    import hawkes_package as hp  # instead of: import TheHawkesPackage
 
 Implementation note
 -------------------
@@ -25,7 +25,7 @@ Two mechanisms are needed, and neither alone suffices:
 import importlib
 import sys
 import warnings
-from typing import Any, List
+from typing import Any
 
 import hawkes_package as _hp
 
@@ -66,6 +66,6 @@ def __getattr__(name: str) -> Any:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
 
 
-def __dir__() -> List[str]:
+def __dir__() -> list[str]:
     """List forwarded attributes and aliased submodules."""
     return sorted(set(__all__) | set(_MODULE_ALIASES) | {"__version__"})

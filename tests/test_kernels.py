@@ -22,9 +22,7 @@ def test_circle_equals_explicit_image_sum():
     n_images = 3
     k = make_periodic(gaussian, domain, n_images=n_images)
     x, y = 0.3, -1.2
-    expected = sum(
-        gaussian(abs(x - y - n * domain.volume)) for n in range(-n_images, n_images + 1)
-    )
+    expected = sum(gaussian(abs(x - y - n * domain.volume)) for n in range(-n_images, n_images + 1))
     assert k(x, y) == pytest.approx(expected)
 
 
@@ -87,9 +85,7 @@ def test_torus_sums_over_the_full_image_lattice():
     """A (2n+1)^2 lattice: with a constant kernel the total counts the images."""
     n_images = 2
     k = make_periodic(lambda d: 1.0, Torus2D(), n_images=n_images)
-    assert k(np.array([0.0, 0.0]), np.array([0.1, 0.1])) == pytest.approx(
-        (2 * n_images + 1) ** 2
-    )
+    assert k(np.array([0.0, 0.0]), np.array([0.1, 0.1])) == pytest.approx((2 * n_images + 1) ** 2)
 
 
 @pytest.mark.parametrize("axis", [0, 1])

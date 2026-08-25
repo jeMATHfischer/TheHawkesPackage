@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import functools
 import warnings
-from typing import Any, Callable, Dict, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 __all__ = ["DeprecatedAlias", "deprecated_module_getattr", "warn_renamed"]
 
@@ -60,6 +61,7 @@ class DeprecatedAlias:
     >>> class Process:
     ...     def simulate(self, k):
     ...         return k
+    ...
     ...     propagate_by_amount = DeprecatedAlias("simulate")
     """
 
@@ -72,11 +74,10 @@ class DeprecatedAlias:
         """Record the attribute name this descriptor was bound to."""
         self.public_name = name
         self.__doc__ = (
-            f"Deprecated alias for :meth:`~{owner.__module__}."
-            f"{owner.__qualname__}.{self.target}`."
+            f"Deprecated alias for :meth:`~{owner.__module__}.{owner.__qualname__}.{self.target}`."
         )
 
-    def __get__(self, obj: Any, objtype: Optional[type] = None) -> Callable[..., Any]:
+    def __get__(self, obj: Any, objtype: type | None = None) -> Callable[..., Any]:
         """Return a wrapper that warns and then forwards to the target method."""
         owner = objtype if objtype is not None else type(obj)
         bound = getattr(obj if obj is not None else owner, self.target)
@@ -96,7 +97,7 @@ class DeprecatedAlias:
 
 
 def deprecated_module_getattr(
-    mapping: Dict[str, Tuple[str, Any]],
+    mapping: dict[str, tuple[str, Any]],
     *,
     module: str,
     removed_in: str = REMOVED_IN,
