@@ -142,3 +142,41 @@ def test_import_does_not_disturb_the_global_random_stream():
         [sys.executable, "-c", script], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "True"
+
+
+def test_intensity_is_invariant_to_coordinate_shape(legacy, legacy_kernels):
+    """Regression: a shape-(1,) coordinate selected a different surface.
+
+    `spatial` applied to a shape-(1,) offset returns a shape-(1,) value, so the
+    spatial factors formed an (n, 1) column; multiplied by the (n,) temporal
+    factors that broadcast to an (n, n) outer product and summed to
+    (sum kappa_t)(sum kappa_s). `mcmc_sampler` always passes an array, so every
+    event location in this class was drawn from that wrong density -- while the
+    temporal thinning, fed scalars by `quad`, used the correct one.
+
+    Measured before the fix: 1.191369 (scalar) against 1.717217 (array).
+    """
+    base, spatial, temporal = legacy_kernels
+    p = legacy()
+    p.Events = np.array([[0.3, 0.6, 0.9], [0.1, -0.4, 0.8]])
+
+    def periodize(v):
+        return (v + np.pi) % (2 * np.pi) - np.pi
+
+    t, x = 1.0, 0.15
+    expected = base(x)
+    for time, coord in zip(p.Events[0, :], p.Events[1, :], strict=True):
+        expected += float(temporal(t - time)) * float(spatial(periodize(x - coord)))
+
+    for spelling in (x, [x], np.array([x]), np.array([[x]])):
+        assert p.intensity(t, spelling) == pytest.approx(max(0.0, expected))
+
+
+def test_non_constant_background_is_usable(legacy_kernels):
+    """`Base` receives a shape-(1,) point on every code path."""
+    _, spatial, temporal = legacy_kernels
+    p = LegacySpatioTemporalHawkesProcess(
+        lambda x: 0.5 + 0.2 * np.cos(x[0]), spatial, temporal, rng=0
+    )
+    p.simulate(2)
+    assert p.Events.shape == (2, 2)

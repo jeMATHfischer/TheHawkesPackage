@@ -214,3 +214,49 @@ def test_intensity_over_interval_rejects_wrong_point_width(make_st_process):
     p = make_st_process(Circle())
     with pytest.raises(ValueError, match=r"shape \(n_x, 1\)"):
         p.intensity_over_interval(np.linspace(0, 1, 3), points=np.zeros((4, 2)))
+
+
+@pytest.mark.parametrize("dom", [Circle(), Torus2D()])
+def test_user_callables_receive_a_shape_ndim_point(bump_spatial, exp_kernel, dom):
+    """Every path must hand `base` a shape-(ndim,) array, never a bare float.
+
+    The quadrature path used to pass a Python float while Monte Carlo and the
+    MCMC sampler passed arrays, so no non-constant background could be written
+    that worked on both.
+    """
+    seen = []
+
+    def base(x):
+        seen.append(np.asarray(x))
+        return 0.5
+
+    ndim = dom.bounds.shape[0]
+    p = SpatioTemporalHawkesProcess(
+        base, bump_spatial, exp_kernel, domain=dom, monotone_temporal_kernel=True, rng=0
+    )
+    p.simulate(2)
+    p.intensity(1.0, np.zeros(ndim))
+    assert seen, "base was never called"
+    assert all(isinstance(x, np.ndarray) and x.shape == (ndim,) for x in seen)
+
+
+@pytest.mark.parametrize("dom", [Circle(), Torus2D()])
+def test_non_constant_background_is_usable(bump_spatial, exp_kernel, dom):
+    """`base=lambda x: ... x[0] ...` must work, and port unchanged across domains."""
+    p = SpatioTemporalHawkesProcess(
+        lambda x: 0.5 + 0.2 * np.cos(x[0]),
+        bump_spatial,
+        exp_kernel,
+        domain=dom,
+        monotone_temporal_kernel=True,
+        rng=0,
+    )
+    p.simulate(2)
+    assert p.Events.shape == (dom.bounds.shape[0] + 1, 2)
+
+
+def test_intensity_is_invariant_to_coordinate_shape(make_st_process):
+    p = make_st_process(Circle())
+    p.Events = np.array([[0.3, 0.6], [0.1, -0.4]])
+    values = [p.intensity(1.0, s) for s in (0.15, [0.15], np.array([0.15]), np.array([[0.15]]))]
+    assert values == pytest.approx([values[0]] * 4)

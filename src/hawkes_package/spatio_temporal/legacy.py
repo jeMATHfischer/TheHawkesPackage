@@ -19,7 +19,7 @@ import numpy as np
 from scipy.integrate import quad
 
 from .._deprecation import warn_renamed
-from .._numerics import as_float, locate_peak
+from .._numerics import as_float, as_point, locate_peak
 from ..base import HawkesProcess, SeedLike, _stalled_message
 from ..mcmc import mcmc_sampler
 
@@ -146,18 +146,27 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
         return self._temporal_factors(t)
 
     def _dist_spatial(self, x: Any, t: float, bound: bool = False) -> np.ndarray:
+        # Scalarised deliberately. `x` arrives as a shape-(1,) point, and
+        # `spatial` applied to a shape-(1,) offset returns a shape-(1,) value,
+        # so the naive comprehension built an (n, 1) column. Multiplied by the
+        # (n,) temporal factors that broadcasts to an (n, n) outer product, and
+        # .sum() then computed (sum kappa_t)(sum kappa_s) instead of
+        # sum(kappa_t * kappa_s) -- the density every location was drawn from.
+        xs = float(as_point(x, 1)[0])
         return np.array(
             [
-                self._periodized_spatial(x - self.Events[1, i])
+                as_float(self._periodized_spatial(xs - float(self.Events[1, i])))
                 for i in self._past_columns(t, inclusive=bound)
-            ]
+            ],
+            dtype=float,
         )
 
     def _full_intensity(self, x: Any, t: float, bound: bool = False) -> float:
+        x = as_point(x, 1)
         contrib = np.multiply(
             self._temporal_factors(t, bound=bound), self._dist_spatial(x, t, bound=bound)
         ).sum()
-        return max(0.0, float(self.Base(x)) + float(contrib))
+        return max(0.0, as_float(self.Base(x)) + float(contrib))
 
     def _integrated_intensity(self, t: float, bound: bool = False) -> float:
         """Intensity integrated over the spatial interval at time `t`."""

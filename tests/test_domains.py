@@ -178,3 +178,21 @@ class TestTorus2D:
 
     def test_bounds_are_two_dimensional(self):
         assert Torus2D().bounds.shape == (2, 2)
+
+
+def test_circle_distance_rejects_a_two_vector():
+    """`.flat[0]` silently measured only the first component."""
+    with pytest.raises(ValueError, match="1 coordinate"):
+        Circle().distance(np.array([0.0, 5.0]), np.array([1.0, -5.0]))
+
+
+def test_torus_distance_accepts_a_column_vector():
+    t = Torus2D()
+    column = t.distance(np.array([[0.5], [1.0]]), np.array([[2.0], [-1.0]]))
+    flat = t.distance(np.array([0.5, 1.0]), np.array([2.0, -1.0]))
+    assert column == pytest.approx(flat)
+
+
+def test_torus_distance_rejects_a_scalar():
+    with pytest.raises(ValueError, match="2 coordinate"):
+        Torus2D().distance(0.5, 1.0)

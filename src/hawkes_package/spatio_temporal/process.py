@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 from scipy.integrate import quad
 
-from .._numerics import as_float, locate_peak
+from .._numerics import as_float, as_point, locate_peak
 from ..base import HawkesProcess, SeedLike, _stalled_message
 from ..mcmc import mcmc_sampler
 from .domains import Circle, SpatialDomain
@@ -97,6 +97,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         self.monotone_temporal_kernel = monotone_temporal_kernel
 
         ndim = self.domain.bounds.shape[0]
+        self._ndim = ndim
         # Empty: `Events` holds only real events at every moment. See
         # TemporalHawkesProcess.__init__ for why the bootstrap column is gone.
         self.Events = np.empty((ndim + 1, 0), dtype=float)
@@ -151,13 +152,23 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
     def _dist_spatial(self, x: Any, t: float, bound: bool = False) -> np.ndarray:
         idx = self._past_event_indices(t, inclusive=bound)
-        return np.array([self.spatial(self.domain.distance(x, self.Events[1:, i])) for i in idx])
+        # as_float on every element: a user `spatial` returning a 0-d or
+        # shape-(1,) array would otherwise build a (n, 1) column here, which
+        # broadcasts against the (n,) temporal factors to an (n, n) outer
+        # product -- silently computing (sum kappa_t)(sum kappa_s).
+        return np.array(
+            [as_float(self.spatial(self.domain.distance(x, self.Events[1:, i]))) for i in idx],
+            dtype=float,
+        )
 
     def _full_intensity(self, x: Any, t: float, bound: bool = False) -> float:
+        # The single place a coordinate is normalised: `base` and `spatial` are
+        # always handed a shape-(ndim,) point, whichever path called us.
+        x = as_point(x, self._ndim)
         contrib = np.multiply(
             self._temporal_factors(t, bound=bound), self._dist_spatial(x, t, bound=bound)
         ).sum()
-        return max(0.0, float(self.base(x)) + float(contrib))
+        return max(0.0, as_float(self.base(x)) + float(contrib))
 
     def _integrated_intensity(self, t: float, bound: bool = False) -> float:
         """Intensity integrated over the spatial domain at time `t`."""
