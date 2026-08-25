@@ -130,3 +130,17 @@ def test_intensity_over_interval_shape_and_sign(temporal_cls, exp_kernel, triang
     assert np.all(np.diff(times) > 0), "grid must be sorted and de-duplicated"
     # every event time appears in the grid
     assert np.isin(p.Events, times).all()
+
+
+def test_exploding_process_raises_instead_of_hanging():
+    """An explosive nonlinearity must fail loudly, not spin forever.
+
+    With phi = exp and a unit-mass kernel the intensity diverges: the
+    inter-arrival time underflows to exactly zero and the thinning loop stops
+    advancing, so before 0.2.0 `simulate` never returned.
+    """
+    p = MonotoneKernelHawkes(
+        lambda x: np.exp(-10 * np.asarray(x, dtype=float)), nonlinearity=np.exp, rng=7
+    )
+    with pytest.raises(RuntimeError, match="exploding"):
+        p.simulate(500)

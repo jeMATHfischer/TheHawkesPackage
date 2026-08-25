@@ -20,7 +20,7 @@ from scipy.integrate import quad
 from scipy.optimize import fmin
 
 from .._deprecation import warn_renamed
-from ..base import HawkesProcess, SeedLike
+from ..base import HawkesProcess, SeedLike, _stalled_message
 from ..mcmc import mcmc_sampler
 
 __all__ = ["LegacySpatioTemporalHawkesProcess"]
@@ -165,7 +165,7 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
     # ------------------------------------------------------------------
 
     def _propagate(self, k: int) -> None:
-        for _ in range(k):
+        for done in range(k):
             t = float(self.Events[0, -1])
 
             while True:
@@ -175,7 +175,10 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
                         f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
                         "background intensity must be positive somewhere."
                     )
-                t += self.rng.exponential() / bound
+                advanced = t + self.rng.exponential() / bound
+                if not advanced > t:
+                    raise RuntimeError(_stalled_message(t, bound, done, k))
+                t = advanced
                 if self.rng.uniform() * bound <= self._integrated_intensity(t):
                     break
             event_time = t

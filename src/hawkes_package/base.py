@@ -26,6 +26,23 @@ __all__ = ["HawkesProcess", "TemporalHawkesProcess"]
 SeedLike = int | np.random.Generator | np.random.SeedSequence | None
 
 
+def _stalled_message(t: float, bound: float, accepted: int, requested: int) -> str:
+    """Explain an exploding process instead of spinning forever.
+
+    When the intensity diverges, the inter-arrival time underflows to zero and
+    the thinning loop stops advancing: events pile up at one instant and the
+    simulation never returns. Detecting that and raising turns a hang into an
+    actionable error.
+    """
+    return (
+        f"Simulation stalled at t={t!r} after {accepted} of {requested} requested "
+        f"events: the thinning bound has reached {bound!r} and the inter-arrival "
+        "time has underflowed to zero, so time can no longer advance. The process "
+        "is exploding -- the expected number of offspring per event is at or above "
+        "one. Reduce the kernel's mass or use a more slowly growing nonlinearity."
+    )
+
+
 class HawkesProcess(ABC):
     """Base class for all Hawkes processes.
 
@@ -129,7 +146,11 @@ class TemporalHawkesProcess(HawkesProcess):
                     f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
                     "kernel or nonlinearity must keep the intensity positive."
                 )
-            t += self.rng.exponential() / bound
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(_stalled_message(t, bound, accepted, k))
+            t = advanced
+
             if self.rng.uniform() * bound <= self._conditional_intensity(t):
                 self.Events = np.append(self.Events, t)
                 accepted += 1
