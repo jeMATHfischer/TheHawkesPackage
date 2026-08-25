@@ -84,6 +84,11 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
   MCMC domain. It now honours the value passed.
 - The mutable default argument `Space=[-np.pi, np.pi]` is now an immutable tuple, renamed `space=`.
   `Space=` is still accepted for one release with a `DeprecationWarning`.
+- An exploding process no longer hangs. When the expected offspring count reaches one the intensity
+  diverges, inter-arrival times underflow to exactly zero and time stops advancing, so `simulate`
+  looped forever with no diagnostic. It now raises `RuntimeError` naming the cause. This is easy to
+  trigger with a fast-growing nonlinearity — `nonlinearity=np.exp` over a unit-mass kernel is
+  enough — and the documentation notebook that shipped with 0.0.1 did exactly that.
 
 ### Added
 
