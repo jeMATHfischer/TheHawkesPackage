@@ -178,13 +178,7 @@ minversion = "7.4"
 testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 xfail_strict = true
-filterwarnings = [
-  "error",
-  # scipy.integrate.quad legitimately reports slow convergence on the
-  # spatio-temporal intensity, which is piecewise-defined via max(0, .) and
-  # indicator functions. Benign, and extremely noisy (~300k per full run).
-  "ignore::scipy.integrate.IntegrationWarning",
-]
+filterwarnings = ["error"]
 markers = [
   "slow: long-running tests (deselect with -m 'not slow')",
   "statistical: seeded distributional-correctness checks",
