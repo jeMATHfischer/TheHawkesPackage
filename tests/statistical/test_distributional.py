@@ -208,3 +208,33 @@ def test_spatial_sampler_reproduces_the_conditional_density():
         f"sampled locations do not follow the conditional density (p={result.pvalue:.2e});\n"
         f"observed={observed}\nexpected={expected.round(1)}"
     )
+
+
+@pytest.mark.statistical
+@pytest.mark.slow
+@pytest.mark.filterwarnings("ignore::scipy.integrate.IntegrationWarning")
+def test_sampler_matches_a_narrow_target_on_a_wide_domain():
+    """The proposal scale must follow the domain, not a hard-wired 1.0.
+
+    On a circle of circumference 62.8 with a peak 0.5 wide, a unit proposal
+    could not equilibrate in 2000 steps, so the draw was dominated by the
+    uniform initial point: 30.3% of samples fell in a peak holding 52.2% of
+    the mass.
+    """
+    domain = hp.Circle(radius=10.0)
+    lo, hi = domain.bounds[0]
+
+    def density(x):
+        return 0.05 + 3.0 * np.exp(-(float(np.ravel(x)[0]) ** 2) / (2 * 0.25**2))
+
+    samples = np.array(
+        [
+            float(mcmc_sampler(density, domain.bounds, n_iter=3000, burn_in=800, seed=s)[0])
+            for s in range(300)
+        ]
+    )
+    assert np.all((samples >= lo) & (samples <= hi))
+
+    total = quad(lambda v: density(np.array([v])), lo, hi, limit=400)[0]
+    in_peak = quad(lambda v: density(np.array([v])), -0.5, 0.5, limit=400)[0]
+    assert float(np.mean(np.abs(samples) < 0.5)) == pytest.approx(in_peak / total, abs=0.08)

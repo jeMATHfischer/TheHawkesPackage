@@ -14,7 +14,24 @@ from .._numerics import as_point
 
 
 class SpatialDomain(ABC):
-    """Abstract base class for spatial domains."""
+    """Abstract base class for spatial domains.
+
+    Subclasses must satisfy ``volume == prod(bounds widths)``: the spatial
+    integral is a quadrature rule over :attr:`bounds`, so a domain that is a
+    proper subset of its bounding box is not supported.
+
+    Attributes
+    ----------
+    periodic : bool
+        Whether :meth:`wrap` folds coordinates through a translation symmetry,
+        as opposed to clipping them. Only a genuinely periodic domain may have
+        MCMC proposals folded rather than rejected: folding is a symmetric move
+        on the quotient and therefore reversible, whereas folding with a
+        clipping map would pile every draw onto the boundary. Defaults to
+        ``False``, so a third-party domain is treated conservatively.
+    """
+
+    periodic: bool = False
 
     @abstractmethod
     def distance(self, x: np.ndarray, y: np.ndarray) -> float:
@@ -45,6 +62,8 @@ class Circle(SpatialDomain):
     Points are represented as arc lengths in [-π·radius, π·radius);
     :attr:`bounds` reports the closed bounding box used for quadrature.
     """
+
+    periodic = True
 
     def __init__(self, radius: float = 1.0):
         self.radius = radius
@@ -84,6 +103,8 @@ class Torus2D(SpatialDomain):
 
     Points are represented in [-L1/2, L1/2) x [-L2/2, L2/2).
     """
+
+    periodic = True
 
     def __init__(self, L1: float = 2 * np.pi, L2: float = 2 * np.pi):
         self.L1 = L1
