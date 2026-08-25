@@ -1,0 +1,201 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "the-hawkes-package"
+dynamic = ["version"]
+description = "Simulation of temporal and spatio-temporal Hawkes processes via Ogata thinning."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Jens Fischer", email = "jefischer@posteo.de" }]
+maintainers = [{ name = "Jens Fischer", email = "jefischer@posteo.de" }]
+keywords = [
+  "hawkes-process",
+  "point-process",
+  "self-exciting",
+  "spatio-temporal",
+  "ogata-thinning",
+  "stochastic-simulation",
+  "mcmc",
+  "metropolis-hastings",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Typing :: Typed",
+]
+dependencies = [
+  "numpy>=1.22",
+  "scipy>=1.8",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "pytest-randomly>=3.15",
+]
+docs = [
+  "sphinx>=7.3",
+  "furo>=2024.5.6",
+  "myst-nb>=1.1",
+  "numpydoc>=1.7",
+  "sphinx-copybutton>=0.5",
+  "sphinx-design>=0.6",
+  "matplotlib>=3.7",
+]
+dev = [
+  "the-hawkes-package[test,docs]",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pre-commit>=3.7",
+  "build>=1.2",
+  "twine>=6.1",
+  "nbstripout>=0.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/jeMATHfischer/TheHawkesPackage"
+Documentation = "https://jeMATHfischer.github.io/TheHawkesPackage/"
+Repository = "https://github.com/jeMATHfischer/TheHawkesPackage"
+Issues = "https://github.com/jeMATHfischer/TheHawkesPackage/issues"
+Changelog = "https://github.com/jeMATHfischer/TheHawkesPackage/blob/master/CHANGELOG.md"
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+
+[tool.hatch.version]
+path = "src/hawkes_package/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hawkes_package", "src/TheHawkesPackage"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/",
+  "tests/",
+  "docs/",
+  "README.md",
+  "LICENSE",
+  "CHANGELOG.md",
+  "pyproject.toml",
+]
+
+# ---------------------------------------------------------------------------
+# Lint / format
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+extend-exclude = ["docs/_build"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "NPY", "PT", "RET", "ARG", "TID", "D", "RUF"]
+ignore = [
+  "D105", # magic-method docstrings
+  "D107", # __init__ docstring — documented on the class, numpydoc style
+  "E731", # lambda assignment — pervasive and idiomatic in the kernel code
+]
+# Deliberately NOT selecting `N` (pep8-naming): `Events`, `Sim_num`, `Base`,
+# `Space`, `L1`, `L2` are public API in 0.2.0. Revisit in 0.3.0.
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ARG", "B018"]
+"src/hawkes_package/spatio_temporal/legacy.py" = ["D", "ARG", "B023"]
+"src/TheHawkesPackage/__init__.py" = ["D", "F401"]
+"docs/conf.py" = ["D", "INP001"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# Typing
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.9"
+files = ["src"]
+strict = true
+warn_unreachable = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The legacy periodic-interval simulator is a wall of nested closures kept for
+# bit-compatibility with previously published results. It is frozen and slated
+# for removal in 0.4.0, so it is checked loosely rather than rewritten.
+module = ["hawkes_package.spatio_temporal.legacy"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+disable_error_code = ["no-any-return", "var-annotated", "misc"]
+
+[[tool.mypy.overrides]]
+module = ["TheHawkesPackage.*"]
+ignore_errors = true
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+xfail_strict = true
+filterwarnings = [
+  "error",
+  # scipy.integrate.quad legitimately reports slow convergence on the
+  # spatio-temporal intensity, which is piecewise-defined via max(0, .) and
+  # indicator functions. Benign, and extremely noisy (~300k per full run).
+  "ignore::scipy.integrate.IntegrationWarning",
+]
+markers = [
+  "slow: long-running tests (deselect with -m 'not slow')",
+  "statistical: seeded distributional-correctness checks",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source_pkgs = ["hawkes_package", "TheHawkesPackage"]
+
+[tool.coverage.paths]
+source = ["src", "*/site-packages"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@(abc\\.)?abstractmethod",
+  "@overload",
+  "^\\s*\\.\\.\\.$",
+]

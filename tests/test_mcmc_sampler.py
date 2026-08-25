@@ -1,16 +1,16 @@
 import numpy as np
 import pytest
-from TheHawkesPackage.MCMC_sampler import mcmc_sampler
+from hawkes_package.mcmc import mcmc_sampler
 
 
 def gaussian_density(x, mu=0.0, sigma=1.0):
-    return float(np.exp(-0.5 * ((x - mu) / sigma) ** 2))
+    return float(np.exp(-0.5 * ((x[0] - mu) / sigma) ** 2))
 
 
 def test_returns_point_in_domain():
     space = np.array([[-5.0, 5.0]])
     sample = mcmc_sampler(gaussian_density, space, n_iter=500, burn_in=100, seed=0)
-    assert -5.0 <= float(sample) <= 5.0
+    assert -5.0 <= float(sample[0]) <= 5.0
 
 
 def test_acceptance_rate_reasonable():
@@ -28,7 +28,7 @@ def test_sample_near_true_mean():
     for seed in range(50):
         s = mcmc_sampler(gaussian_density, space, n_iter=3000, burn_in=1000,
                          proposal_std=1.5, seed=int(seed))
-        samples.append(float(s))
+        samples.append(float(s[0]))
     mean = np.mean(samples)
     assert abs(mean) < 0.5, f"Sample mean {mean:.3f} too far from true mean 0"
 

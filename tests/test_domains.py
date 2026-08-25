@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from TheHawkesPackage.spatio_temporal.domains import Circle, Torus2D
+from hawkes_package.spatio_temporal.domains import Circle, Torus2D
 
 
 class TestCircle:
@@ -23,14 +23,14 @@ class TestCircle:
     def test_wrap_stays_in_range(self):
         c = Circle()
         wrapped = c.wrap(np.array([3 * np.pi]))
-        assert -np.pi <= float(wrapped) <= np.pi
+        assert -np.pi <= float(wrapped[0]) <= np.pi
 
     def test_sample_in_domain(self):
         c = Circle()
         rng = np.random.default_rng(0)
         for _ in range(50):
             s = c.sample_uniform(rng)
-            assert -np.pi <= float(s) <= np.pi
+            assert -np.pi <= float(s[0]) <= np.pi
 
     def test_volume(self):
         c = Circle(radius=1.0)

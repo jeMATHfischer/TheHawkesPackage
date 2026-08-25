@@ -16,7 +16,7 @@ class BellShapeHawkes():
         self.Events = np.array([0])
         self.Sim_num = 0
         self.nonlinearity = nonlinearity
-        self.ext = fmin(lambda x: -self.temporal(x), 0, disp=False)
+        self.ext = float(fmin(lambda x: -self.temporal(x), 0, disp=False)[0])
 
     def __bound(self, T):
         if T - self.Events[-1] < self.ext:
