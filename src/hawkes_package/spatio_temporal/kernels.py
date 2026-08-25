@@ -12,15 +12,40 @@ from typing import Any
 
 import numpy as np
 
+from .._numerics import as_float, as_point
 from .domains import SpatialDomain
 
-__all__ = ["make_periodic"]
+__all__ = ["PairwiseKernel", "make_periodic"]
+
+
+class PairwiseKernel:
+    """A spatial kernel that consumes both endpoints rather than a distance.
+
+    :class:`~hawkes_package.spatio_temporal.process.SpatioTemporalHawkesProcess`
+    normally reduces a pair of points to a geodesic distance before calling
+    `spatial`. An image sum cannot be written that way -- on a torus the
+    geodesic distance does not determine the lattice sum -- so such a kernel
+    declares itself by carrying ``pairwise = True`` and is then called with the
+    two points.
+
+    Any callable may opt in the same way; it need not be an instance of this
+    class.
+    """
+
+    pairwise = True
+
+    def __init__(self, fn: Callable[[Any, Any], Any], /) -> None:
+        self._fn = fn
+
+    def __call__(self, x: Any, y: Any) -> float:
+        """Evaluate the kernel between two domain points."""
+        return as_float(self._fn(x, y))
+
 
 KernelFn = Callable[[Any], Any]
-PeriodicKernel = Callable[[Any, Any], float]
 
 
-def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3) -> PeriodicKernel:
+def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3) -> PairwiseKernel:
     r"""Return a periodised version of `kernel_fn` that sums over image points.
 
     For a domain with discrete translational symmetry (:class:`Circle`,
@@ -64,32 +89,37 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
         period = domain.volume
 
         def circle_kernel(x: Any, y: Any) -> float:
-            # Accept scalars or shape-(1,) arrays: process.py passes event
-            # coordinates, which are always 1-element arrays.
-            xs = float(np.ravel(x)[0])
-            ys = float(np.ravel(y)[0])
+            # Reduce to the canonical offset first. Summing images about a raw
+            # difference leaves the nearest image outside the window once
+            # |x - y| exceeds n_images * period, so the kernel would decay to
+            # zero instead of staying periodic.
+            offset = (as_point(x, 1)[0] - as_point(y, 1)[0] + period / 2) % period - period / 2
             total = 0.0
             for n in range(-n_images, n_images + 1):
-                total += float(kernel_fn(abs(xs - ys - n * period)))
+                total += as_float(kernel_fn(abs(offset - n * period)))
             return total
 
-        return circle_kernel
+        return PairwiseKernel(circle_kernel)
 
     if isinstance(domain, Torus2D):
         length_1, length_2 = domain.L1, domain.L2
 
+        periods = np.array([length_1, length_2])
+
         def torus_kernel(x: Any, y: Any) -> float:
-            x, y = np.asarray(x), np.asarray(y)
+            # Canonical offset per axis, for the same reason as on the circle.
+            delta = as_point(x, 2) - as_point(y, 2)
+            delta = (delta + periods / 2) % periods - periods / 2
             total = 0.0
             for n1 in range(-n_images, n_images + 1):
                 for n2 in range(-n_images, n_images + 1):
                     offset = np.array([n1 * length_1, n2 * length_2])
-                    total += float(kernel_fn(float(np.linalg.norm(x - y - offset))))
+                    total += as_float(kernel_fn(float(np.linalg.norm(delta - offset))))
             return total
 
-        return torus_kernel
+        return PairwiseKernel(torus_kernel)
 
     def generic_kernel(x: Any, y: Any) -> float:
-        return float(kernel_fn(domain.distance(x, y)))
+        return as_float(kernel_fn(domain.distance(x, y)))
 
-    return generic_kernel
+    return PairwiseKernel(generic_kernel)

@@ -125,3 +125,33 @@ def test_generic_fallback_ignores_n_images():
     b = make_periodic(gaussian, domain, n_images=9)
     x, y = np.array([0.2]), np.array([0.9])
     assert a(x, y) == pytest.approx(b(x, y))
+
+
+def test_periodic_kernel_is_marked_pairwise():
+    """The marker is how the process knows to pass both points, not a distance."""
+    k = make_periodic(gaussian, Circle())
+    assert getattr(k, "pairwise", False) is True
+
+
+def test_circle_kernel_stays_periodic_far_outside_the_window():
+    """Regression: beyond n_images periods the nearest image left the window.
+
+    The sum was taken about the raw difference, so once |x - y| exceeded
+    n_images * period the kernel decayed to zero instead of staying periodic --
+    reachable in practice because the MCMC chain routinely wandered many
+    periods out before its proposals were constrained.
+    """
+    domain = Circle()
+    k = make_periodic(gaussian, domain, n_images=3)
+    reference = k(0.4, -0.7)
+    for periods in (1, 5, 12, 40):
+        assert k(0.4 + periods * domain.volume, -0.7) == pytest.approx(reference, rel=1e-9)
+
+
+def test_torus_kernel_stays_periodic_far_outside_the_window():
+    domain = Torus2D(L1=2.0, L2=3.0)
+    k = make_periodic(gaussian, domain, n_images=2)
+    x, y = np.array([0.2, -0.4]), np.array([-0.9, 1.1])
+    reference = k(x, y)
+    far = x + np.array([9 * domain.L1, 7 * domain.L2])
+    assert k(far, y) == pytest.approx(reference, rel=1e-9)
