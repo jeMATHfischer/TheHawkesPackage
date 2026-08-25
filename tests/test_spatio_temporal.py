@@ -7,8 +7,8 @@ Regression test: duplicate spatial coordinates must not raise ValueError.
 
 import numpy as np
 import pytest
-import TheHawkesPackage as THP
-from TheHawkesPackage.spatio_temporal.domains import Circle
+import hawkes_package as THP
+from hawkes_package.spatio_temporal.domains import Circle
 
 
 def _make_legacy_process():

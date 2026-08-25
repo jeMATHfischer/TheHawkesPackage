@@ -43,10 +43,14 @@ def make_periodic(kernel_fn, domain: SpatialDomain, n_images: int = 3):
         period = domain.volume
 
         def periodic_kernel(x, y):
+            # Accept scalars or shape-(1,) arrays: process.py passes event
+            # coordinates, which are always 1-element arrays.
+            xs = float(np.ravel(x)[0])
+            ys = float(np.ravel(y)[0])
             total = 0.0
             for n in range(-n_images, n_images + 1):
                 offset = n * period
-                total += kernel_fn(abs(float(x) - float(y) - offset))
+                total += kernel_fn(abs(xs - ys - offset))
             return total
 
         return periodic_kernel

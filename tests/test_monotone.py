@@ -10,7 +10,7 @@ These tests verify that the thinning invariant M ≥ λ holds everywhere.
 
 import numpy as np
 import pytest
-import TheHawkesPackage as THP
+import hawkes_package as THP
 
 
 def _simulate_with_invariant_check(temporal, nonlinearity, k, seed=0):

@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-import TheHawkesPackage as THP
+import hawkes_package as THP
 
 
 def triangular_kernel(x):

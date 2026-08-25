@@ -18,8 +18,8 @@ import random as rand
 from scipy.integrate import quad
 from scipy.optimize import fmin
 
-from .domains import SpatialDomain, Circle
-from .sampler import mcmc_sampler
+from ..mcmc import mcmc_sampler
+from .domains import Circle, SpatialDomain
 
 
 class SpatioTemporalHawkesProcess:
@@ -60,7 +60,7 @@ class SpatioTemporalHawkesProcess:
 
         if not monotone_temporal_kernel:
             self.temporal_extremum = float(
-                fmin(lambda t: -self.temporal(t), 0, disp=False)
+                fmin(lambda t: -self.temporal(t), 0, disp=False)[0]
             )
 
     # ------------------------------------------------------------------

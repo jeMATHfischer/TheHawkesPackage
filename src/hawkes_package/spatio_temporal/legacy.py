@@ -14,8 +14,7 @@ import random as rand
 from scipy.integrate import quad
 from scipy.optimize import fmin
 
-from .MCMC_sampler import mcmc_sampler
-# from RandomNumberGen import draw_random_number_from_pdf
+from ..mcmc import mcmc_sampler
 
 rand.seed(42)
 
@@ -33,7 +32,7 @@ class Spatio_Temporal_Hawkes_Process():
         self.Space = Space
 
         if monotone_temporal_kernel is not True:
-            self.temporal_extremum = fmin(lambda t: -self.temporal(t), 0, disp=False)
+            self.temporal_extremum = float(fmin(lambda t: -self.temporal(t), 0, disp=False)[0])
 
     def propagate_by_amount(self, k):
 
