@@ -86,6 +86,8 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         peak_lag: float | None = None,
         peak_value: float | None = None,
         n_quad: int | None = None,
+        proposal_std: Any = None,
+        n_iter: int = 2000,
     ) -> None:
         super().__init__(rng=rng)
         self.base = base
@@ -96,6 +98,8 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
         ndim = self.domain.bounds.shape[0]
         self._ndim = ndim
+        self.proposal_std = proposal_std
+        self.n_iter = int(n_iter)
         self._build_quadrature(n_quad)
         # Empty: `Events` holds only real events at every moment. See
         # TemporalHawkesProcess.__init__ for why the bootstrap column is gone.
@@ -250,8 +254,16 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
             coord = mcmc_sampler(
                 lambda x: self._full_intensity(x, event_time),  # noqa: B023
                 self.domain.bounds,
+                n_iter=self.n_iter,
+                proposal_std=self.proposal_std,
                 seed=self.rng,
+                # Folding is reversible only where `wrap` is a translation
+                # symmetry; elsewhere out-of-domain proposals are rejected.
+                transform=self.domain.wrap if self.domain.periodic else None,
             )
+            # Idempotent: the sampler already returns an in-domain point. Kept
+            # only as a guard against a third-party `wrap` returning a
+            # boundary-equal representative.
             coord = self.domain.wrap(coord)
 
             new_event = np.vstack(

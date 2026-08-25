@@ -217,6 +217,9 @@ class LegacySpatioTemporalHawkesProcess(HawkesProcess):
                 lambda x: self._full_intensity(self._periodize(x), event_time),
                 np.array([self.space]),
                 seed=self.rng,
+                # This class is periodic by construction, so folding the
+                # proposal is a symmetric move on the quotient and reversible.
+                transform=self._periodize,
             )
             event_space = float(np.ravel(self._periodize(coord))[0])
 
