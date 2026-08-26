@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/the-hawkes-package.svg)](https://pypi.org/project/the-hawkes-package/)
 [![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.14-blue)](https://pypi.org/project/the-hawkes-package/)
 [![Docs](https://img.shields.io/badge/docs-latest-blue)](https://jeMATHfischer.github.io/TheHawkesPackage/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/jeMATHfischer/TheHawkesPackage/blob/master/LICENSE)
 
 Simulation of temporal and spatio-temporal Hawkes processes via Ogata's thinning algorithm.
 
@@ -89,7 +89,7 @@ hp.ExponentialHawkes(param, rng=42)  # reproducible
 hp.ExponentialHawkes(param, rng=my_generator)  # share one stream
 ```
 
-`np.random.seed(...)` does **not** control simulations. See [CHANGELOG.md](CHANGELOG.md).
+`np.random.seed(...)` does **not** control simulations. See [CHANGELOG.md](https://github.com/jeMATHfischer/TheHawkesPackage/blob/master/CHANGELOG.md).
 
 ## Migrating from `TheHawkesPackage`
 
@@ -104,4 +104,4 @@ remain as deprecated aliases.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/jeMATHfischer/TheHawkesPackage/blob/master/LICENSE).
