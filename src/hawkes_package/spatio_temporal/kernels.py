@@ -119,6 +119,28 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
 
         return PairwiseKernel(torus_kernel)
 
+    # Any other domain that declares a deck group -- `FundamentalDomain` does --
+    # gets the same image sum, driven by `orbit` instead of a hand-written
+    # lattice. Reached only after the two branches above, so neither of them
+    # changes behaviour.
+    ndim = np.asarray(domain.bounds, dtype=float).shape[0]
+    if domain.orbit(np.asarray(domain.interior_point, dtype=float), n_images) is not None:
+
+        def orbit_kernel(x: Any, y: Any) -> float:
+            # Canonical representatives first, for the same reason as on the
+            # circle: measured from unreduced lifts the nearest image can fall
+            # outside the window, and the kernel would decay to zero instead of
+            # staying periodic.
+            here = as_point(domain.wrap(x), ndim)
+            images = domain.orbit(domain.wrap(y), n_images)
+            if images is None:  # pragma: no cover - the branch above proves otherwise
+                return as_float(kernel_fn(domain.distance(x, y)))
+            offsets = np.asarray([np.asarray(image, dtype=float).reshape(-1) for image in images])
+            distances = np.linalg.norm(offsets - here, axis=1)
+            return float(sum(as_float(kernel_fn(float(d))) for d in distances))
+
+        return PairwiseKernel(orbit_kernel)
+
     def generic_kernel(x: Any, y: Any) -> float:
         return as_float(kernel_fn(domain.distance(x, y)))
 

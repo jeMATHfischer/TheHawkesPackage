@@ -9,7 +9,7 @@ hidden dependency on the global stream survives.
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, Torus2D
+from hawkes_package import Circle, FundamentalDomain, Torus2D
 
 SEED = 20260825
 
@@ -56,11 +56,23 @@ def bump_spatial():
 
 
 @pytest.fixture(
-    params=[Circle(), Circle(radius=2.0), Torus2D(), Torus2D(L1=3.0, L2=5.0)],
-    ids=["circle", "circle-r2", "torus", "torus-3x5"],
+    params=[
+        Circle(),
+        Circle(radius=2.0),
+        Torus2D(),
+        Torus2D(L1=3.0, L2=5.0),
+        FundamentalDomain.rectangle(3.0, 5.0),
+        FundamentalDomain.hexagon(1.0),
+        FundamentalDomain.hexagon(2.5),
+    ],
+    ids=["circle", "circle-r2", "torus", "torus-3x5", "fd-rect-3x5", "fd-hex", "fd-hex-2.5"],
 )
 def domain(request):
-    """Every concrete SpatialDomain, for contract tests."""
+    """Every concrete SpatialDomain, for contract tests.
+
+    The hexagons are the first entries that do *not* fill their bounding box, so
+    they are what keeps the contract honest about the difference.
+    """
     return request.param
 
 

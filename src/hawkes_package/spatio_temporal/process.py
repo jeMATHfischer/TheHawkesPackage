@@ -17,6 +17,7 @@ Metropolis-Hastings from the conditional spatial density at that time.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -191,26 +192,67 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     def _build_quadrature(self, n_quad: int | None) -> None:
         """Build the fixed spatial integration rule, once, at construction."""
         bounds = self.domain.bounds
-        widths = bounds[:, 1] - bounds[:, 0]
-        box_volume = float(np.prod(widths))
-        if abs(self.domain.volume - box_volume) > 1e-9 * max(box_volume, 1.0):
-            raise ValueError(
-                f"{type(self.domain).__name__} has volume {self.domain.volume} but a bounding "
-                f"box of volume {box_volume}. Integration runs over `bounds`, so a domain that "
-                "is a proper subset of its bounding box is not supported."
-            )
-
         self.n_quad = (
             _integration.default_nodes_per_axis(self._ndim) if n_quad is None else int(n_quad)
         )
-        self._quadrature = _integration.build(bounds, self.n_quad)
+
+        def make_rule(nodes_per_axis: int) -> _integration.TensorQuadrature:
+            # Nodes outside the domain are dropped and the survivors weighted by
+            # the measure density. Both are identities when the domain fills its
+            # box with the flat measure, which is the default and covers every
+            # domain that predates 0.3.0.
+            return _integration.restrict(
+                _integration.build(bounds, nodes_per_axis),
+                self.domain.contains,
+                self.domain.volume_element,
+            )
+
+        self._quadrature = make_rule(self.n_quad)
+        self._check_quadrature_volume()
 
         # The kernel is what the rule has to resolve; check it once, here,
         # rather than silently returning a wrong integral for the whole run.
-        centre = bounds.mean(axis=1)
+        # Probed from a point the domain vouches for: the centre of the bounding
+        # box need not lie inside a domain that is a proper subset of it.
+        centre = np.asarray(self.domain.interior_point, dtype=float)
         _integration.check_resolution(
-            self._quadrature, bounds, self.n_quad, lambda x: self._spatial_at(x, centre)
+            self._quadrature, make_rule, self.n_quad, lambda x: self._spatial_at(x, centre)
         )
+
+    def _check_quadrature_volume(self) -> None:
+        """Check the rule reproduces the domain's own measure.
+
+        The weights sum to whatever the rule thinks the domain measures, so
+        comparing that against :attr:`SpatialDomain.volume` catches two distinct
+        faults with one number: a domain whose declared volume is simply wrong,
+        and a rule too coarse to resolve the domain's boundary. Either one
+        scales the simulated event rate by the same factor it gets the measure
+        wrong by -- and, as ever here, does so silently.
+
+        For a domain that fills its bounding box nothing is masked and the
+        weights sum to the box volume exactly, so this subsumes the flat
+        ``volume == prod(bounds widths)`` check it replaces.
+        """
+        measured = float(self._quadrature.weights.sum())
+        declared = float(self.domain.volume)
+        scale = max(abs(declared), np.finfo(float).tiny)
+        error = abs(measured - declared) / scale
+
+        if error > 0.1:
+            raise ValueError(
+                f"{type(self.domain).__name__} declares volume {declared:.6g} but its "
+                f"quadrature rule measures {measured:.6g} ({100 * error:.1f}% apart). The "
+                "domain's `volume`, `bounds` and `contains` disagree with each other."
+            )
+        if error > 1e-2:
+            warnings.warn(
+                f"the quadrature rule measures {type(self.domain).__name__} as {measured:.6g} "
+                f"against its declared volume {declared:.6g} ({100 * error:.1f}% apart): the "
+                f"rule does not resolve the domain boundary and the simulated event rate will "
+                f"be wrong by about as much. Raise n_quad above {self.n_quad}.",
+                UserWarning,
+                stacklevel=4,
+            )
 
     def _integrated_intensity(self, t: float, bound: bool = False) -> float:
         """Intensity integrated over the spatial domain at time `t`.
@@ -225,6 +267,26 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         # Integrating the per-event suprema dominates the integrated intensity
         # at every later time, for monotone and bell-shaped kernels alike.
         return self._integrated_intensity(t, bound=True)
+
+    def _confined_density(self, x: Any, t: float) -> float:
+        """Evaluate the density the location sampler targets: zero outside the domain.
+
+        `bounds` is a *box*, and a domain that is a proper subset of it needs the
+        chain confined to the domain itself. Folding the sample back afterwards
+        is not the same thing and is not correct: `_full_intensity` off the
+        domain is the periodic extension, so the box covers some parts of the
+        domain twice and others once, and folding a box-distributed draw
+        inherits that unevenness.
+
+        Returning zero is the confinement -- :func:`~hawkes_package.mcmc.mcmc_sampler`
+        already treats a zero density as a rejection, and rejection (rather than
+        folding) is what keeps the chain reversible for a general pairing group.
+        For a domain that fills its box `contains` is constantly ``True`` and
+        this is exactly `_full_intensity`.
+        """
+        if not self.domain.contains(x):
+            return 0.0
+        return self._full_intensity(x, t)
 
     # ------------------------------------------------------------------
     # Simulation
@@ -252,7 +314,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
             # --- Spatial coordinate from the conditional density at that time ---
             coord = mcmc_sampler(
-                lambda x: self._full_intensity(x, event_time),  # noqa: B023
+                lambda x: self._confined_density(x, event_time),  # noqa: B023
                 self.domain.bounds,
                 n_iter=self.n_iter,
                 proposal_std=self.proposal_std,

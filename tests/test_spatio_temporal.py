@@ -311,16 +311,48 @@ def test_quadrature_agrees_with_a_refined_rule(bump_spatial, exp_kernel):
     )
 
 
-def test_non_box_domain_is_rejected(bump_spatial, exp_kernel):
-    """Integration runs over `bounds`, so volume must equal the box volume."""
+def test_domain_lying_about_its_volume_is_rejected(bump_spatial, exp_kernel):
+    """`volume` must agree with what `bounds` and `contains` actually describe.
+
+    Since 0.3.0 a domain *may* be a proper subset of its bounding box, so the
+    check is no longer "volume equals the box". It is the strictly more useful
+    one that the quadrature rule must measure the domain as the domain claims to
+    measure -- which still catches this, because `Disc` halves its volume
+    without narrowing `contains` to match. Getting that number wrong scales the
+    simulated event rate by the same factor, silently.
+    """
 
     class Disc(Circle):
         @property
         def volume(self):
-            return np.pi  # a disc, not its bounding box
+            return np.pi  # a disc, but `contains` still admits the whole box
 
-    with pytest.raises(ValueError, match="bounding box"):
+    with pytest.raises(ValueError, match="disagree with each other"):
         SpatioTemporalHawkesProcess(lambda x: 0.5, bump_spatial, exp_kernel, domain=Disc(), rng=0)
+
+
+def test_proper_subset_of_the_bounding_box_is_accepted(bump_spatial, exp_kernel):
+    """The converse: a domain that *is* a proper subset, described consistently.
+
+    This is what the old box-volume check made impossible, and the whole reason
+    `FundamentalDomain` can exist.
+    """
+
+    class HalfCircle(Circle):
+        """The right half of the circle -- not a real quotient, just a subset."""
+
+        def contains(self, x):
+            return bool(np.ravel(x)[0] >= 0.0)
+
+        @property
+        def volume(self):
+            return np.pi
+
+    process = SpatioTemporalHawkesProcess(
+        lambda x: 0.5, bump_spatial, exp_kernel, domain=HalfCircle(), rng=0
+    )
+    assert process._quadrature.weights.sum() == pytest.approx(np.pi)
+    assert np.all(process._quadrature.nodes >= 0.0)
 
 
 def test_narrow_spatial_kernel_warns_about_resolution(exp_kernel):

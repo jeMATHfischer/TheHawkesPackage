@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, SpatialDomain, Torus2D
+from hawkes_package import Circle, FundamentalDomain, SpatialDomain, Torus2D
+from hawkes_package.spatio_temporal import _integration
 
 
 class Interval(SpatialDomain):
@@ -71,9 +72,40 @@ def test_bounds_shape(domain):
     assert np.all(bounds[:, 0] < bounds[:, 1])
 
 
-def test_volume_matches_bounding_box(domain):
-    widths = domain.bounds[:, 1] - domain.bounds[:, 0]
-    assert domain.volume == pytest.approx(float(np.prod(widths)))
+def test_volume_matches_quadrature(domain):
+    """`volume` must be what the simulator's own integration rule measures.
+
+    The generalisation of the old ``volume == prod(bounds widths)``: since 0.3.0
+    a domain may be a proper subset of its bounding box, and the rule is masked
+    by `contains` and weighted by `volume_element` accordingly. For a
+    box-filling domain nothing is masked and this is the same assertion as
+    before. Getting the number wrong scales the simulated event rate by the same
+    factor, with no other symptom.
+    """
+    ndim = domain.bounds.shape[0]
+    rule = _integration.restrict(
+        _integration.build(domain.bounds, _integration.default_nodes_per_axis(ndim)),
+        domain.contains,
+        domain.volume_element,
+    )
+    assert float(rule.weights.sum()) == pytest.approx(domain.volume, rel=1e-2)
+
+
+def test_sample_uniform_lands_inside_the_domain(domain, rng):
+    for _ in range(50):
+        assert domain.contains(domain.sample_uniform(rng))
+
+
+def test_wrap_lands_inside_the_domain(domain, rng):
+    for _ in range(20):
+        x = rng.uniform(-10, 10, size=domain.bounds.shape[0])
+        assert domain.contains(domain.wrap(x))
+
+
+def test_volume_element_is_strictly_positive(domain, rng):
+    """The thinning bound dominates only because every quadrature weight does."""
+    for _ in range(20):
+        assert domain.volume_element(domain.sample_uniform(rng)) > 0.0
 
 
 def test_wrap_is_idempotent(domain, rng):
@@ -178,6 +210,157 @@ class TestTorus2D:
 
     def test_bounds_are_two_dimensional(self):
         assert Torus2D().bounds.shape == (2, 2)
+
+
+class TestFundamentalDomainAgreesWithTorus2D:
+    """The rectangle case must reproduce the hand-written `Torus2D`.
+
+    This is what makes the general machinery trustworthy: `Torus2D` is the one
+    quotient in the package whose geometry was written out by hand and is
+    covered by its own tests, so agreement with it exercises the polygon
+    construction, the deck group, the reduction and the orbit search against a
+    known answer rather than against itself.
+    """
+
+    L1, L2 = 3.0, 5.0
+
+    @pytest.fixture
+    def pair(self):
+        return FundamentalDomain.rectangle(self.L1, self.L2), Torus2D(L1=self.L1, L2=self.L2)
+
+    def test_volume_and_bounds_agree(self, pair):
+        polygon, torus = pair
+        assert polygon.volume == pytest.approx(torus.volume)
+        np.testing.assert_allclose(polygon.bounds, torus.bounds)
+
+    def test_distance_agrees_everywhere(self, pair, rng):
+        """Including on lifts far outside the domain, which must reduce first."""
+        polygon, torus = pair
+        for _ in range(500):
+            x, y = rng.uniform(-9, 9, size=2), rng.uniform(-9, 9, size=2)
+            assert polygon.distance(x, y) == pytest.approx(torus.distance(x, y), abs=1e-12)
+
+    def test_wrap_agrees_modulo_the_lattice(self, pair, rng):
+        """Not pointwise: the two use opposite half-open conventions on a side.
+
+        `Torus2D` folds into ``[-L/2, L/2)`` per axis; the polygon closes the
+        edge whose outward normal is lexicographically negative. Both are valid
+        choices of representative, so what must agree is the lattice class.
+        """
+        polygon, torus = pair
+        periods = np.array([self.L1, self.L2])
+        for _ in range(200):
+            x = rng.uniform(-9, 9, size=2)
+            offset = (polygon.wrap(x) - torus.wrap(x)) / periods
+            np.testing.assert_allclose(offset, np.round(offset), atol=1e-12)
+
+
+class TestFundamentalDomain:
+    def test_hexagon_volume_is_the_regular_hexagon_area(self):
+        for side in (0.5, 1.0, 2.5):
+            assert FundamentalDomain.hexagon(side).volume == pytest.approx(
+                1.5 * np.sqrt(3.0) * side**2
+            )
+
+    def test_hexagon_is_a_proper_subset_of_its_bounding_box(self):
+        """The property the old box-volume check made impossible."""
+        hexagon = FundamentalDomain.hexagon(1.0)
+        widths = hexagon.bounds[:, 1] - hexagon.bounds[:, 0]
+        assert hexagon.volume < float(np.prod(widths))
+        assert not hexagon.contains([hexagon.bounds[0, 1], hexagon.bounds[1, 1]])  # a box corner
+
+    def test_distance_is_zero_to_every_image(self, rng):
+        """A point and its translates are the same point of the quotient."""
+        hexagon = FundamentalDomain.hexagon(1.0)
+        for _ in range(20):
+            x = hexagon.sample_uniform(rng)
+            for image in hexagon.orbit(x, n_images=2):
+                assert hexagon.distance(x, image) == pytest.approx(0.0, abs=1e-9)
+
+    def test_quotient_diameter_is_the_covering_radius(self, rng):
+        """For circumradius R the triangular lattice covers at radius exactly R."""
+        hexagon = FundamentalDomain.hexagon(1.0)
+        far = max(
+            hexagon.distance(hexagon.sample_uniform(rng), hexagon.sample_uniform(rng))
+            for _ in range(2000)
+        )
+        assert far <= 1.0 + 1e-9
+        assert far > 0.9  # and the bound is attained, not merely respected
+
+    @pytest.mark.parametrize("side", [1.0, 2.5])
+    def test_a_boundary_point_has_exactly_one_representative(self, side):
+        """Half-open on paired sides, or the quotient double-counts an edge.
+
+        Edge midpoints and corners both, and corners are the harder case: a
+        corner lies on two edges at once, so the convention has to leave exactly
+        one image of it with *both* of its edges closed.
+        """
+        hexagon = FundamentalDomain.hexagon(side)
+        corners = hexagon.vertices
+        midpoints = 0.5 * (corners + np.roll(corners, -1, axis=0))
+        for point in np.vstack([corners, midpoints]):
+            inside = [img for img in hexagon.orbit(point, 2) if hexagon.contains(img)]
+            assert len(inside) == 1, f"boundary point {point} has {len(inside)} representatives"
+
+    def test_wrap_of_a_boundary_point_is_the_representative(self):
+        """And `wrap` must agree with `contains` about which image that is."""
+        hexagon = FundamentalDomain.hexagon(1.0)
+        corners = hexagon.vertices
+        for point in np.vstack([corners, 0.5 * (corners + np.roll(corners, -1, axis=0))]):
+            wrapped = hexagon.wrap(point)
+            assert hexagon.contains(wrapped)
+            assert hexagon.distance(wrapped, point) == pytest.approx(0.0, abs=1e-9)
+
+    def test_orientation_reversing_pairing_is_rejected(self):
+        """A reflection quotients to a non-orientable surface."""
+        square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        glide = [[-1.0, 0.0, 0.0], [0.0, 1.0, 2.0], [0.0, 0.0, 1.0]]  # det -1
+        with pytest.raises(ValueError, match="orientation-preserving"):
+            FundamentalDomain(square, [glide, [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]])
+
+    def test_non_isometric_pairing_is_rejected(self):
+        square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        shear = [[1.0, 0.5, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]  # det 1, not orthogonal
+        with pytest.raises(ValueError, match="isometry"):
+            FundamentalDomain(square, [shear])
+
+    def test_non_convex_polygon_is_rejected(self):
+        chevron = [[0.0, 0.0], [2.0, 1.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]]
+        with pytest.raises(ValueError, match="convex"):
+            FundamentalDomain(chevron, [[[1.0, 0.0, 4.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]])
+
+    def test_pairings_that_do_not_tile_are_rejected_rather_than_hanging(self):
+        """A translation too short to be a period leaves points unreducible."""
+        square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        too_short = [[1.0, 0.0, 0.5], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        domain = FundamentalDomain(square, [too_short])
+        with pytest.raises(ValueError, match=r"do not tile|did not converge"):
+            domain.wrap([0.0, 40.0])  # nothing moves the y coordinate
+
+    def test_clockwise_vertices_are_accepted(self):
+        """Winding order is the caller's business, not the domain's."""
+        corners = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        pairings = [
+            [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 2.0], [0.0, 0.0, 1.0]],
+        ]
+        assert FundamentalDomain(corners, pairings).volume == pytest.approx(
+            FundamentalDomain(corners[::-1], pairings).volume
+        )
+
+    def test_interior_point_is_inside(self):
+        for domain in (FundamentalDomain.hexagon(1.0), FundamentalDomain.rectangle(3.0, 5.0)):
+            assert domain.contains(domain.interior_point)
+
+    def test_is_not_declared_periodic(self):
+        """So MCMC proposals off the polygon are rejected, not folded.
+
+        Folding is a reversible move only when the deck group acts by
+        translations, which leave a Gaussian proposal invariant. That holds for
+        both domains built here but not for a general pairing, and the sampler
+        cannot tell the difference from the outside.
+        """
+        assert FundamentalDomain.hexagon(1.0).periodic is False
 
 
 def test_circle_distance_rejects_a_two_vector():

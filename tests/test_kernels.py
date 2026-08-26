@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, Torus2D, make_periodic
+from hawkes_package import Circle, FundamentalDomain, Torus2D, make_periodic
 
 from .test_domains import Interval
 
@@ -155,3 +155,57 @@ def test_torus_kernel_stays_periodic_far_outside_the_window():
     reference = k(x, y)
     far = x + np.array([9 * domain.L1, 7 * domain.L2])
     assert k(far, y) == pytest.approx(reference, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Domains that supply their own deck group, via `orbit`
+# ---------------------------------------------------------------------------
+
+
+def test_fundamental_domain_kernel_is_periodic():
+    """A domain implementing `orbit` gets a real image sum, not the fallback.
+
+    Which is the whole point of the hook: without it a `FundamentalDomain` would
+    take the generic branch, and `make_periodic` would silently return an
+    unperiodised single evaluation.
+    """
+    hexagon = FundamentalDomain.hexagon(1.0)
+    k = make_periodic(gaussian, hexagon)
+    x, y = np.array([0.2, -0.35]), np.array([0.4, 0.1])
+    reference = k(x, y)
+    for image in hexagon.orbit(y, n_images=2):
+        assert k(x, image) == pytest.approx(reference, rel=1e-9)
+
+
+def test_fundamental_domain_kernel_stays_periodic_far_outside_the_window():
+    hexagon = FundamentalDomain.hexagon(1.0)
+    k = make_periodic(gaussian, hexagon, n_images=2)
+    x, y = np.array([0.2, -0.35]), np.array([0.4, 0.1])
+    reference = k(x, y)
+    lattice_step = np.array([9 * np.sqrt(3.0), 0.0])
+    assert k(x + lattice_step, y) == pytest.approx(reference, rel=1e-9)
+
+
+def test_fundamental_domain_kernel_exceeds_the_unperiodised_one():
+    """The image sum adds the neighbours' contributions; it never subtracts."""
+    hexagon = FundamentalDomain.hexagon(1.0)
+    k = make_periodic(gaussian, hexagon)
+    x, y = np.array([0.2, -0.35]), np.array([0.4, 0.1])
+    assert k(x, y) > gaussian(hexagon.distance(x, y))
+
+
+def test_rectangle_kernel_matches_the_torus_one():
+    """The two spellings of the same quotient must periodise identically."""
+    length_1, length_2 = 2.0, 3.0
+    polygon = make_periodic(gaussian, FundamentalDomain.rectangle(length_1, length_2), n_images=3)
+    torus = make_periodic(gaussian, Torus2D(L1=length_1, L2=length_2), n_images=3)
+    x, y = np.array([0.2, -0.4]), np.array([-0.9, 1.1])
+    # Not equal: the two sum over different windows of the same lattice -- the
+    # torus branch over a square of offsets, the orbit branch over words of
+    # bounded length, which is a diamond. Both cover the terms that carry the
+    # mass, so they agree to well past what the kernel's tail contributes.
+    assert polygon(x, y) == pytest.approx(torus(x, y), rel=1e-9)
+
+
+def test_periodic_kernel_over_orbit_is_marked_pairwise():
+    assert getattr(make_periodic(gaussian, FundamentalDomain.hexagon(1.0)), "pairwise", False)

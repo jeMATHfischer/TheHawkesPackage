@@ -14,6 +14,7 @@ from scipy.integrate import quad
 
 import hawkes_package as hp
 from hawkes_package.mcmc import mcmc_sampler
+from hawkes_package.spatio_temporal import _integration
 
 SEEDS = [1, 2, 7]
 
@@ -157,6 +158,112 @@ def test_zero_excitation_is_poisson_in_time_and_uniform_in_space():
     counts, _ = np.histogram(coords, bins=8, range=(lo, hi))
     chi2 = stats.chisquare(counts)
     assert chi2.pvalue > 1e-3, f"spatial marginal is not uniform (p={chi2.pvalue:.2e})"
+
+
+@pytest.mark.statistical
+def test_sampler_confined_to_a_fundamental_domain_is_uniform():
+    """Rejecting proposals off the polygon must leave the marginal uniform *on* it.
+
+    This is the check that licenses ``FundamentalDomain.periodic = False``. The
+    domain is a proper subset of the box the chain proposes in, so a third of
+    every proposal distribution falls outside; if rejecting those biased the
+    result the bias would sit near the boundary, exactly where the six corners
+    are. Compared against quadrature over the polygon rather than against a
+    closed form, since the moments of a uniform hexagon are not memorable.
+
+    Note what would *not* work: sampling the bounding box and folding the draw
+    back in. `_full_intensity` off the polygon is the periodic extension, so the
+    box covers parts of the polygon twice and others once.
+    """
+    hexagon = hp.FundamentalDomain.hexagon(1.0)
+    rule = _integration.restrict(
+        _integration.build(hexagon.bounds, 256), hexagon.contains, hexagon.volume_element
+    )
+    area = float(rule.weights.sum())
+
+    rng = np.random.default_rng(2024)
+    samples = np.array(
+        [
+            mcmc_sampler(
+                lambda x: 1.0 if hexagon.contains(x) else 0.0,
+                hexagon.bounds,
+                n_iter=400,
+                burn_in=120,
+                seed=rng,
+            )
+            for _ in range(1500)
+        ]
+    )
+    assert all(hexagon.contains(point) for point in samples)
+
+    for label, fn in (
+        ("x", lambda p: p[0]),
+        ("y", lambda p: p[1]),
+        ("x^2", lambda p: p[0] ** 2),
+        ("|p|", lambda p: float(np.hypot(p[0], p[1]))),
+        ("1[|p| < 0.5]", lambda p: float(np.hypot(p[0], p[1]) < 0.5)),
+    ):
+        values = np.array([fn(point) for point in samples])
+        expected = rule.integrate(fn) / area
+        tolerance = 5 * float(values.std()) / np.sqrt(len(values))
+        assert abs(float(values.mean()) - expected) < tolerance, (
+            f"E[{label}] is {values.mean():.5f}, expected {expected:.5f} "
+            f"(5 standard errors is {tolerance:.5f})"
+        )
+
+    # Six equal-area sectors: the moments above are blind to a rotation.
+    angles = np.arctan2(samples[:, 1], samples[:, 0])
+    counts, _ = np.histogram(angles, bins=6, range=(-np.pi, np.pi))
+    chi2 = stats.chisquare(counts)
+    assert chi2.pvalue > 1e-3, f"the hexagon's sectors are unevenly filled (p={chi2.pvalue:.2e})"
+
+
+@pytest.mark.statistical
+def test_masked_quadrature_integrates_a_constant_to_the_polygon_area():
+    """The background rate on a masked domain must be exactly ``mu * area``.
+
+    The historical failure mode of every integration bug in this package is a
+    rate that is quietly wrong by a constant factor, and for a domain that does
+    not fill its bounding box the factor to get wrong is the fraction of the box
+    the domain occupies -- 3/4 for a regular hexagon.
+    """
+    hexagon = hp.FundamentalDomain.hexagon(1.0)
+    for mu in (0.5, 2.0, 7.3):
+        process = hp.SpatioTemporalHawkesProcess(
+            base=lambda x, rate=mu: rate,
+            spatial=lambda d: 0.0,
+            temporal=lambda dt: 0.0,
+            domain=hexagon,
+            monotone_temporal_kernel=True,
+            rng=7,
+        )
+        assert process._integrated_intensity(0.0) == pytest.approx(mu * hexagon.volume, rel=1e-12)
+
+
+@pytest.mark.statistical
+@pytest.mark.slow
+def test_simulation_on_a_fundamental_domain_stays_inside_it():
+    """End to end: every simulated location lands in the polygon, off its edges.
+
+    Events heaped on the boundary is the signature of a `wrap` that clips rather
+    than folds, and it is what the pre-0.2.0 unbounded walk produced.
+    """
+    hexagon = hp.FundamentalDomain.hexagon(1.0)
+    process = hp.SpatioTemporalHawkesProcess(
+        base=lambda x: 0.5,
+        spatial=lambda d: max(0.0, 1.0 - d),
+        temporal=lambda dt: 0.9 * np.exp(-2.0 * dt),
+        domain=hexagon,
+        monotone_temporal_kernel=True,
+        n_quad=16,
+        rng=11,
+    )
+    process.simulate(30)
+
+    locations = process.Events[1:].T
+    assert all(hexagon.contains(point) for point in locations)
+    hugging = [point for point in locations if not hexagon._inside(point, -1e-3)]
+    assert not hugging, f"{len(hugging)} of {len(locations)} events sit on the boundary"
 
 
 @pytest.mark.statistical

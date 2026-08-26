@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["TensorQuadrature", "build", "default_nodes_per_axis"]
+__all__ = ["TensorQuadrature", "build", "default_nodes_per_axis", "restrict"]
 
 #: Nodes per axis, by dimension. The cost is ``nodes ** ndim``, so the count
 #: falls as the dimension rises.
@@ -101,9 +101,48 @@ def build(bounds: Any, nodes_per_axis: int) -> TensorQuadrature:
     return TensorQuadrature(nodes=nodes, weights=weights)
 
 
+def restrict(
+    rule: TensorQuadrature,
+    contains: Callable[[np.ndarray], bool],
+    volume_element: Callable[[np.ndarray], float],
+) -> TensorQuadrature:
+    """Cut `rule` down to a domain that is a proper subset of its bounding box.
+
+    Nodes outside the domain are dropped and the survivors' weights are scaled
+    by the measure density there.
+
+    Both operations preserve the property the whole thinning bound rests on. The
+    argument in this module's docstring needs only that the bound and the
+    acceptance test see *the same nodes* with *strictly positive weights*; it
+    never needed those nodes to fill a box, or those weights to be the flat
+    ones. So ``sum(w_i f_bound(x_i)) >= sum(w_i f_true(x_i))`` still holds with
+    no tolerance, and ``M >= lambda`` still holds pathwise.
+
+    What masking does cost is accuracy: the integrand is effectively multiplied
+    by an indicator, and a Gauss rule resolves the resulting jump only to the
+    width of a panel. That error shows up as a mismatch between the summed
+    weights and the domain's declared volume, which is why the caller checks it.
+    """
+    keep = np.array([bool(contains(node)) for node in rule.nodes], dtype=bool)
+    if not keep.any():
+        raise ValueError(
+            "no quadrature node lies inside the domain: it is smaller than one panel of "
+            "the rule. Raise n_quad."
+        )
+
+    nodes = rule.nodes[keep]
+    density = np.array([float(volume_element(node)) for node in nodes], dtype=float)
+    if not np.all(np.isfinite(density) & (density > 0.0)):
+        raise ValueError(
+            "volume_element must be finite and strictly positive at every node; the "
+            "thinning bound dominates only because every quadrature weight does."
+        )
+    return TensorQuadrature(nodes=nodes, weights=rule.weights[keep] * density)
+
+
 def check_resolution(
     rule: TensorQuadrature,
-    bounds: Any,
+    refine: Callable[[int], TensorQuadrature],
     nodes_per_axis: int,
     fn: Callable[[np.ndarray], float],
     *,
@@ -120,9 +159,14 @@ def check_resolution(
     unit circle, ``quad`` returned exactly the background-only integral, so the
     excitation was invisible to the temporal thinning while the spatial sampler
     still saw it -- the process silently degenerated towards Poisson in time.
+
+    `refine` rebuilds *the same* rule at a given node count. It is a callable
+    rather than a bounding box because the rule may be restricted to a domain
+    inside that box: comparing a masked rule against an unmasked finer one would
+    measure the mask, not the resolution.
     """
     coarse = rule.integrate(fn)
-    fine = build(bounds, nodes_per_axis * 2).integrate(fn)
+    fine = refine(nodes_per_axis * 2).integrate(fn)
     scale = max(abs(fine), np.finfo(float).tiny)
     if abs(coarse - fine) / scale > rtol:
         warnings.warn(

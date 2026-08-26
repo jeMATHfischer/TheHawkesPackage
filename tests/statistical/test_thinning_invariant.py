@@ -92,6 +92,13 @@ SPATIO_TEMPORAL = [
     "st-signed",
     "st-delayed",  # monotone_temporal_kernel=False with a delayed kernel
     "st-periodic",
+    # A domain that is a proper subset of its bounding box, so the quadrature
+    # rule is masked. Masking is exactly the kind of change this harness exists
+    # to police: it alters the node set the bound and the acceptance test share,
+    # and that shared node set is the whole reason M >= lambda holds.
+    "st-hexagon",
+    "st-hexagon-periodic",  # the same, through make_periodic's orbit branch
+    pytest.param("st-rectangle", marks=pytest.mark.slow),
     "legacy",
 ]
 
@@ -139,6 +146,15 @@ def build(
             )
         if name == "st-periodic":
             return _spatio_temporal(spatial=hp.make_periodic(bump_spatial, hp.Circle()), rng=seed)
+        if name == "st-hexagon":
+            return _spatio_temporal(domain=hp.FundamentalDomain.hexagon(1.0), rng=seed)
+        if name == "st-hexagon-periodic":
+            hexagon = hp.FundamentalDomain.hexagon(1.0)
+            return _spatio_temporal(
+                domain=hexagon, spatial=hp.make_periodic(bump_spatial, hexagon), rng=seed
+            )
+        if name == "st-rectangle":
+            return _spatio_temporal(domain=hp.FundamentalDomain.rectangle(), rng=seed)
         return hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, rng=seed)
 
     return _build
@@ -160,7 +176,11 @@ def test_spatio_temporal_thinning_invariant(build, name):
     """Same invariant, but thinning runs against the space-integrated intensity."""
     proc = build(name, 11)
     state = instrument(proc, "_integrated_intensity")
-    proc.simulate(8 if name == "st-torus" else 15)
+    # The two-dimensional domains cost ~1000 kernel evaluations per integration,
+    # so they run shorter. Long enough that candidates are still rejected, which
+    # `_check` insists on.
+    two_dimensional = {"st-torus", "st-rectangle", "st-hexagon", "st-hexagon-periodic"}
+    proc.simulate(8 if name in two_dimensional else 15)
     _check(state, label=name)
 
 

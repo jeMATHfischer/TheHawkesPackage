@@ -12,8 +12,10 @@ Spatio-temporal processes
 
 Spatial domains
 ---------------
-:class:`SpatialDomain`, :class:`Circle`, :class:`Torus2D`, plus
-:func:`make_periodic` for summing a kernel over a domain's image points.
+:class:`SpatialDomain`, :class:`Circle`, :class:`Torus2D` and
+:class:`FundamentalDomain` — a convex polygon with side pairings, which reaches
+quotients no rectangle expresses — plus :func:`make_periodic` for summing a
+kernel over a domain's image points.
 
 Notes
 -----
@@ -30,6 +32,7 @@ from .mcmc import mcmc_sampler
 from .monotone import MonotoneKernelHawkes
 from .spatio_temporal import (
     Circle,
+    FundamentalDomain,
     LegacySpatioTemporalHawkesProcess,
     SpatialDomain,
     SpatioTemporalHawkesProcess,
@@ -43,6 +46,7 @@ __all__ = [
     "BellShapeHawkes",
     "Circle",
     "ExponentialHawkes",
+    "FundamentalDomain",
     "HawkesProcess",
     "LegacySpatioTemporalHawkesProcess",
     "MonotoneKernelHawkes",
