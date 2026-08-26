@@ -67,7 +67,7 @@ jobs:
       # truncated run.
       - name: Run the full suite with coverage
         run: pytest --cov --cov-report=term-missing --cov-report=xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-xml
           path: coverage.xml
