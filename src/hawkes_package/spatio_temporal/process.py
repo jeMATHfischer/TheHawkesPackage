@@ -45,6 +45,16 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         Temporal kernel evaluated at a non-negative time lag.
     domain : SpatialDomain, optional
         Spatial domain. Defaults to the unit :class:`Circle`.
+
+        .. versionchanged:: 0.3.0
+           May be a proper subset of its bounding box: the quadrature rule is
+           masked by :meth:`~hawkes_package.SpatialDomain.contains` and weighted
+           by :meth:`~hawkes_package.SpatialDomain.volume_element`, and the
+           location sampler targets the intensity restricted to the domain
+           rather than to the box. Before 0.3.0 a domain whose ``volume``
+           differed from ``prod(bounds widths)`` raised :class:`ValueError`;
+           the summed quadrature weights are now checked against ``volume``
+           instead, warning above 1% apart and raising above 10%.
     monotone_temporal_kernel : bool
         Set ``True`` when `temporal` is monotone decreasing. This permits a
         tighter thinning bound and skips the numerical search for the kernel's

@@ -34,4 +34,6 @@ package — see [contributing](contributing.md).
 `import TheHawkesPackage` still works and forwards to identical objects, but
 emits a `DeprecationWarning`; the shim is removed in 0.4.0. Several behaviours
 changed in 0.2.0 in ways that alter previously produced numbers without raising
-— read [migration](migration.md) before re-running old scripts.
+— read [migration](migration.md) before re-running old scripts. 0.3.0 leaves
+those numbers alone, but changes what a custom `SpatialDomain` subclass must
+satisfy; the same page says how.

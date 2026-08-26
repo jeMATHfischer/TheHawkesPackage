@@ -1,11 +1,93 @@
-# Migrating to 0.2.0
+# Migration
+
+One section per release that requires action. Newest first.
+
+## Migrating to 0.3.0
+
+**Nothing here changes what an existing script produces.** `Circle` and
+`Torus2D` fill their bounding boxes, so no quadrature node is masked, no weight
+is rescaled and no extra draw is consumed — the same seed runs the same code
+path it ran in 0.2.0. This section is for authors of **custom `SpatialDomain`
+subclasses**, where one contract did change.
+
+### The domain contract
+
+0.2.0 required a domain to *be* its bounding box, to a relative tolerance of
+`1e-9`:
+
+```text
+volume == prod(bounds widths)
+```
+
+0.3.0 requires only that the declared volume match the measure the domain
+actually carries:
+
+```text
+volume == integral of volume_element over {x in bounds : contains(x)}
+```
+
+`contains` defaults to `True` and `volume_element` to `1.0`, which is the old
+requirement written out — so **a subclass that overrides neither needs no
+change.**
+
+### The volume check now warns where it used to raise
+
+The old equality was checked against the bounding box and raised. It is now
+checked against the summed quadrature weights, with two thresholds:
+
+| `volume` vs. the rule's own measure | 0.2.0 | 0.3.0 |
+|---|---|---|
+| within `1e-9` relative | passes | passes |
+| up to 1% apart | `ValueError` | passes |
+| 1% to 10% apart | `ValueError` | `UserWarning` |
+| more than 10% apart | `ValueError` | `ValueError` |
+
+Two consequences worth acting on:
+
+- **A domain that used to be rejected may now simulate.** Both faults the check
+  catches — a domain that misstates its measure, and a rule too coarse to
+  resolve its boundary — scale the simulated event rate by the same factor they
+  get the measure wrong by, and neither has any other symptom. If you have a
+  subclass whose `volume` was approximate, make it exact, or raise `n_quad`
+  until the warning clears.
+- **The `UserWarning` is fatal under `-W error`.** A downstream suite
+  configured with `filterwarnings = ["error"]` — as this package's own is —
+  turns the 1%-to-10% band back into a hard failure at the same construction
+  call, with `UserWarning` in place of `ValueError`. That is the intended
+  reading: the rule is telling you the event rate will be wrong.
+
+### New optional hooks on `SpatialDomain`
+
+`contains`, `volume_element`, `orbit` and `interior_point`, each defaulting to
+pre-0.3.0 behaviour. A domain that is a proper subset of its bounding box must
+override `contains`, and `interior_point` as well — the box centre need not lie
+inside such a domain, and that point is used to probe whether the quadrature
+rule resolves the spatial kernel. Override `volume_element` if the chart is not
+flat.
+
+`make_periodic` now periodises **any** domain that declares `orbit`, by summing
+the kernel over the image points. Before 0.3.0 it recognised only `Circle` and
+`Torus2D` and handed every other domain the unperiodised kernel.
+
+### New in 0.3.0
+
+{class}`~hawkes_package.FundamentalDomain`: a convex
+Euclidean polygon plus the side-pairing isometries that identify its boundary,
+presenting a flat orientable surface. `FundamentalDomain.hexagon` gives the
+hexagonal torus — the first quotient in the package no rectangular domain
+expresses — and `FundamentalDomain.rectangle` reproduces `Torus2D` through the
+general machinery. Only orientation-preserving pairings are accepted. See
+[theory](theory.md) for the construction and why the masked rule leaves the
+Ogata bound intact.
+
+## Migrating to 0.2.0
 
 Version 0.2.0 is the first packaged release. The import name changed, the API
 was unified, and several genuine bugs were fixed — including some that change
-previously produced numbers **without raising**. Read the last section before
-re-running an old script.
+previously produced numbers **without raising**. Read *Changes that alter
+results*, below, before re-running an old script.
 
-## Import name
+### Import name
 
 ```diff
 - import TheHawkesPackage as THP
@@ -20,7 +102,7 @@ emits a `DeprecationWarning`. The shim is present in 0.2.x and 0.3.x and is
 The distribution on PyPI is `the-hawkes-package`; only the import name is
 `hawkes_package`.
 
-## Renamed modules
+### Renamed modules
 
 | Old | New |
 |---|---|
@@ -34,7 +116,7 @@ The distribution on PyPI is `the-hawkes-package`; only the import name is
 Class names are unchanged apart from the one below. The old dotted paths keep
 working through the shim.
 
-## Renamed methods
+### Renamed methods
 
 `simulate(k)` is the canonical method on every process class. The three older
 spellings remain as aliases that warn and are removed in 0.4.0.
@@ -52,7 +134,7 @@ This table is kept in lockstep with the test suite: `RENAMES` in
 and still forwards, so the documentation cannot drift from the behaviour.
 :::
 
-## The ambiguous class name
+### The ambiguous class name
 
 `Spatio_Temporal_Hawkes_Process` used to mean **two different classes**:
 
@@ -74,7 +156,7 @@ identifier. In 0.2.0:
 + from hawkes_package import LegacySpatioTemporalHawkesProcess  # the old one
 ```
 
-## Randomness
+### Randomness
 
 **`np.random.seed(...)` no longer controls simulations.** Every process now
 takes `rng=`, accepting `None`, an integer seed, or an existing
@@ -89,7 +171,7 @@ takes `rng=`, accepting `None`, an integer seed, or an existing
 An old script that seeded globally still runs — it just produces a different
 realisation. Nothing warns, because there is no way to detect the intent.
 
-## Changes that alter results
+### Changes that alter results
 
 Each of these produces different numbers from the same code, with no error.
 
@@ -160,7 +242,7 @@ disregarded. It is now honoured, and the parameter is renamed:
 as a side effect of an `import`. If you were (unknowingly) relying on that, seed
 it yourself.
 
-## New in 0.2.0
+### New in 0.2.0
 
 Both spatio-temporal classes gained `intensity(t, x)` and
 `intensity_over_interval(times, points)`. Previously there was no way to

@@ -58,7 +58,7 @@ Ogata's thinning, stability conditions, and the spatio-temporal intensity.
 :link: migration
 :link-type: doc
 
-Moving from `TheHawkesPackage` 0.0.1 to `hawkes_package` 0.2.0.
+Moving from `TheHawkesPackage` 0.0.1, and what 0.3.0 asks of a custom domain.
 :::
 
 ::::

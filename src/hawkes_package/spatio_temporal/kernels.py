@@ -64,9 +64,12 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
     kernel_fn : callable
         Isotropic kernel evaluated at a non-negative scalar distance.
     domain : SpatialDomain
-        The domain whose periodicity structure to respect. A domain that is not
-        a :class:`Circle` or :class:`Torus2D` falls back to a single evaluation
-        at ``domain.distance(x, y)``.
+        The domain whose periodicity structure to respect. :class:`Circle` and
+        :class:`Torus2D` carry hand-written lattices; any other domain that
+        declares a deck group through :meth:`~hawkes_package.SpatialDomain.orbit`
+        — as :class:`~hawkes_package.FundamentalDomain` does — is periodised by
+        summing over that orbit. A domain with no deck group falls back to a single evaluation at
+        ``domain.distance(x, y)``.
     n_images : int
         Number of image periods in each direction.
 
@@ -74,6 +77,14 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
     -------
     callable
         The periodised kernel, taking two domain points.
+
+    Notes
+    -----
+    .. versionchanged:: 0.3.0
+       The ``orbit`` branch was added. Before 0.3.0 only :class:`Circle` and
+       :class:`Torus2D` were recognised and every other domain received the
+       unperiodised kernel — which, wherever the kernel has not decayed by the
+       boundary, is a different process rather than a coarser one.
 
     Examples
     --------

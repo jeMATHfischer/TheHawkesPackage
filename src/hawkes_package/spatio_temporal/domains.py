@@ -37,6 +37,13 @@ class SpatialDomain(ABC):
     ``volume == prod(bounds widths)`` and leaves an existing subclass — which
     overrides neither — behaving exactly as before.
 
+    .. versionchanged:: 0.3.0
+       Before 0.3.0 the contract was ``volume == prod(bounds widths)`` exactly,
+       enforced by a :class:`ValueError` raised when a process was built on the
+       domain. A domain may now be a proper subset of its bounding box, and that
+       check is now made against the summed quadrature weights — see
+       :class:`~hawkes_package.SpatioTemporalHawkesProcess`.
+
     Attributes
     ----------
     periodic : bool
