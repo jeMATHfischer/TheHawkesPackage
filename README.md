@@ -48,7 +48,7 @@ otherwise — an unstable process would not terminate.
 | `ExponentialHawkes` | Linear intensity, exponential kernel. The classic case. |
 | `MonotoneKernelHawkes` | Any monotone-decreasing kernel, with a monotone-increasing nonlinearity `φ`. |
 | `BellShapeHawkes` | Kernels with a single interior maximum, where the excitation ramps up before decaying. |
-| `SpatioTemporalHawkesProcess` | Events carry a location on a `Circle` or `Torus2D`. |
+| `SpatioTemporalHawkesProcess` | Events carry a location on a `Circle`, `Torus2D` or `FundamentalDomain`. |
 
 ### Spatial domains
 
@@ -70,7 +70,18 @@ The background may vary in space — `base=lambda x: 0.5 + 0.2*np.cos(x[0])` —
 unchanged to two dimensions, since a callable always receives a shape-`(ndim,)` point.
 
 `SpatialDomain` is an ABC — implement `distance`, `wrap`, `sample_uniform`, `volume` and `bounds`
-to simulate on your own geometry, subject to `volume == prod(bounds widths)`.
+to simulate on your own geometry. A domain need not fill its bounding box: override the optional
+`contains` and `volume_element` hooks, and `volume` must then equal the integral of
+`volume_element` over the part of `bounds` that `contains` admits. For a domain that does fill its
+box — the default — that reduces to `volume == prod(bounds widths)`.
+
+`Circle` and `Torus2D` are written out by hand. `FundamentalDomain` is the general construction
+they are instances of, a convex polygon plus the side-pairing isometries that identify its
+boundary, and reaches quotients no rectangle expresses — the hexagonal torus first among them:
+
+```python
+domain = hp.FundamentalDomain.hexagon(1.0)
+```
 
 `make_periodic` wraps an isotropic kernel so it sums correctly over the domain's image points, and
 can be passed straight in as `spatial=`:
