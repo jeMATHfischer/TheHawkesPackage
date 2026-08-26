@@ -30,7 +30,7 @@ jobs:
       # The key includes the source tree, so an API change re-executes the
       # notebooks (which is what makes the docs build an example regression
       # test) while a prose-only edit reuses the cache.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: docs/_build/.jupyter_cache
           key: jupyter-cache-${{ hashFiles('docs/examples/*.ipynb', 'src/**/*.py') }}
