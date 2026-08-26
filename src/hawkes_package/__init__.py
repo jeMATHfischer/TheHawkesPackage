@@ -40,7 +40,7 @@ from .spatio_temporal import (
     make_periodic,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.3.0rc1"
 
 __all__ = [
     "BellShapeHawkes",
