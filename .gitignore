@@ -35,6 +35,12 @@ docs/_build/
 docs/api/_autosummary/
 .jupyter_cache/
 
+# Planning
+# Working plans, kept beside the docs they describe but never published. They are
+# also excluded from the Sphinx build in docs/conf.py: myst_nb parses every .md
+# under docs/, and a file in no toctree fails the `sphinx-build -W` docs job.
+docs/plans/
+
 # Jupyter
 .ipynb_checkpoints/
 

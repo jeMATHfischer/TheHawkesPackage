@@ -22,7 +22,11 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "**.ipynb_checkpoints"]
+# `plans` holds working plans, gitignored and unpublished. It has to be excluded
+# rather than merely left out of a toctree: myst_nb claims every .md under docs/,
+# and an orphan document warns -- which the docs job's `sphinx-build -W` turns
+# into a build failure.
+exclude_patterns = ["_build", "**.ipynb_checkpoints", "plans"]
 
 # -- API documentation ------------------------------------------------------
 
