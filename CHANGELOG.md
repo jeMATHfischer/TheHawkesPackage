@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
   buffer redesign, because the intensity hooks read `Events` mid-loop (0.3.0).
 
-## [0.2.0] — unreleased
+## [0.2.0] — 2026-08-26
 
 First packaged release. The distribution is `the-hawkes-package`; the import name is
 `hawkes_package`.
@@ -167,7 +167,6 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 - `x0=`, `transform=` and `max_init_tries=` on `mcmc_sampler`.
 - `PairwiseKernel` and the `pairwise = True` protocol, so a kernel can consume both endpoints
   instead of a geodesic distance.
-
 - `pyproject.toml` (hatchling), `LICENSE` (MIT), `README.md`, this changelog, and a `src/` layout.
 - `py.typed` marker — the package ships inline type information.
 - `intensity` and `intensity_over_interval` on both spatio-temporal classes. Previously there was no
@@ -178,6 +177,9 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 - CI (lint, 3.10–3.14 on Linux and Windows, coverage, wheel-import check), a trusted-publishing
   release workflow, and a Sphinx documentation site.
 
-## [0.0.1] — 2019-03-20
+## 0.0.1 — 2019-03-20
 
 Initial internal version. Never published.
+
+[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.2.0

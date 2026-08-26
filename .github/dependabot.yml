@@ -6,3 +6,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: "ci"
+  # Mostly a no-op while the runtime floors are unpinned; it earns its keep
+  # the day a dependency needs capping.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "build"

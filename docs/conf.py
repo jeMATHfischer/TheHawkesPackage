@@ -1,6 +1,7 @@
 """Sphinx configuration for the-hawkes-package."""
 
 import importlib.metadata as md
+from pathlib import Path
 
 project = "the-hawkes-package"
 author = "Jens Fischer"
@@ -53,7 +54,10 @@ intersphinx_mapping = {
 nb_execution_mode = "cache"
 nb_execution_timeout = 900
 nb_execution_raise_on_error = True
-nb_execution_cache_path = "_build/.jupyter_cache"
+# Anchored to this file: myst-nb resolves a relative path against the CWD,
+# so a bare "_build/..." put the cache at the repo root while CI cached
+# docs/_build/... -- a path that never existed, leaving the cache inert.
+nb_execution_cache_path = str(Path(__file__).parent / "_build" / ".jupyter_cache")
 
 myst_enable_extensions = ["dollarmath", "amsmath", "colon_fence", "deflist"]
 

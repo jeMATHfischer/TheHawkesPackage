@@ -1,49 +1,162 @@
 name: Release
 
+# Tag-driven, and the tag decides everything downstream:
+#   v0.2.0rc1  -> PEP 440 prerelease -> TestPyPI + a GitHub *prerelease*
+#   v0.2.0     -> final release      -> PyPI     + a normal GitHub release
+# No workflow_dispatch: every upload must be traceable to a tag, because the tag
+# is the only thing the version check can be anchored to.
 on:
   push:
     tags: ["v*"]
 
+# Two runs for one tag would race for the same PyPI filename, and the loser's
+# error would look like a bug rather than a duplicate.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  build:
-    name: Build distributions
+  verify:
+    # ci.yml runs on master pushes and pull requests only, so a tag push would
+    # otherwise reach PyPI having executed no test at all. The job name differs
+    # from ci.yml's so the two can never collide as status-check contexts.
+    name: Lint, type-check and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install build twine
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # The full dev extra, not just [test]: this must be the environment
+      # ci.yml lints in, or "green on master" and "green on the tag" can differ.
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest -m "not slow" -q
 
-      - name: Tag must match hawkes_package.__version__
-        run: |
-          python -m pip install --quiet -e .
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(python -c "import hawkes_package; print(hawkes_package.__version__)")
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::tag v$TAG does not match hawkes_package.__version__ ($PKG)"
-            exit 1
-          fi
-          echo "tag and package version agree: $PKG"
+  build:
+    name: Build distributions
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      base_version: ${{ steps.meta.outputs.base_version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build twine packaging
 
       - run: python -m build
       - run: twine check --strict dist/*
+
+      - name: Tag, wheel and sdist must agree on one PEP 440 version
+        id: meta
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+
+          from packaging.utils import parse_sdist_filename, parse_wheel_filename
+          from packaging.version import InvalidVersion, Version
+
+          raw = os.environ["TAG_NAME"].removeprefix("v")
+          try:
+              tag = Version(raw)
+          except InvalidVersion:
+              raise SystemExit(f"::error::tag v{raw} is not a PEP 440 version")
+
+          # Reject non-canonical spellings (v0.2.0-rc1, v0.2.0RC1): they
+          # normalise to the same release, so the upload would succeed while the
+          # tag and the filenames disagree for every human reading them.
+          if str(tag) != raw:
+              raise SystemExit(f"::error::tag v{raw} is not canonical; use v{tag}")
+
+          # Checked against the *artifacts*, not an editable install: the wheel
+          # and sdist are what get uploaded, so they are what must carry the
+          # tagged version. This is what makes shipping a release candidate as a
+          # final release unreachable rather than merely unlikely.
+          dist = pathlib.Path("dist")
+          wheel = next(dist.glob("*.whl"))
+          sdist = next(dist.glob("*.tar.gz"))
+          wheel_version = parse_wheel_filename(wheel.name)[1]
+          sdist_version = parse_sdist_filename(sdist.name)[1]
+          if not (tag == wheel_version == sdist_version):
+              raise SystemExit(
+                  f"::error::tag {tag} does not match wheel {wheel_version} / "
+                  f"sdist {sdist_version} - fix __version__ in "
+                  f"src/hawkes_package/__init__.py, retag, and try again"
+              )
+
+          # Routing decided by PEP 440, not by string-matching 'rc'.
+          # base_version drives the changelog fallback: 0.2.0rc1 is a rehearsal
+          # of 0.2.0 and has no section of its own.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              print(f"version={tag}", file=out)
+              print(f"base_version={tag.base_version}", file=out)
+              print(f"prerelease={str(tag.is_prerelease).lower()}", file=out)
+
+          print(f"{wheel.name}")
+          print(f"{sdist.name}")
+          print(f"version {tag}, prerelease={tag.is_prerelease}")
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
 
-  publish:
+  # Two publish jobs rather than one with a computed repository-url: the index
+  # URL and the environment stay literals you can read straight off the file,
+  # the checks UI names which one ran, and the single irreversible step in the
+  # whole workflow is not hidden behind an expression.
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: needs.build.outputs.prerelease == 'true'
+    runs-on: ubuntu-latest
+    # Requires a TestPyPI pending publisher: project the-hawkes-package, owner
+    # jeMATHfischer, repo TheHawkesPackage, workflow release.yml, environment
+    # testpypi -- registered on test.pypi.org, a separate account from pypi.org.
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/the-hawkes-package
+    permissions:
+      id-token: write # OIDC trusted publishing; no API token exists anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # A rehearsal should be re-runnable. Deliberately NOT set on PyPI,
+          # where a silent skip would hide a real mistake.
+          skip-existing: true
+
+  publish-pypi:
     name: Publish to PyPI
     needs: build
+    if: needs.build.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
-    # Requires a PyPI *pending publisher* to exist before the first release:
-    # project the-hawkes-package, owner jeMATHfischer, repo TheHawkesPackage,
-    # workflow release.yml, environment pypi. Without it the very first upload
-    # of a new project is rejected.
-    environment: pypi
+    # Requires a PyPI pending publisher (see CONTRIBUTING.md). Trusted
+    # publishing to a project that does not yet exist is rejected without one.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/the-hawkes-package
     permissions:
-      id-token: write # OIDC trusted publishing; no API token is stored anywhere
+      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -53,7 +166,11 @@ jobs:
 
   github-release:
     name: Create the GitHub release
-    needs: publish
+    needs: [build, publish-testpypi, publish-pypi]
+    # One publish job is always skipped, and `needs` on a skipped job would skip
+    # this one too, so the condition is spelled out: run when whichever job was
+    # selected succeeded, and never after a cancellation.
+    if: ${{ !cancelled() && (needs.publish-pypi.result == 'success' || needs.publish-testpypi.result == 'success') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,16 +180,59 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Extract this version's changelog section
+
+      - name: Assemble the release notes
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          BASE_VERSION: ${{ needs.build.outputs.base_version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
-            found && /^## \[/ { exit }
+          # A prerelease has no changelog section of its own, so fall back to
+          # the base version's. That keeps the rehearsal honest: the same awk
+          # runs over the same text the real release will publish.
+          SECTION="$VERSION"
+          if [ "$PRERELEASE" = "true" ]; then SECTION="$BASE_VERSION"; fi
+
+          # Literal prefix matching, not a regex. A *dynamic* awk regex mangles
+          # this: "\\[" reaches awk as \[, which gawk downgrades to a plain [,
+          # turning "^## \[0.2.0\]" into the character class [0.2.0] -- so it
+          # matched "## 0.0.1" and never matched "## [0.2.0]". index()==1 has no
+          # escaping surface, and the dots in the version stay literal.
+          awk -v v="$SECTION" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && index($0, "## ") == 1 { exit }
+            found && /^\[[^]]+\]: / { exit }   # link-reference block at EOF
             found { print }
           ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            if [ "$PRERELEASE" = "true" ]; then
+              echo "Rehearsal build of $VERSION; see CHANGELOG.md." > release-notes.md
+            else
+              # A final release with no changelog section is a defect, and this
+              # is the last place it can still be caught loudly.
+              echo "::error::CHANGELOG.md has no '## [$SECTION]' section"
+              exit 1
+            fi
+          fi
+
+          if [ "$PRERELEASE" = "true" ]; then
+            {
+              echo "> Rehearsal build. Published to **TestPyPI only**:"
+              echo "> \`pip install --index-url https://test.pypi.org/simple/ \\"
+              echo ">   --extra-index-url https://pypi.org/simple/ the-hawkes-package==$VERSION\`"
+              echo
+              cat release-notes.md
+            } > notes.tmp && mv notes.tmp release-notes.md
+          fi
+
           cat release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           body_path: release-notes.md
+          # Keeps a release candidate off the "Latest release" banner and out of
+          # the API's /releases/latest, so a rehearsal cannot be mistaken for a
+          # release.
+          prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
