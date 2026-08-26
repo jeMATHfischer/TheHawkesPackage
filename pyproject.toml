@@ -94,6 +94,9 @@ include = [
   "README.md",
   "LICENSE",
   "CHANGELOG.md",
+  # docs/contributing.md is nothing but `{include} ../CONTRIBUTING.md`, so
+  # omitting this breaks `sphinx-build -W` from an unpacked sdist.
+  "CONTRIBUTING.md",
   "pyproject.toml",
 ]
 

@@ -41,11 +41,10 @@ sphinx-build -W --keep-going -b html docs docs/_build/html
   publication-grade".
 - Anything that takes more than a second or so gets `@pytest.mark.slow`.
 - Exact-value reproducibility may only be asserted for the three temporal
-  classes. The spatio-temporal path branches on floating-point comparisons
-  involving `scipy.quad` and `fmin`, whose last bits vary across SciPy and BLAS
-  builds; a different branch consumes a different number of draws and the
-  streams then diverge completely. Assert distributional properties and
-  structural invariants there instead.
+  classes. The spatio-temporal path branches on floating-point comparisons whose
+  last bits vary across SciPy and BLAS builds; a different branch consumes a
+  different number of draws and the streams then diverge completely. Assert
+  distributional properties and structural invariants there instead.
 
 ## Changing the simulation
 
@@ -54,8 +53,10 @@ Every process class implements two hooks, `_conditional_intensity` (or
 loop from `hawkes_package.base`. If you touch a bound, the test that matters is
 `tests/statistical/test_thinning_invariant.py`: thinning is only correct while
 `M >= lambda`, and a bound that is too *tight* degrades the process to Poisson
-silently rather than raising. Three such defects shipped undetected before 0.2.0
-because that test did not exist.
+silently rather than raising. Seven such defects shipped undetected during
+0.2.0 -- and every one of them lived in a configuration the harness did not then
+cover. **Add a case to that file before changing how a bound is computed**,
+not after.
 
 Do not define an intensity accessor separately from the hook the simulator thins
 against — that is exactly how `ExponentialHawkes` came to plot a curve a
@@ -76,10 +77,14 @@ is written from that list, so the documentation cannot drift from behaviour.
 
 ## Pull requests
 
-`master` requires the `lint`, `test`, `coverage`, `build` and `Docs / build`
-checks, plus linear history. Branch from `master`, keep formatting changes in
-their own commit, and add a `CHANGELOG.md` entry under `[Unreleased]` for
-anything user-visible.
+`master` requires all fourteen checks -- `Lint and type check`, the ten
+`Test <version> on <os>` jobs, `Coverage`, `Build and verify the wheel` and
+`Build the documentation` -- plus linear history. Those are the workflows'
+`name:` values: GitHub matches required checks on the display name, not the
+job id.
+
+Branch from `master`, keep formatting changes in their own commit, and add a
+`CHANGELOG.md` entry under `[Unreleased]` for anything user-visible.
 
 A behaviour change that alters previously produced numbers **without raising**
 is the worst failure mode in a scientific package. Those go under `### Changed`
@@ -98,3 +103,15 @@ Before the *first* release, a PyPI pending publisher must already exist for
 project `the-hawkes-package`, owner `jeMATHfischer`, repo `TheHawkesPackage`,
 workflow `release.yml`, environment `pypi`. Trusted publishing to a project that
 does not yet exist is rejected without one.
+
+A second pending publisher on **test.pypi.org** (a separate account) with
+environment `testpypi` drives the rehearsal: tag `vX.Y.ZrcN` and the release
+workflow routes the upload there instead, marking the GitHub release as a
+prerelease. Bump `__version__` to the rc, tag, verify, then restore it.
+
+Both publishers are bound to the **filename** `release.yml`. Renaming that
+workflow silently breaks every future release until the publishers are updated
+on both indexes.
+
+A published version can never be re-uploaded, on either index. A broken release
+is yanked and superseded, never replaced.

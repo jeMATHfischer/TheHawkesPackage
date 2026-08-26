@@ -1,5 +1,11 @@
 # the-hawkes-package
 
+[![CI](https://github.com/jeMATHfischer/TheHawkesPackage/actions/workflows/ci.yml/badge.svg)](https://github.com/jeMATHfischer/TheHawkesPackage/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/the-hawkes-package.svg)](https://pypi.org/project/the-hawkes-package/)
+[![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.14-blue)](https://pypi.org/project/the-hawkes-package/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://jeMATHfischer.github.io/TheHawkesPackage/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 Simulation of temporal and spatio-temporal Hawkes processes via Ogata's thinning algorithm.
 
 A Hawkes process is a self-exciting point process: every event raises the probability of further
