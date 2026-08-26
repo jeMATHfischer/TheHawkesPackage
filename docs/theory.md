@@ -157,6 +157,12 @@ Simulation runs in two stages:
    estimates let the acceptance ratio exceed 1. Sharing one node set with
    strictly positive weights means a pointwise-dominating integrand integrates
    to a dominating value, so $M \geq \lambda$ holds by construction.
+
+   Note what that argument does *not* require: it never asks the nodes to fill a
+   box, nor the weights to be the flat ones. So a domain that is a proper subset
+   of its bounding box may drop the nodes outside it and scale the survivors by
+   the measure density $\sqrt{\det g}$, and $M \geq \lambda$ survives untouched.
+   That is how `FundamentalDomain` is integrated (§ below).
 2. **Space.** Given an accepted event time, the location is drawn by
    Metropolis-Hastings from the conditional spatial density
    $\lambda(t, \cdot) / \int \lambda(t, x)\,\mathrm{d}x$.
@@ -175,6 +181,47 @@ a non-periodic background the sampled marginal was indistinguishable from
 uniform, and on a domain whose `wrap` clips rather than folds, every event
 landed exactly on a boundary.
 :::
+
+### Fundamental domains
+
+A closed orientable surface is a quotient $\widetilde{X} / \Gamma$ of a model
+space by a discrete group acting freely, and it is presented concretely by a
+*fundamental domain*: a region $D \subset \widetilde{X}$ containing exactly one
+point of each orbit, whose boundary is glued to itself by the side pairings that
+generate $\Gamma$. Distance on the quotient is then
+
+$$
+d(x, y) \;=\; \min_{g \in \Gamma} \; \tilde{d}\!\left(x, g \cdot y\right),
+$$
+
+which a `FundamentalDomain` evaluates over a window of $\Gamma$ truncated by word
+length, after reducing both points into $D$ — reduce first, or for distant lifts
+the nearest image falls outside the window and the kernel decays to zero instead
+of staying periodic.
+
+`Circle` is the case $\mathbb{R} / L\mathbb{Z}$ and `Torus2D` the case
+$\mathbb{R}^2 / \Lambda$ for a rectangular lattice; both are written out by hand.
+`FundamentalDomain` takes a convex Euclidean polygon and its side pairings,
+which reaches the hexagonal torus — the Dirichlet domain of the triangular
+lattice, and the first quotient here that no rectangle expresses.
+
+Two constraints are worth stating plainly:
+
+- **The polygon is not its bounding box.** Integration masks the quadrature rule
+  by $D$, and the rule's summed weights are checked against the domain's declared
+  area. A rule too coarse to resolve $\partial D$ mismeasures the area, and
+  mismeasuring the area scales the simulated event rate by exactly that factor —
+  which is why the check warns rather than trusting the declaration.
+- **Proposals are rejected, not folded.** Folding is reversible only where
+  $\Gamma$ acts by *translations*, which leave the Gaussian proposal invariant.
+  That happens to hold for both polygons constructed here, but not for a general
+  pairing — and it will not hold in the hyperbolic case, where the pairings are
+  Möbius maps. So `FundamentalDomain.periodic` is `False`: correctness first,
+  mixing efficiency second.
+
+Only orientation-preserving pairings are accepted. An orientation-reversing one
+quotients to a non-orientable surface, on which the oriented constructions this
+is built towards do not exist.
 
 ## References
 

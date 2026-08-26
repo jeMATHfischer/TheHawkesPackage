@@ -7,12 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`FundamentalDomain`**: a convex Euclidean polygon together with the side-pairing isometries
+  that identify its boundary, presenting a flat orientable surface. `FundamentalDomain.hexagon`
+  gives the hexagonal torus — the first quotient in the package that no rectangular domain
+  expresses — and `FundamentalDomain.rectangle` reproduces `Torus2D` through the general
+  machinery, which is how that machinery is checked. Only orientation-preserving pairings are
+  accepted; a reflection or glide raises.
+- `SpatialDomain` gains three optional hooks and one property, all with defaults that leave an
+  existing subclass behaving exactly as before: `contains` (default `True` — the domain fills its
+  bounding box), `volume_element` (default `1.0` — the flat chart), `orbit` (default `None` — no
+  deck group) and `interior_point` (default the centre of `bounds`).
+- `make_periodic` periodises any domain that implements `orbit`, by summing the kernel over the
+  image points. `Circle` and `Torus2D` keep their existing hand-written branches unchanged.
+
+### Changed
+
+- **A spatial domain may now be a proper subset of its bounding box.** Integration masks the
+  quadrature rule by `contains` and weights it by `volume_element`. The Ogata bound is unaffected:
+  it needs the bound and the acceptance test to share one node set with strictly positive weights,
+  which masking and a positive metric factor both preserve, so `M >= lambda` still holds pathwise.
+- `SpatioTemporalHawkesProcess` no longer raises when `volume != prod(bounds widths)`. In its place
+  the summed quadrature weights are checked against the domain's declared `volume`: more than 1%
+  apart warns that the rule does not resolve the domain boundary and the event rate will be wrong
+  by about as much; more than 10% apart still raises, since that means `volume`, `bounds` and
+  `contains` describe different regions. For a domain that fills its box nothing is masked and the
+  weights sum to the box volume exactly, so the old guarantee is subsumed rather than dropped.
+- The location sampler targets the intensity restricted to the domain, rather than to its bounding
+  box. On a domain that is a proper subset this matters: `_full_intensity` off the domain is the
+  periodic extension, so the box covers parts of the domain twice and others once, and folding a
+  box-distributed draw back in inherits that unevenness.
+
 ### Planned
 
 - Rename the public attributes `Events` → `events` and `Sim_num` → `n_simulated` (0.3.0).
   Deferred from 0.2.0 because every existing notebook cell touches them.
 - Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
   buffer redesign, because the intensity hooks read `Events` mid-loop (0.3.0).
+- Hyperbolic fundamental domains (genus >= 2, the Poincaré disc). The masked, metric-weighted
+  quadrature that `FundamentalDomain` needed is already in place and generalises; what is left is
+  the hyperbolic metric, an infinite Fuchsian group needing a truncation with an error bound, and
+  a reversible proposal for Möbius pairings — folding is not one.
 
 ## [0.2.0] — 2026-08-26
 
