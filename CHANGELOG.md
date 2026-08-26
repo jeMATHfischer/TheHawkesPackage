@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Rename the public attributes `Events` → `events` and `Sim_num` → `n_simulated` (0.4.0).
+  Deferred from 0.2.0 and again from 0.3.0 because every existing notebook cell touches them;
+  they now land with the shim removal, so one release carries every breaking name change.
+- Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
+  buffer redesign, because the intensity hooks read `Events` mid-loop (0.4.0).
+- Hyperbolic fundamental domains (genus >= 2, the Poincaré disc). The masked, metric-weighted
+  quadrature that `FundamentalDomain` needed is already in place and generalises; what is left is
+  the hyperbolic metric, an infinite Fuchsian group needing a truncation with an error bound, and
+  a reversible proposal for Möbius pairings — folding is not one.
+
+## [0.3.0] — 2026-08-26
+
 ### Added
 
 - **`FundamentalDomain`**: a convex Euclidean polygon together with the side-pairing isometries
@@ -38,17 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   box. On a domain that is a proper subset this matters: `_full_intensity` off the domain is the
   periodic extension, so the box covers parts of the domain twice and others once, and folding a
   box-distributed draw back in inherits that unevenness.
-
-### Planned
-
-- Rename the public attributes `Events` → `events` and `Sim_num` → `n_simulated` (0.3.0).
-  Deferred from 0.2.0 because every existing notebook cell touches them.
-- Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
-  buffer redesign, because the intensity hooks read `Events` mid-loop (0.3.0).
-- Hyperbolic fundamental domains (genus >= 2, the Poincaré disc). The masked, metric-weighted
-  quadrature that `FundamentalDomain` needed is already in place and generalises; what is left is
-  the hyperbolic metric, an infinite Fuchsian group needing a truncation with an error bound, and
-  a reversible proposal for Möbius pairings — folding is not one.
+- Existing scripts produce identical numbers: `Circle` and `Torus2D` fill their bounding boxes, so
+  nothing is masked and no extra draw is consumed. `docs/migration.md` says what changed for the
+  author of a custom `SpatialDomain` subclass, which is the only audience this release asks
+  anything of.
 
 ## [0.2.0] — 2026-08-26
 
@@ -217,5 +224,6 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 
 Initial internal version. Never published.
 
-[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.2.0

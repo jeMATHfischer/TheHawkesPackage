@@ -164,9 +164,11 @@ This is the section that matters. None of the following raises when violated.
 
 ## Conventions
 
-- **Public naming is frozen for 0.2.x.** `Events`, `Sim_num`, `Base`, `Space`, `L1`
-  and `L2` are public API. Ruff's `N` (pep8-naming) rules are disabled for exactly
-  this reason. The rename is scheduled for 0.3.0 — do not do it opportunistically.
+- **Public naming is frozen through 0.3.x.** `Events`, `Sim_num`, `Base`, `Space`,
+  `L1` and `L2` are public API. Ruff's `N` (pep8-naming) rules are disabled for
+  exactly this reason. The rename is scheduled for 0.4.0, alongside the removal of
+  the shim, so one release carries every breaking name change — do not do it
+  opportunistically before then.
 - `TID` is also off on purpose: `from ..mcmc import mcmc_sampler` is the sanctioned
   way for a subpackage to reach a sibling.
 - Python floor 3.10; `from __future__ import annotations` in every module; PEP 604
@@ -237,15 +239,18 @@ filename `release.yml`.
 
 ## Current state and roadmap
 
-Released: **0.2.0**. `master` carries unreleased `FundamentalDomain` work under
-`## [Unreleased]`, internally marked `.. versionadded:: 0.3.0`, with `__version__`
-deliberately still `0.2.0`. Cutting 0.3.0 means moving that section and bumping.
+Released: **0.3.0** — `FundamentalDomain`, the masked metric-weighted quadrature,
+and the domain-restricted location sampler. `master` carries no unreleased work;
+`## [Unreleased]` holds only `### Planned`.
 
-- **0.3.0** — rename `Events` → `events` and `Sim_num` → `n_simulated`; fix the
-  O(n²) `np.append` growth, which needs a buffer redesign because the intensity
-  hooks read `Events` mid-loop.
-- **0.4.0** — remove the `TheHawkesPackage` shim and every deprecated alias.
-  `REMOVED_IN` in `_deprecation.py` is the single source for that date.
+- **0.4.0** — remove the `TheHawkesPackage` shim and every deprecated alias
+  (`REMOVED_IN` in `_deprecation.py` is the single source for that date); rename
+  `Events` → `events` and `Sim_num` → `n_simulated`; fix the O(n²) `np.append`
+  growth, which needs a buffer redesign because the intensity hooks read `Events`
+  mid-loop. The rename and the buffer redesign land together: `Events` becomes a
+  view onto the buffer either way, and 0.4.0 is already the breaking release.
+  A renamed *attribute* needs a new descriptor — `DeprecatedAlias.__get__` returns
+  a callable wrapper, so it aliases methods only.
 - **Longer term** — hyperbolic fundamental domains (genus ≥ 2, the Poincaré disc).
   The masked, metric-weighted quadrature generalises already; what is missing is the
   hyperbolic metric, a truncation with an error bound for an infinite Fuchsian

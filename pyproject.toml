@@ -121,7 +121,7 @@ ignore = [
   "E731", # lambda assignment — pervasive and idiomatic in the kernel code
 ]
 # Deliberately NOT selecting `N` (pep8-naming): `Events`, `Sim_num`, `Base`,
-# `Space`, `L1`, `L2` are public API in 0.2.0. Revisit in 0.3.0.
+# `Space`, `L1`, `L2` are public API through 0.3.x. The renames land in 0.4.0.
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
