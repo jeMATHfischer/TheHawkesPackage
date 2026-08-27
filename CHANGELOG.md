@@ -353,6 +353,7 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 
 Initial internal version. Never published.
 
-[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.2.0
