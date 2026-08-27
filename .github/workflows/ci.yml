@@ -110,10 +110,15 @@ jobs:
           names = zipfile.ZipFile(wheel).namelist()
           for required in ("hawkes_package/__init__.py", "hawkes_package/py.typed"):
               assert required in names, f"{required} missing from {wheel.name}"
-          tops = {name.split("/")[0] for name in names if not name.endswith(".dist-info")}
-          stale = {t for t in tops if t.endswith(".dist-info") or t == "TheHawkesPackage"}
-          assert not stale, f"{wheel.name} still ships {sorted(stale)}"
-          print(f"{wheel.name}: all required members present, and nothing else")
+          # One package plus the metadata directory, and nothing else. The
+          # `.dist-info` entry is a top-level name too, which is why it is
+          # named rather than pattern-matched away.
+          tops = {name.split("/")[0] for name in names}
+          metadata = {t for t in tops if t.endswith(".dist-info")}
+          assert len(metadata) == 1, f"{wheel.name} has {sorted(metadata)}"
+          extra = tops - metadata - {"hawkes_package"}
+          assert not extra, f"{wheel.name} still ships {sorted(extra)}"
+          print(f"{wheel.name}: one package, the typing marker, and nothing else")
           PY
 
       - name: Import from a clean environment
