@@ -49,7 +49,18 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: python -m pip install -e ".[test]"
       - name: Run the fast suite
-        run: pytest -m "not slow" -q
+        # Surface failures as check annotations. The raw log needs repository
+        # admin rights to download, so a bare "exit code 1" is all a
+        # contributor -- or a bot -- can otherwise see, and diagnosing the
+        # first 0.4.0 rehearsal failure cost an afternoon for exactly that.
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -m "not slow" -q -rf 2>&1 | tee pytest.log && exit 0
+          grep -E '^(FAILED|ERROR)' pytest.log | while read -r line; do
+            echo "::error::$line"
+          done
+          exit 1
 
   coverage:
     name: Coverage
@@ -87,20 +98,25 @@ jobs:
 
       # A src-layout packaging slip is invisible to an editable install, so the
       # wheel's actual contents are checked here rather than in the test suite.
-      - name: Wheel contains both packages and the typing marker
+      # The wheel shipped two top-level packages until 0.4.0 removed the
+      # `TheHawkesPackage` shim. Asserting the survivor is present *and* that
+      # the shim is not is what keeps a stale `packages` entry from quietly
+      # re-adding it.
+      - name: Wheel contains one package and the typing marker
         run: |
           python - <<'PY'
           import pathlib, zipfile
           wheel = next(pathlib.Path("dist").glob("*.whl"))
           names = zipfile.ZipFile(wheel).namelist()
-          for required in ("hawkes_package/__init__.py",
-                           "hawkes_package/py.typed",
-                           "TheHawkesPackage/__init__.py"):
+          for required in ("hawkes_package/__init__.py", "hawkes_package/py.typed"):
               assert required in names, f"{required} missing from {wheel.name}"
-          print(f"{wheel.name}: all required members present")
+          tops = {name.split("/")[0] for name in names if not name.endswith(".dist-info")}
+          stale = {t for t in tops if t.endswith(".dist-info") or t == "TheHawkesPackage"}
+          assert not stale, f"{wheel.name} still ships {sorted(stale)}"
+          print(f"{wheel.name}: all required members present, and nothing else")
           PY
 
-      - name: Import both names from a clean environment
+      - name: Import from a clean environment
         run: |
           python -m venv /tmp/clean
           /tmp/clean/bin/python -m pip install --quiet dist/*.whl
@@ -109,16 +125,10 @@ jobs:
           import hawkes_package as hp
           print('hawkes_package', hp.__version__)
           "
-          # The compat shim must still work, and must warn.
+          # And the shim removed in 0.4.0 must be genuinely gone, not merely
+          # undocumented.
           /tmp/clean/bin/python -c "
-          import warnings
-          with warnings.catch_warnings(record=True) as caught:
-              warnings.simplefilter('always')
-              import TheHawkesPackage as THP
-          assert any(issubclass(w.category, DeprecationWarning) for w in caught), 'shim did not warn'
-          import hawkes_package
-          assert THP.ExponentialHawkes is hawkes_package.ExponentialHawkes
-          from TheHawkesPackage.spatio_temporal.domains import Circle
-          assert Circle is hawkes_package.Circle
-          print('TheHawkesPackage shim OK')
+          import importlib.util
+          assert importlib.util.find_spec('TheHawkesPackage') is None, 'the shim is still packaged'
+          print('TheHawkesPackage shim is gone')
           "

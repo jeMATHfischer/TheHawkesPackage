@@ -14,10 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
   simulation. This is now the whole of the quadratic term: 0.4.0's buffer made the event record
   grow linearly, and measuring showed the record was never where the time went.
-- Hyperbolic surfaces above about genus 4 are out of reach of the hyperboloid model in double
-  precision: a deck element at displacement 18 has coordinates near `5e7`, where the spacing of
-  doubles exceeds the gap between the sheet and its asymptotic cone. Reaching further needs a
-  different representation, not a bigger window.
+- Hyperbolic surfaces past twelve sides — genus 4, seven crosscaps — are refused at
+  construction, and reaching them needs a different search rather than a bigger budget. A
+  certified distance enumerates a deck-group window whose size grows like `exp(R)`, and the
+  radius scales with the polygon; the answer stays tiny (193 elements for genus 3) while the
+  search that certifies it does not. Searching outward from the *pair of points* instead of
+  from the polygon's centre would size the work to the answer.
+- Double precision is a second ceiling behind that one: a deck element at displacement 18 has
+  hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
+  sheet and its asymptotic cone.
 
 ## [0.4.0] — 2026-08-27
 
@@ -117,6 +122,18 @@ cutting now.
   distance at all. It also now warns when the last ring of images still contributes more than 1%
   of the sum, which on a hyperbolic surface is the difference between a convergent image sum and
   a silently truncated one.
+- **`contains` no longer depends on how far `distance` has searched.** The boundary convention
+  reads the orbit of a boundary point out of the deck-group window, and `distance` widens that
+  window on demand — so a corner that was the representative of its cycle could stop being one
+  because an unrelated earlier call had widened the search. Shared domains made it
+  order-dependent, and the CI matrix duly failed on five of ten jobs and passed on the other
+  five with identical code. The window used for the boundary is now the one the polygon was
+  built with, and is never replaced.
+- **The deck-group search budget counts the answer and the search separately.** They differ by
+  orders of magnitude in negative curvature — genus 3 certifies a 193-element window by visiting
+  tens of thousands — and counting them against one cap rejected a legitimate surface for a cost
+  its answer never incurs, from inside `distance`, on whichever pair of points happened to need
+  the wider search first.
 - The boundary convention is now "one representative per orbit, chosen lexicographically" rather
   than a closed/open flag per side. The flag rule reproduces `Torus2D`'s `[-L/2, L/2)` convention
   on the rectangle and the hexagon and is wrong in general: on the projective plane's hemisphere

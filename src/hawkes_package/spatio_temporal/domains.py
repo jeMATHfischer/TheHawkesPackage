@@ -686,6 +686,7 @@ class FundamentalDomain(SpatialDomain):
         self._nodes_per_axis: int | None = None
         self._window_cache: dict[int, np.ndarray] = {}
         self._radius_window: np.ndarray = np.empty((0, 3, 3))
+        self._boundary_window: np.ndarray = np.empty((0, 3, 3))
         self._radius_displacements: np.ndarray = np.empty(0)
         self._window_norms: np.ndarray = np.empty(0)
         self._window_radius = 0.0
@@ -696,6 +697,14 @@ class FundamentalDomain(SpatialDomain):
         # the antipodal map of the projective plane misses the cut by four ulp
         # without it -- which leaves the boundary with no representative at all.
         self._grow_window(2.0 * self._scale + self._tol)
+        # Snapshot it. `_grow_window` replaces the window whenever a distance
+        # needs a wider search, and the boundary convention must not move when
+        # it does: `contains` is a property of the domain, not of its search
+        # history. Sharing one domain between two callers -- as a pytest fixture
+        # does -- would otherwise make the answer depend on which of them ran
+        # first, and the answer it changes is which of a corner cycle's images
+        # is *the* representative.
+        self._boundary_window = self._radius_window
         self._band = self._boundary_band(corners)
 
     # -- construction -------------------------------------------------
@@ -941,6 +950,7 @@ class FundamentalDomain(SpatialDomain):
                 f"genus must be at least 1, got {handles}. The sphere is simply connected: it "
                 "has no deck group and no fundamental domain. Use Sphere()."
             )
+        _check_sides(4 * handles, f"a genus-{handles} surface")
         word = []
         for handle in range(handles):
             word += [(handle, 1), (handles + handle, 1), (handle, -1), (handles + handle, -1)]
@@ -973,6 +983,7 @@ class FundamentalDomain(SpatialDomain):
             raise ValueError(f"the number of crosscaps must be at least 1, got {count}")
         if count == 1:
             return cls.projective_plane()
+        _check_sides(2 * count, f"a surface with {count} crosscaps")
         word = [(crosscap, 1) for crosscap in range(count) for _ in range(2)]
         return cls._from_word(word)
 
@@ -1083,11 +1094,15 @@ class FundamentalDomain(SpatialDomain):
     def _closure_images(self, x: np.ndarray, edge: float) -> np.ndarray:
         """Every image of `x` under the deck group that lands in the closed polygon.
 
-        The window is exactly the right set to search: an element carrying a
-        point of the polygon back into the polygon moves the centre by at most
-        twice the circumradius, and the window is never built smaller than that.
+        Searched over the window as it stood when the polygon was built, which
+        is exactly the right set and exactly the right *time*: an element
+        carrying a point of the polygon back into the polygon moves the centre
+        by at most twice the circumradius, and the initial window is built to
+        that radius. Using the current window instead would make the boundary
+        convention depend on whether some earlier call to :meth:`distance` had
+        widened the search.
         """
-        images = np.einsum("kij,j->ki", self._radius_window, self.model.lift(x))
+        images = np.einsum("kij,j->ki", self._boundary_window, self.model.lift(x))
         inside = images[np.all(images @ self._planes.T <= edge, axis=1)]
         return self.model.chart_many(inside) if len(inside) else np.empty((0, 2))
 
@@ -1369,6 +1384,32 @@ class FundamentalDomain(SpatialDomain):
 # ---------------------------------------------------------------------------
 # Presentation helpers
 # ---------------------------------------------------------------------------
+
+
+#: Most sides a hyperbolic presentation may have. The polygon grows with the
+#: side count, and so does the deck-group window a certified distance needs --
+#: exponentially, because the element count in negative curvature grows like
+#: exp(R). Twelve sides is where that stops being affordable: the widest window
+#: a genus-3 surface's own distances ask for takes a few seconds to build, and
+#: the next size up cannot be built at all.
+_MAX_HYPERBOLIC_SIDES = 12
+
+
+def _check_sides(sides: int, what: str) -> None:
+    """Refuse a presentation whose deck group is out of computational reach.
+
+    At construction, and with the reason, rather than from inside
+    :meth:`~FundamentalDomain.distance` on whichever pair of points first needs
+    a wide enough search -- which is the same failure arriving later, less
+    clearly, and only sometimes.
+    """
+    if sides > _MAX_HYPERBOLIC_SIDES:
+        raise ValueError(
+            f"{what} needs a {sides}-sided polygon, and this implementation stops at "
+            f"{_MAX_HYPERBOLIC_SIDES}. Its deck group grows like exp(R) in the radius a "
+            "certified distance has to search, and beyond twelve sides that radius cannot be "
+            "enumerated. Nothing about the geometry forbids it; the search does."
+        )
 
 
 def _translation(dx: float, dy: float) -> np.ndarray:

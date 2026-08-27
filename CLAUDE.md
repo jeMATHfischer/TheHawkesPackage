@@ -255,7 +255,18 @@ carries no unreleased work; `## [Unreleased]` holds only `### Planned`.
   `O(n²)` is the intensity sum, `O(n)` per thinning step. Making it incremental
   is possible for the exponential kernel and is the real fix; do not reach for
   the buffer again.
-- **Longer term** — hyperbolic fundamental domains (genus ≥ 2, the Poincaré disc).
-  The masked, metric-weighted quadrature generalises already; what is missing is the
-  hyperbolic metric, a truncation with an error bound for an infinite Fuchsian
-  group, and a reversible proposal for Möbius pairings — folding is not one.
+- **Hyperbolic surfaces stop at twelve sides** — genus 3, six crosscaps — and
+  `_MAX_HYPERBOLIC_SIDES` refuses the rest at construction. The limit is the
+  deck-group search, not the geometry: a certified `distance` enumerates every
+  element within a radius that scales with the polygon, and the element count
+  grows like `exp(R)`, so genus 3 certifies a 193-element answer by visiting
+  tens of thousands and genus 4 cannot be searched at all. Searching outward
+  from the *pair of points* rather than from the polygon's centre would size the
+  work to the answer; a bigger budget would not.
+- **`contains` must never read the grown window.** The boundary convention takes
+  the orbit of a boundary point and keeps its lexicographic minimum, and
+  `distance` widens the window on demand — so reading the current window makes a
+  pure predicate depend on search history, and two callers sharing a domain get
+  different answers depending on order. `_boundary_window` is snapshotted at
+  construction for exactly this reason. It shipped wrong once and the CI matrix
+  caught it by failing five of ten jobs on identical code.

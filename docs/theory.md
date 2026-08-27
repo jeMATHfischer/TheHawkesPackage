@@ -309,6 +309,14 @@ displacement the answer is the exact minimum. Word length carries no such
 guarantee: it describes how a presentation was written, not how far its elements
 move anything.
 
+The radius a certificate asks for grows with the polygon, and the element count
+grows like $e^R$ with the radius, so the two compound: a genus-3 surface
+certifies a window of 193 elements by visiting tens of thousands, and a genus-4
+one cannot be searched at all. Presentations past twelve sides are therefore
+refused at construction. Nothing about the geometry forbids them; searching
+outward from the *pair of points* rather than from the polygon's centre would
+size the work to the answer, and is what reaching further would take.
+
 For an image sum — `make_periodic` — no such certificate exists, because the sum
 needs *all* the images and not the nearest. The tail beyond radius $R$ is of
 order $e^{R} \sup_{d > R} \kappa_s(d)$, which converges only for a kernel

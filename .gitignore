@@ -52,3 +52,4 @@ docs/plans/
 # OS
 .DS_Store
 Thumbs.db
+pytest.log

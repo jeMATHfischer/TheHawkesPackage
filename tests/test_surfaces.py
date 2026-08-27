@@ -15,6 +15,8 @@ in presentations that are wrong in each of the available ways and requires each
 to be refused at construction.
 """
 
+import itertools
+
 import numpy as np
 import pytest
 
@@ -602,3 +604,84 @@ def test_a_flat_word_and_a_hand_written_pairing_agree():
     assert from_word.volume == pytest.approx(by_hand.volume, rel=1e-9)
     assert from_word.topology == by_hand.topology
     assert isinstance(from_word.model, EuclideanPlane)
+
+
+# ---------------------------------------------------------------------------
+# The search must not leak into the answer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: FundamentalDomain.hexagon(1.0),
+        lambda: FundamentalDomain.klein_bottle(3.0, 5.0),
+        lambda: FundamentalDomain.projective_plane(),
+        lambda: FundamentalDomain.genus(2),
+    ],
+    ids=["hexagon", "klein-bottle", "projective-plane", "genus-2"],
+)
+def test_contains_does_not_move_when_the_search_widens(build):
+    """`contains` is a property of the domain, not of its search history.
+
+    `distance` widens the deck-group window whenever a pair of points needs a
+    wider one, and the boundary convention is decided by taking the orbit of a
+    boundary point and keeping its lexicographic minimum. Reading that orbit out
+    of the *current* window couples the two: a corner that was the
+    representative becomes one that is not, because the widened window offered
+    an image the narrower one did not.
+
+    That is order-dependence in a pure predicate, and it is invisible until two
+    callers share a domain -- which a pytest fixture does. It reached CI, where
+    the matrix failed on five of ten jobs and passed on the other five with the
+    same code.
+    """
+    domain = build()
+    corners = domain.vertices
+    before = [domain.contains(corner) for corner in corners]
+    domain._grow_window(3.0 * domain._scale)
+    # The projective plane's deck group has two elements, so there is nothing
+    # for a wider radius to find; everywhere else the window really does grow,
+    # which is what makes the invariance below worth asserting.
+    assert len(domain._radius_window) >= len(domain._boundary_window)
+    assert [domain.contains(corner) for corner in corners] == before
+
+
+def test_a_certified_distance_never_gives_up_on_a_supported_surface(rng):
+    """The widest window genus 3 asks for must be one the search will build.
+
+    Before 0.4.0 the budget counted the elements the search *visited* and the
+    elements it *returned* against one cap, so certifying an answer of 193
+    elements was refused for having touched fifty thousand. It surfaced as a
+    `RuntimeError` from `distance` on whichever pair of points first needed the
+    wider search -- so whether a run survived depended on the order its pairs
+    came in.
+    """
+    surface = FundamentalDomain.genus(3)
+    points = [surface.sample_uniform(rng) for _ in range(12)] + list(surface.vertices)
+    worst = max(surface.distance(x, y) for x, y in itertools.combinations(points, 2))
+    assert 0.0 < worst <= surface.max_distance
+    assert len(surface._radius_window) < 20_000
+
+
+@pytest.mark.parametrize(
+    ("build", "sides"),
+    [(lambda: FundamentalDomain.genus(4), 16), (lambda: FundamentalDomain.crosscaps(7), 14)],
+    ids=["genus-4", "crosscaps-7"],
+)
+def test_a_presentation_beyond_reach_is_refused_at_construction(build, sides):
+    """And refused for the reason, rather than raising later from `distance`.
+
+    Nothing about the geometry forbids these -- the polygon and the gluing are
+    perfectly good. What forbids them is the deck-group window a certified
+    distance would have to enumerate, which grows like ``exp(R)``: sixteen sides
+    cannot be searched even once.
+    """
+    with pytest.raises(ValueError, match=rf"{sides}-sided polygon.*stops at 12"):
+        build()
+
+
+def test_the_largest_supported_presentations_still_build():
+    """The limit is where the cost stops being affordable, not one short of it."""
+    assert FundamentalDomain.genus(3).topology.euler_characteristic == -4
+    assert FundamentalDomain.crosscaps(6).topology.euler_characteristic == -4

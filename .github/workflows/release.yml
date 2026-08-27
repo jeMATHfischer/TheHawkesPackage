@@ -38,7 +38,19 @@ jobs:
       - run: ruff check --output-format=github .
       - run: ruff format --check .
       - run: mypy
-      - run: pytest -m "not slow" -q
+      - name: Run the fast suite
+        # Surface failures as check annotations. The raw log needs repository
+        # admin rights to download, so a bare "exit code 1" is all a
+        # contributor -- or a bot -- can otherwise see, and diagnosing the
+        # first 0.4.0 rehearsal failure cost an afternoon for exactly that.
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -m "not slow" -q -rf 2>&1 | tee pytest.log && exit 0
+          grep -E '^(FAILED|ERROR)' pytest.log | while read -r line; do
+            echo "::error::$line"
+          done
+          exit 1
 
   build:
     name: Build distributions

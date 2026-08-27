@@ -50,12 +50,21 @@ __all__ = [
     "window_by_radius",
 ]
 
-#: Hard cap on how many distinct deck elements a radius search may enumerate. A
-#: discrete group puts finitely many in any ball, so hitting this means either
-#: that the pairings do not generate a discrete group -- which otherwise shows
-#: up as a hang -- or that a hyperbolic presentation is being asked for a window
-#: whose cost has gone exponential.
-_MAX_WINDOW = 50_000
+#: Hard cap on the *answer*: how many elements a radius search may return. A
+#: discrete group puts finitely many in any ball, so only a non-discrete one
+#: reaches this -- and it would otherwise show up as a hang. Legitimate windows
+#: are tiny by comparison: a genus-3 surface needs 193 elements for the widest
+#: radius its own distances ever ask for.
+_MAX_KEPT = 20_000
+
+#: Budget for the *search*, which is a different quantity and much larger. The
+#: slack that makes the result complete is a circumradius wide, and in negative
+#: curvature the element count grows like exp(R), so certifying an answer of a
+#: couple of hundred elements legitimately touches tens of thousands. Counting
+#: the two together -- as this did until 0.4.0 -- rejects a genus-3 surface for
+#: a cost its answer never incurs, and does it from inside `distance`, so
+#: whether a run survives depends on which pairs it happened to compare first.
+_MAX_EXPLORED = 400_000
 
 
 #: Separation, on the unit sphere of ambient directions, below which two deck
@@ -214,8 +223,9 @@ def window_by_radius(
     Raises
     ------
     RuntimeError
-        If the search exceeds an internal cap, which a discrete group cannot do
-        unless the radius has been pushed into the exponential regime.
+        If the answer exceeds ``_MAX_KEPT``, which only a non-discrete group can
+        do, or the search exceeds ``_MAX_EXPLORED``, which means the radius is
+        beyond what this curvature affords.
     """
     identity = np.eye(3)
     alphabet = np.array([*generators, *(np.linalg.inv(g) for g in generators)])
@@ -232,12 +242,12 @@ def window_by_radius(
         products = np.einsum("aij,fjk->afik", alphabet, frontier).reshape(-1, 3, 3)
         images = np.einsum("kij,j->ki", products, base)
         fresh = [i for i in range(len(products)) if index.add(images[i])]
-        if index.size > _MAX_WINDOW:
+        if index.size > _MAX_EXPLORED:
             raise RuntimeError(
-                f"more than {_MAX_WINDOW} deck elements move the centre by at most "
-                f"{radius + slack:.6g}. Either the side pairings do not generate a discrete "
-                "group, or this is a hyperbolic surface whose deck group grows like exp(R) "
-                "and the radius asked for is out of reach."
+                f"the deck-group search visited more than {_MAX_EXPLORED} elements while "
+                f"certifying a window of radius {radius:.6g}. In negative curvature the "
+                "element count grows like exp(R), so this radius is out of reach; a smaller "
+                "polygon, or fewer handles, is."
             )
         if not fresh:
             break
@@ -245,6 +255,12 @@ def window_by_radius(
         displaced = model.ambient_distances(base, images[fresh])
         kept.extend(candidates[displaced <= radius])
         moved_kept.extend(displaced[displaced <= radius])
+        if len(kept) > _MAX_KEPT:
+            raise RuntimeError(
+                f"more than {_MAX_KEPT} deck elements move the centre by at most "
+                f"{radius:.6g}. A discrete group puts finitely many in any ball, so the side "
+                "pairings do not generate one."
+            )
         frontier = candidates[displaced <= radius + slack]
 
     elements = np.array(kept)
