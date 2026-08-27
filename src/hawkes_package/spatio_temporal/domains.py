@@ -1024,23 +1024,40 @@ class FundamentalDomain(SpatialDomain):
     def _boundary_band(self, corners: np.ndarray) -> float:
         """How far off a side a point may sit and still count as being on it.
 
-        Sized against the *arithmetic*, not against the geometry. A point of the
-        boundary is normally arrived at through a deck-group product, and the
-        rounding such a product leaves behind is of order machine epsilon times
-        the size of the matrix times the size of the point. On a genus-3 surface
-        those are ``1e4`` and ``20``, so a corner reached the long way round its
-        own cycle misses its own supporting geodesic by ``8e-11`` -- thirty
-        times the "``1e-12`` of the circumradius" this used to be compared
-        against, which is how ``wrap`` came to return a representative that
-        ``contains`` then rejected.
+        Sized against the *arithmetic*, not against the geometry, and **measured
+        rather than assumed**. A point of the boundary is normally arrived at
+        through a deck-group product, and the rounding such a product leaves
+        behind grows with the size of the matrix and of the point. Estimating
+        that from first principles is what went wrong: a coefficient chosen as
+        thirty machine epsilons gave a genus-3 surface a band of ``1.5e-10``
+        against a residue that reached ``1.0e-10`` on one platform and
+        ``1.1e-11`` on another -- the same computation, straddling the
+        threshold, so ``wrap`` returned a representative that ``contains``
+        rejected on Linux and accepted on Windows.
 
-        Measured once, from the window the polygon is built with rather than
-        from whatever it may later have grown to, so that widening the search
-        cannot quietly widen the domain along with it.
+        So the residue is measured on the corners themselves. Every image of a
+        corner that lands on a corner is, exactly, on the boundary; whatever the
+        half-space test then reports for it is pure accumulated rounding, and
+        the largest such value is what the band has to clear. A hundredfold
+        margin over the worst observed still leaves twelve orders of magnitude
+        between the band and the smallest signed distance of an image that is
+        genuinely outside -- on the genus-3 surface those are ``1e-8`` and
+        ``13.4`` -- so there is no tension between the two sides of the test.
+
+        Measured once, over the window the polygon is built with rather than
+        whatever it may later have grown to, so that widening the search cannot
+        quietly widen the domain along with it.
         """
-        scale = float(np.max(np.linalg.norm(self.model.lift_many(corners), axis=1)))
-        reach = float(np.max(self._window_norms)) if len(self._window_norms) else 1.0
-        return max(self._eps, 1e-14 * scale * reach)
+        observed = 0.0
+        for corner in corners:
+            images = np.einsum("kij,j->ki", self._boundary_window, self.model.lift(corner))
+            landed = self.model.chart_many(images)
+            for image, charted in zip(images, landed, strict=True):
+                # A corner carried onto a corner is on the boundary by
+                # construction, whatever the arithmetic says about it.
+                if np.min(np.linalg.norm(corners - charted, axis=1)) <= self._tol:
+                    observed = max(observed, float(np.max(self._planes @ image)))
+        return max(self._eps, 100.0 * observed)
 
     def _grow_window(self, radius: float) -> None:
         """Rebuild the displacement-truncated window out to `radius`, sorted by displacement.

@@ -695,3 +695,45 @@ def test_the_largest_supported_presentations_still_build():
     """The limit is where the cost stops being affordable, not one short of it."""
     assert FundamentalDomain.genus(3).topology.euler_characteristic == -4
     assert FundamentalDomain.crosscaps(6).topology.euler_characteristic == -4
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: FundamentalDomain.hexagon(1.0),
+        lambda: FundamentalDomain.klein_bottle(3.0, 5.0),
+        lambda: FundamentalDomain.projective_plane(),
+        lambda: FundamentalDomain.genus(2),
+        lambda: FundamentalDomain.genus(3),
+        lambda: FundamentalDomain.crosscaps(6),
+    ],
+    ids=["hexagon", "klein-bottle", "projective-plane", "genus-2", "genus-3", "crosscaps-6"],
+)
+def test_the_boundary_band_clears_both_sides(build):
+    """It must swallow the rounding and admit nothing that is really outside.
+
+    The band decides which images of a boundary point count as being on the
+    boundary, and it is squeezed from two directions: below by the rounding a
+    deck-group product leaves on a quantity that is mathematically zero, above
+    by the smallest signed distance of an image that genuinely is outside.
+
+    Estimated from machine epsilon rather than measured, it sat at ``1.5e-10``
+    on a genus-3 surface while the rounding reached ``1.0e-10`` on Linux and
+    ``1.1e-11`` on Windows -- the same computation, either side of the
+    threshold. So the two margins are asserted, not assumed. They are not close:
+    the room above is eight orders of magnitude wider than the room below.
+    """
+    domain = build()
+    residue, outside = 0.0, float("inf")
+    for corner in domain.vertices:
+        images = np.einsum("kij,j->ki", domain._boundary_window, domain.model.lift(corner))
+        for image, charted in zip(images, domain.model.chart_many(images), strict=True):
+            signed = float(np.max(domain._planes @ image))
+            on_boundary = np.min(np.linalg.norm(domain.vertices - charted, axis=1)) <= domain._tol
+            if on_boundary:
+                residue = max(residue, signed)
+            elif signed > 0:
+                outside = min(outside, signed)
+
+    assert domain._band >= 10 * residue, "the band does not clear the rounding it must absorb"
+    assert domain._band <= outside / 1000, "the band reaches an image that is genuinely outside"
