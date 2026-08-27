@@ -99,6 +99,24 @@ SPATIO_TEMPORAL = [
     "st-hexagon",
     "st-hexagon-periodic",  # the same, through make_periodic's orbit branch
     pytest.param("st-rectangle", marks=pytest.mark.slow),
+    # The curved domains. Each one changes something the domination argument
+    # depends on, and the argument only ever needed the bound and the acceptance
+    # test to share one node set with strictly positive weights -- so each is a
+    # case where that could quietly stop being true.
+    #
+    # `volume_element` is no longer 1, so the weights are rescaled per node and
+    # the location sampler is handed a different density than the intensity.
+    "st-sphere",
+    # A deck group containing an orientation-reversing element, so `wrap` is not
+    # a translation and the quotient distance is not a lattice reduction.
+    "st-klein",
+    # A domain on a curved model space, where `contains` masks the rule *and*
+    # the measure varies across it.
+    pytest.param("st-projective", marks=pytest.mark.slow),
+    # Negative curvature: an infinite deck group, a chart whose bounding box
+    # reaches outside the model space, and a distance that is certified rather
+    # than truncated by word length.
+    pytest.param("st-crosscaps", marks=pytest.mark.slow),
     "legacy",
 ]
 
@@ -155,6 +173,21 @@ def build(
             )
         if name == "st-rectangle":
             return _spatio_temporal(domain=hp.FundamentalDomain.rectangle(), rng=seed)
+        if name == "st-sphere":
+            return _spatio_temporal(domain=hp.Sphere(), rng=seed)
+        if name == "st-klein":
+            return _spatio_temporal(domain=hp.FundamentalDomain.klein_bottle(3.0, 3.0), rng=seed)
+        if name == "st-projective":
+            return _spatio_temporal(domain=hp.FundamentalDomain.projective_plane(), rng=seed)
+        if name == "st-crosscaps":
+            # Three crosscaps rather than genus two: the smallest hyperbolic
+            # surface here, and the only one whose quadrature is affordable to
+            # run a simulation on at all.
+            return _spatio_temporal(
+                domain=hp.FundamentalDomain.crosscaps(3),
+                spatial=lambda d: max(0.0, 1.0 - d / 1.5),
+                rng=seed,
+            )
         return hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, rng=seed)
 
     return _build
@@ -179,8 +212,23 @@ def test_spatio_temporal_thinning_invariant(build, name):
     # The two-dimensional domains cost ~1000 kernel evaluations per integration,
     # so they run shorter. Long enough that candidates are still rejected, which
     # `_check` insists on.
-    two_dimensional = {"st-torus", "st-rectangle", "st-hexagon", "st-hexagon-periodic"}
-    proc.simulate(8 if name in two_dimensional else 15)
+    two_dimensional = {
+        "st-torus",
+        "st-rectangle",
+        "st-hexagon",
+        "st-hexagon-periodic",
+        "st-sphere",
+        "st-klein",
+    }
+    # The curved domains cost more again: a hyperbolic `distance` searches a
+    # deck-group window per quadrature node per past event, so four events is
+    # already a minute of work. Still long enough that candidates are rejected,
+    # which `_check` insists on.
+    expensive = {"st-projective", "st-crosscaps"}
+    if name in expensive:
+        proc.simulate(4)
+    else:
+        proc.simulate(8 if name in two_dimensional else 15)
     _check(state, label=name)
 
 

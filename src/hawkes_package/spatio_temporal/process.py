@@ -202,9 +202,11 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     def _build_quadrature(self, n_quad: int | None) -> None:
         """Build the fixed spatial integration rule, once, at construction."""
         bounds = self.domain.bounds
-        self.n_quad = (
-            _integration.default_nodes_per_axis(self._ndim) if n_quad is None else int(n_quad)
-        )
+        # The domain's own recommendation, not a flat dimension-based default:
+        # a hyperbolic polygon needs four times the nodes a flat one does, and
+        # the only symptom of too few is a warning that the area -- and so the
+        # event rate -- is out by several percent.
+        self.n_quad = self.domain.nodes_per_axis if n_quad is None else int(n_quad)
 
         def make_rule(nodes_per_axis: int) -> _integration.TensorQuadrature:
             # Nodes outside the domain are dropped and the survivors weighted by
@@ -279,24 +281,43 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         return self._integrated_intensity(t, bound=True)
 
     def _confined_density(self, x: Any, t: float) -> float:
-        """Evaluate the density the location sampler targets: zero outside the domain.
+        r"""Evaluate the density the location sampler targets: zero outside the domain.
 
-        `bounds` is a *box*, and a domain that is a proper subset of it needs the
-        chain confined to the domain itself. Folding the sample back afterwards
-        is not the same thing and is not correct: `_full_intensity` off the
-        domain is the periodic extension, so the box covers some parts of the
-        domain twice and others once, and folding a box-distributed draw
-        inherits that unevenness.
+        Two corrections to the raw intensity, for two different reasons.
 
-        Returning zero is the confinement -- :func:`~hawkes_package.mcmc.mcmc_sampler`
-        already treats a zero density as a rejection, and rejection (rather than
-        folding) is what keeps the chain reversible for a general pairing group.
-        For a domain that fills its box `contains` is constantly ``True`` and
-        this is exactly `_full_intensity`.
+        **Confinement.** `bounds` is a *box*, and a domain that is a proper
+        subset of it needs the chain confined to the domain itself. Folding the
+        sample back afterwards is not the same thing and is not correct:
+        `_full_intensity` off the domain is the periodic extension, so the box
+        covers some parts of the domain twice and others once, and folding a
+        box-distributed draw inherits that unevenness. Returning zero is the
+        confinement -- :func:`~hawkes_package.mcmc.mcmc_sampler` already treats
+        a zero density as a rejection, and rejection (rather than folding) is
+        what keeps the chain reversible for a general pairing group.
+
+        **The measure.** The event location is distributed as
+        :math:`\lambda\,\mathrm{d}A` on the surface, but the sampler walks in
+        *chart* coordinates with a symmetric Gaussian proposal and accepts on
+        the raw ratio, so the density it must be handed is
+        :math:`\lambda \cdot \sqrt{\det g}` -- the same
+        :meth:`~hawkes_package.SpatialDomain.volume_element` factor
+        :func:`~hawkes_package.spatio_temporal._integration.restrict` applies to
+        the quadrature weights. Omitting it biases the sampled locations towards
+        wherever the chart compresses area, by exactly the factor the chart
+        compresses by: on the sphere it would pile events at the poles.
+
+        For a domain that fills its box with the flat measure -- every domain
+        that predates 0.4.0 -- ``contains`` is constantly ``True``,
+        ``volume_element`` is constantly ``1.0``, and this is exactly
+        `_full_intensity`.
+
+        .. versionchanged:: 0.4.0
+           Multiplies by ``volume_element``. No shipped result moves: every
+           domain that existed before had the flat chart measure.
         """
         if not self.domain.contains(x):
             return 0.0
-        return self._full_intensity(x, t)
+        return self._full_intensity(x, t) * self.domain.volume_element(x)
 
     # ------------------------------------------------------------------
     # Simulation

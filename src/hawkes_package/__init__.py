@@ -12,10 +12,12 @@ Spatio-temporal processes
 
 Spatial domains
 ---------------
-:class:`SpatialDomain`, :class:`Circle`, :class:`Torus2D` and
-:class:`FundamentalDomain` — a convex polygon with side pairings, which reaches
-quotients no rectangle expresses — plus :func:`make_periodic` for summing a
-kernel over a domain's image points.
+:class:`SpatialDomain`, :class:`Circle`, :class:`Torus2D`, :class:`Sphere` and
+:class:`FundamentalDomain` — a convex geodesic polygon with side pairings, which
+between them reach **every closed surface**: the sphere and the projective plane,
+the torus and the Klein bottle, and every orientable or non-orientable surface of
+higher genus. Plus :func:`make_periodic` for summing a kernel over a domain's
+image points.
 
 Notes
 -----
@@ -36,6 +38,7 @@ from .spatio_temporal import (
     LegacySpatioTemporalHawkesProcess,
     SpatialDomain,
     SpatioTemporalHawkesProcess,
+    Sphere,
     Torus2D,
     make_periodic,
 )
@@ -52,6 +55,7 @@ __all__ = [
     "MonotoneKernelHawkes",
     "SpatialDomain",
     "SpatioTemporalHawkesProcess",
+    "Sphere",
     "TemporalHawkesProcess",
     "Torus2D",
     "__version__",

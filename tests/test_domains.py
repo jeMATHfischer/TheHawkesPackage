@@ -65,6 +65,23 @@ def test_third_party_domain_satisfies_the_contract():
 # ---------------------------------------------------------------------------
 
 
+def off_domain(domain, rng):
+    """A point outside `domain` that `wrap` is obliged to bring back inside.
+
+    A far-away lift wherever the chart is the whole plane, and an image of an
+    interior point under the deck group otherwise. The distinction is not
+    pedantry: the Poincare disc chart covers ``|z| < 1``, so a draw from
+    ``(-10, 10)^2`` is not a set of hyperbolic points at all and `wrap` rightly
+    refuses it. Deck-group images are the case that matters anyway -- they are
+    what a lift coming out of `orbit` or `make_periodic` actually looks like.
+    """
+    ndim = domain.bounds.shape[0]
+    images = domain.orbit(domain.sample_uniform(rng), 2)
+    if images is None:
+        return rng.uniform(-10, 10, size=ndim)
+    return np.asarray(images[int(rng.integers(len(images)))], dtype=float)
+
+
 def test_bounds_shape(domain):
     bounds = domain.bounds
     assert bounds.ndim == 2
@@ -82,9 +99,8 @@ def test_volume_matches_quadrature(domain):
     before. Getting the number wrong scales the simulated event rate by the same
     factor, with no other symptom.
     """
-    ndim = domain.bounds.shape[0]
     rule = _integration.restrict(
-        _integration.build(domain.bounds, _integration.default_nodes_per_axis(ndim)),
+        _integration.build(domain.bounds, domain.nodes_per_axis),
         domain.contains,
         domain.volume_element,
     )
@@ -98,8 +114,7 @@ def test_sample_uniform_lands_inside_the_domain(domain, rng):
 
 def test_wrap_lands_inside_the_domain(domain, rng):
     for _ in range(20):
-        x = rng.uniform(-10, 10, size=domain.bounds.shape[0])
-        assert domain.contains(domain.wrap(x))
+        assert domain.contains(domain.wrap(off_domain(domain, rng)))
 
 
 def test_volume_element_is_strictly_positive(domain, rng):
@@ -110,8 +125,7 @@ def test_volume_element_is_strictly_positive(domain, rng):
 
 def test_wrap_is_idempotent(domain, rng):
     for _ in range(20):
-        x = rng.uniform(-10, 10, size=domain.bounds.shape[0])
-        once = domain.wrap(x)
+        once = domain.wrap(off_domain(domain, rng))
         twice = domain.wrap(once)
         np.testing.assert_allclose(twice, once)
 
@@ -119,8 +133,7 @@ def test_wrap_is_idempotent(domain, rng):
 def test_wrap_lands_inside_bounds(domain, rng):
     bounds = domain.bounds
     for _ in range(20):
-        x = rng.uniform(-10, 10, size=bounds.shape[0])
-        wrapped = np.atleast_1d(domain.wrap(x))
+        wrapped = np.atleast_1d(domain.wrap(off_domain(domain, rng)))
         assert np.all(wrapped >= bounds[:, 0] - 1e-9)
         assert np.all(wrapped <= bounds[:, 1] + 1e-9)
 
@@ -138,9 +151,14 @@ def test_distance_is_symmetric(domain, rng):
 
 
 def test_distance_is_non_negative_and_bounded(domain, rng):
-    """No two points can be further apart than half the domain in each axis."""
-    widths = domain.bounds[:, 1] - domain.bounds[:, 0]
-    max_dist = float(np.sqrt(np.sum((widths / 2) ** 2)))
+    """No two points can be further apart than the domain says they can.
+
+    Against `max_distance`, not against the bounding box: the box half-diagonal
+    is the right answer only for a flat domain that fills its box, and it is not
+    even the right order of magnitude for a hyperbolic one, whose Poincare disc
+    chart is barely a unit across while the surface is several units wide.
+    """
+    max_dist = domain.max_distance
     for _ in range(30):
         x, y = domain.sample_uniform(rng), domain.sample_uniform(rng)
         d = domain.distance(x, y)
@@ -311,12 +329,42 @@ class TestFundamentalDomain:
             assert hexagon.contains(wrapped)
             assert hexagon.distance(wrapped, point) == pytest.approx(0.0, abs=1e-9)
 
-    def test_orientation_reversing_pairing_is_rejected(self):
-        """A reflection quotients to a non-orientable surface."""
+    def test_orientation_reversing_pairing_is_accepted(self):
+        """The same glide 0.3.0 rejected is the Klein bottle's own side pairing.
+
+        0.3.0 raised here on the determinant alone, and that was a *policy*, not
+        a defect: a non-orientable quotient is a perfectly good closed surface,
+        and this exact matrix — a fixed-point-free glide reflection — is what
+        presents the second of the two flat ones. What replaced the policy is
+        the check that actually matters, freeness, which this passes and a pure
+        reflection does not.
+        """
         square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
         glide = [[-1.0, 0.0, 0.0], [0.0, 1.0, 2.0], [0.0, 0.0, 1.0]]  # det -1
-        with pytest.raises(ValueError, match="orientation-preserving"):
-            FundamentalDomain(square, [glide, [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]])
+        translation = [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        domain = FundamentalDomain(square, [glide, translation])
+        assert domain.topology.name == "Klein bottle"
+        assert domain.topology.orientable is False
+
+    def test_pure_reflection_is_rejected_where_the_glide_is_not(self):
+        """The two differ by a translation along the axis, and by having a fixed line."""
+        square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        reflection = [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]  # no glide
+        translation = [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        with pytest.raises(ValueError, match=r"act freely.*reflection"):
+            FundamentalDomain(square, [reflection, translation])
+
+    def test_rotation_pairing_is_rejected(self):
+        """It is an isometry with determinant +1, and it quotients to an orbifold.
+
+        The case the determinant test could never have caught: a quarter turn
+        about the centre passes every check 0.3.0 made, has a fixed point, and
+        glues the square to a sphere with four cone points.
+        """
+        square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        quarter_turn = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+        with pytest.raises(ValueError, match=r"act freely.*rotation"):
+            FundamentalDomain(square, [quarter_turn])
 
     def test_non_isometric_pairing_is_rejected(self):
         square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
@@ -329,13 +377,19 @@ class TestFundamentalDomain:
         with pytest.raises(ValueError, match="convex"):
             FundamentalDomain(chevron, [[[1.0, 0.0, 4.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]])
 
-    def test_pairings_that_do_not_tile_are_rejected_rather_than_hanging(self):
-        """A translation too short to be a period leaves points unreducible."""
+    def test_pairings_that_do_not_tile_are_rejected_at_construction(self):
+        """A translation too short to be a period does not pair any side.
+
+        Through 0.3.0 this constructed happily and failed later, from inside
+        `wrap`, mid-simulation and a long way from the mistake — and only if a
+        point ever needed reducing along the axis nothing moved. The side
+        correspondence is now required at construction, so it fails at the call
+        that is wrong.
+        """
         square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
         too_short = [[1.0, 0.0, 0.5], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
-        domain = FundamentalDomain(square, [too_short])
-        with pytest.raises(ValueError, match=r"do not tile|did not converge"):
-            domain.wrap([0.0, 40.0])  # nothing moves the y coordinate
+        with pytest.raises(ValueError, match="not carried onto another side"):
+            FundamentalDomain(square, [too_short])
 
     def test_clockwise_vertices_are_accepted(self):
         """Winding order is the caller's business, not the domain's."""

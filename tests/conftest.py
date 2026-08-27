@@ -9,7 +9,7 @@ hidden dependency on the global stream survives.
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, FundamentalDomain, Torus2D
+from hawkes_package import Circle, FundamentalDomain, Sphere, Torus2D
 
 SEED = 20260825
 
@@ -64,14 +64,43 @@ def bump_spatial():
         FundamentalDomain.rectangle(3.0, 5.0),
         FundamentalDomain.hexagon(1.0),
         FundamentalDomain.hexagon(2.5),
+        FundamentalDomain.klein_bottle(3.0, 5.0),
+        Sphere(),
+        Sphere(radius=2.0),
+        FundamentalDomain.projective_plane(),
+        FundamentalDomain.genus(2),
+        FundamentalDomain.crosscaps(3),
     ],
-    ids=["circle", "circle-r2", "torus", "torus-3x5", "fd-rect-3x5", "fd-hex", "fd-hex-2.5"],
+    ids=[
+        "circle",
+        "circle-r2",
+        "torus",
+        "torus-3x5",
+        "fd-rect-3x5",
+        "fd-hex",
+        "fd-hex-2.5",
+        "fd-klein",
+        "sphere",
+        "sphere-r2",
+        "fd-rp2",
+        "fd-genus2",
+        "fd-crosscaps3",
+    ],
 )
 def domain(request):
     """Every concrete SpatialDomain, for contract tests.
 
-    The hexagons are the first entries that do *not* fill their bounding box, so
-    they are what keeps the contract honest about the difference.
+    Deliberately one of each *kind*, because each breaks a different assumption
+    the contract used to be able to make.
+
+    * The hexagons do not fill their bounding box.
+    * The Klein bottle is non-orientable, so its deck group contains a
+      reflection and ``wrap`` is not a translation.
+    * The spheres and the projective plane carry a non-flat ``volume_element``,
+      so the chart measure and the surface measure differ; the projective plane
+      also has a chart whose bounding box is not its boundary's.
+    * The hyperbolic pair have a bounding box that reaches *outside* their model
+      space, and a geodesic diameter several times the width of their chart.
     """
     return request.param
 

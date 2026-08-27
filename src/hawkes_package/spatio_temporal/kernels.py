@@ -7,6 +7,7 @@ contributions of image points.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -15,7 +16,7 @@ import numpy as np
 from .._numerics import as_float, as_point
 from .domains import SpatialDomain
 
-__all__ = ["PairwiseKernel", "make_periodic"]
+__all__ = ["PairwiseKernel", "check_image_sum", "make_periodic"]
 
 
 class PairwiseKernel:
@@ -146,13 +147,74 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
             images = domain.orbit(domain.wrap(y), n_images)
             if images is None:  # pragma: no cover - the branch above proves otherwise
                 return as_float(kernel_fn(domain.distance(x, y)))
-            offsets = np.asarray([np.asarray(image, dtype=float).reshape(-1) for image in images])
-            distances = np.linalg.norm(offsets - here, axis=1)
-            return float(sum(as_float(kernel_fn(float(d))) for d in distances))
+            # `lift_distance`, not a chart norm: the sum runs over images in the
+            # universal cover, and only where the covering map is a local
+            # isometry -- every flat domain, no curved one -- is the chart norm
+            # the distance between them.
+            return float(sum(as_float(kernel_fn(domain.lift_distance(here, im))) for im in images))
 
+        check_image_sum(kernel_fn, domain, n_images)
         return PairwiseKernel(orbit_kernel)
 
     def generic_kernel(x: Any, y: Any) -> float:
         return as_float(kernel_fn(domain.distance(x, y)))
 
     return PairwiseKernel(generic_kernel)
+
+
+def check_image_sum(
+    kernel_fn: KernelFn,
+    domain: SpatialDomain,
+    n_images: int,
+    *,
+    rtol: float = 1e-2,
+) -> None:
+    r"""Warn if the image sum is truncated somewhere the kernel has not decayed.
+
+    Periodising by summing over a truncated orbit is only an approximation to
+    the true sum, and how good an approximation depends on a race between the
+    kernel's decay and the deck group's growth. In a flat geometry the group
+    grows polynomially and any ordinary kernel wins the race comfortably. In a
+    **hyperbolic** one the number of deck elements at distance :math:`R` grows
+    like :math:`e^{R}`, so the tail beyond the window is of order
+    :math:`e^{R} \sup_{d > R} \kappa_s(d)` and converges only for a kernel
+    decaying faster than :math:`e^{-d}`. A Gaussian qualifies; an exponential
+    with rate above one qualifies; a power law does not, and nothing about a
+    power law announces that it does not.
+
+    So the diagnostic is the same shape as
+    :func:`~hawkes_package.spatio_temporal._integration.check_resolution`:
+    compare what one more ring of images adds against what the sum already
+    holds. A last ring worth more than `rtol` of the total means the sum has
+    been cut where the kernel is still contributing, and the simulated
+    excitation is smaller than the model asks for -- which, since the location
+    sampler and the thinning bound both use it, is not a visible error but a
+    quietly different process.
+
+    Deterministic, and evaluated once at construction rather than on every one
+    of the hundreds of thousands of kernel evaluations a simulation runs.
+
+    .. versionadded:: 0.4.0
+    """
+    here = np.asarray(domain.interior_point, dtype=float)
+
+    def ring_total(depth: int) -> float:
+        images = domain.orbit(here, depth)
+        if images is None:  # pragma: no cover - only called where orbit exists
+            return 0.0
+        return float(sum(as_float(kernel_fn(domain.lift_distance(here, im))) for im in images))
+
+    total = ring_total(n_images)
+    wider = ring_total(n_images + 1)
+    added = abs(wider - total)
+    scale = max(abs(wider), np.finfo(float).tiny)
+    if added / scale > rtol:
+        warnings.warn(
+            f"the image sum over {type(domain).__name__} is truncated where the spatial kernel "
+            f"has not decayed: one more ring of images adds {100 * added / scale:.1f}% to it. "
+            f"The periodised kernel is smaller than the true one by at least that much, and by "
+            f"more if the deck group grows exponentially. Raise n_images above {n_images}, or "
+            "use a faster-decaying kernel.",
+            UserWarning,
+            stacklevel=3,
+        )

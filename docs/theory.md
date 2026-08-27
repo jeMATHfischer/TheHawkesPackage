@@ -184,44 +184,137 @@ landed exactly on a boundary.
 
 ### Fundamental domains
 
-A closed orientable surface is a quotient $\widetilde{X} / \Gamma$ of a model
-space by a discrete group acting freely, and it is presented concretely by a
-*fundamental domain*: a region $D \subset \widetilde{X}$ containing exactly one
-point of each orbit, whose boundary is glued to itself by the side pairings that
-generate $\Gamma$. Distance on the quotient is then
+A closed surface is a quotient $\widetilde{X} / \Gamma$ of a model space by a
+discrete group acting freely, and it is presented concretely by a *fundamental
+domain*: a region $D \subset \widetilde{X}$ containing exactly one point of each
+orbit, whose boundary is glued to itself by the side pairings that generate
+$\Gamma$. Distance on the quotient is then
 
 $$
 d(x, y) \;=\; \min_{g \in \Gamma} \; \tilde{d}\!\left(x, g \cdot y\right),
 $$
 
-which a `FundamentalDomain` evaluates over a window of $\Gamma$ truncated by word
-length, after reducing both points into $D$ — reduce first, or for distant lifts
-the nearest image falls outside the window and the kernel decays to zero instead
-of staying periodic.
+which a `FundamentalDomain` evaluates over a truncated window of $\Gamma$, after
+reducing both points into $D$ — reduce first, or for distant lifts the nearest
+image falls outside the window and the kernel decays to zero instead of staying
+periodic.
 
 `Circle` is the case $\mathbb{R} / L\mathbb{Z}$ and `Torus2D` the case
 $\mathbb{R}^2 / \Lambda$ for a rectangular lattice; both are written out by hand.
-`FundamentalDomain` takes a convex Euclidean polygon and its side pairings,
-which reaches the hexagonal torus — the Dirichlet domain of the triangular
-lattice, and the first quotient here that no rectangle expresses.
 
-Two constraints are worth stating plainly:
+#### Which geometry, and why there is no choice
+
+By uniformisation every closed surface carries a metric of constant curvature,
+and the *sign* of that curvature is fixed by the topology through Gauss–Bonnet:
+
+$$
+\int_S K \, \mathrm{d}A \;=\; 2\pi\chi(S).
+$$
+
+A flat surface must have $\chi = 0$, which leaves only the torus and the Klein
+bottle. Everything with $\chi > 0$ is spherical, everything with $\chi < 0$ is
+hyperbolic, and nothing straddles. So the three model spaces are not three
+options but a partition, and each `FundamentalDomain` checks that its polygon,
+its curvature and its gluing agree on which cell of that partition it is in.
+
+What makes one implementation serve all three is that each model space has a
+**linear** model, in which isometries are $3 \times 3$ matrices and geodesic
+half-spaces are linear half-spaces of an ambient $\mathbb{R}^3$: the affine
+plane for $E^2$, the sphere with the Euclidean form for $S^2$, the hyperboloid
+with the Minkowski form $\mathrm{diag}(1, 1, -1)$ for $H^2$. The group search,
+the convexity test, the membership predicate and the Dirichlet reduction are
+then the same code; only the bilinear form, the chart and the measure differ.
+
+#### What makes a presentation a surface
+
+A polygon with side pairings glues to *something*. Three conditions decide
+whether that something is a closed surface, and none of them is visible
+downstream — the thinning loop, the quadrature and the location sampler all run
+happily on the alternatives. They are therefore checked at construction:
+
+- **The pairings act freely.** An isometry with a fixed point quotients to an
+  *orbifold* — a cone point, or a mirror line — rather than a surface. The case
+  that matters is a rotation: it is an isometry, its determinant is $+1$, and
+  until 0.4.0 it passed every check the package made.
+- **Every side is glued to exactly one other.** Otherwise the quotient has a
+  boundary, and is not closed.
+- **Poincaré's angle condition.** Walking the corners of the polygon through the
+  pairings must return to the starting corner with an interior-angle sum of
+  exactly $2\pi$ and a trivial cycle transformation. An angle sum of $2\pi/m$
+  gives a cone point of order $m$.
+
+Poincaré's polygon theorem is what turns those three into a guarantee: a convex
+polygon satisfying them generates a discrete group acting freely, with the
+polygon as a fundamental domain. Gauss–Bonnet is then a fourth, independent
+check on the same object, and it is free once the Euler characteristic is known
+from the corner cycles.
+
+#### Orientability
+
+Both orientations of pairing are admitted. An orientation-reversing pairing
+quotients to a **non-orientable** surface, which is a perfectly good closed
+surface and one a Hawkes process is indifferent to: $\lambda$ is a scalar built
+from a geodesic distance, and a distance has no orientation. Through 0.3.0 the
+package rejected such pairings on the determinant alone. That was a policy, and
+it cost the Klein bottle, the projective plane and every $N_k$ — the whole
+non-orientable half of the classification — for no correctness gain. What
+replaced it is the check that was actually missing: freeness.
+
+The Klein bottle is the clearest illustration. It is the same rectangle as the
+torus with the same first pairing; the second is a *glide reflection*
+$(x, y) \mapsto (-x, y + L_2)$ rather than a translation. The glide reverses
+orientation and has no fixed point, so it is legal. The pure reflection
+$(x, y) \mapsto (-x, y)$ reverses orientation too and fixes a whole line, so it
+is not.
+
+Three further constraints are worth stating plainly:
 
 - **The polygon is not its bounding box.** Integration masks the quadrature rule
   by $D$, and the rule's summed weights are checked against the domain's declared
   area. A rule too coarse to resolve $\partial D$ mismeasures the area, and
   mismeasuring the area scales the simulated event rate by exactly that factor —
-  which is why the check warns rather than trusting the declaration.
+  which is why the check warns rather than trusting the declaration. A
+  hyperbolic polygon needs four times the nodes per axis that a flat one does,
+  and reports as much through `nodes_per_axis`.
+- **The chart is not the surface.** Quadrature nodes and Metropolis proposals
+  live in a chart, and on a curved domain the chart measure and the surface
+  measure differ by $\sqrt{\det g}$ — $R^2 \sin\theta$ on the sphere,
+  $4/(1-|z|^2)^2$ on the Poincaré disc. Both the quadrature weights and the
+  density the location sampler is handed carry that factor. Omitting it from
+  either samples the wrong law; omitting it from the sampler alone would have
+  piled every event at the poles of the sphere.
 - **Proposals are rejected, not folded.** Folding is reversible only where
   $\Gamma$ acts by *translations*, which leave the Gaussian proposal invariant.
-  That happens to hold for both polygons constructed here, but not for a general
-  pairing — and it will not hold in the hyperbolic case, where the pairings are
-  Möbius maps. So `FundamentalDomain.periodic` is `False`: correctness first,
-  mixing efficiency second.
+  That holds for the flat orientable presentations and for nothing else. So
+  `FundamentalDomain.periodic` is `False`: correctness first, mixing efficiency
+  second.
 
-Only orientation-preserving pairings are accepted. An orientation-reversing one
-quotients to a non-orientable surface, on which the oriented constructions this
-is built towards do not exist.
+#### Truncating an infinite group
+
+$\Gamma$ is finite only for the projective plane. For a torus it is a lattice
+and for a hyperbolic surface it grows like $e^R$ — the number of deck elements
+moving a point by at most $R$ is proportional to the area of a ball of radius
+$R$, which is exponential in $H^2$. A truncation is therefore unavoidable, and
+the two consumers need different ones.
+
+For `distance` the truncation is **certified**. Both points are reduced into $D$
+first; then any $g$ improving on the best distance found so far must satisfy
+
+$$
+\tilde{d}(c, g \cdot c) \;\le\; \tilde{d}(c, x) + \text{best} + \tilde{d}(c, y)
+$$
+
+by the triangle inequality, so once the window has been searched out to that
+displacement the answer is the exact minimum. Word length carries no such
+guarantee: it describes how a presentation was written, not how far its elements
+move anything.
+
+For an image sum — `make_periodic` — no such certificate exists, because the sum
+needs *all* the images and not the nearest. The tail beyond radius $R$ is of
+order $e^{R} \sup_{d > R} \kappa_s(d)$, which converges only for a kernel
+decaying faster than $e^{-d}$. A Gaussian qualifies; a power law does not, and a
+power law says nothing about itself. So the truncation is measured at
+construction and warns when the last ring of images is still contributing.
 
 ## References
 

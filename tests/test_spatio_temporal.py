@@ -5,7 +5,9 @@ import pytest
 
 from hawkes_package import (
     Circle,
+    FundamentalDomain,
     SpatioTemporalHawkesProcess,
+    Sphere,
     Torus2D,
     make_periodic,
 )
@@ -403,3 +405,62 @@ def test_periodic_kernel_composes_with_the_process(exp_kernel):
     x = np.array([0.15])
     expected = 0.5 + exp_kernel(2.0 - 1.0) * kernel(x, np.array([0.4]))
     assert p.intensity(2.0, x) == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# The density the location sampler is handed
+# ---------------------------------------------------------------------------
+
+
+def test_confined_density_carries_the_measure(bump_spatial, exp_kernel):
+    """It is ``lambda * volume_element``, not ``lambda``.
+
+    The sampler walks in chart coordinates with a symmetric Gaussian proposal
+    and accepts on the raw ratio, so the chart density it must be given is the
+    intensity times the measure -- exactly the factor
+    :func:`~hawkes_package.spatio_temporal._integration.restrict` applies to the
+    quadrature weights. The two had to agree and, until 0.4.0, did not.
+    """
+    sphere = Sphere(radius=1.5)
+    process = SpatioTemporalHawkesProcess(
+        lambda x: 0.5,
+        bump_spatial,
+        exp_kernel,
+        domain=sphere,
+        monotone_temporal_kernel=True,
+        rng=0,
+    )
+    for point in ([0.3, 0.2], [np.pi / 2, -1.0], [2.9, 3.0]):
+        expected = process._full_intensity(point, 0.0) * sphere.volume_element(point)
+        assert process._confined_density(point, 0.0) == pytest.approx(expected)
+
+
+def test_confined_density_is_unchanged_on_a_flat_domain(bump_spatial, exp_kernel):
+    """So no result produced before 0.4.0 moves: every shipped domain was flat."""
+    for domain in (Circle(), Torus2D(), FundamentalDomain.hexagon(1.0)):
+        process = SpatioTemporalHawkesProcess(
+            lambda x: 0.5,
+            bump_spatial,
+            exp_kernel,
+            domain=domain,
+            monotone_temporal_kernel=True,
+            rng=0,
+        )
+        point = domain.interior_point
+        assert process._confined_density(point, 0.0) == process._full_intensity(point, 0.0)
+
+
+def test_confined_density_is_zero_off_the_domain(bump_spatial, exp_kernel):
+    """The confinement, which the measure factor must not have disturbed."""
+    hexagon = FundamentalDomain.hexagon(1.0)
+    process = SpatioTemporalHawkesProcess(
+        lambda x: 0.5,
+        bump_spatial,
+        exp_kernel,
+        domain=hexagon,
+        monotone_temporal_kernel=True,
+        rng=0,
+    )
+    corner = hexagon.bounds[:, 1]  # a corner of the bounding box, outside the hexagon
+    assert not hexagon.contains(corner)
+    assert process._confined_density(corner, 0.0) == 0.0

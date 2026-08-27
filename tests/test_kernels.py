@@ -209,3 +209,71 @@ def test_rectangle_kernel_matches_the_torus_one():
 
 def test_periodic_kernel_over_orbit_is_marked_pairwise():
     assert getattr(make_periodic(gaussian, FundamentalDomain.hexagon(1.0)), "pairwise", False)
+
+
+# ---------------------------------------------------------------------------
+# The image sum on a curved cover
+# ---------------------------------------------------------------------------
+
+
+def test_the_image_sum_measures_lifts_in_the_cover_not_in_the_chart():
+    """``make_periodic`` must add up geodesic distances, not chart norms.
+
+    On a flat domain the two are the same thing, because the chart *is* the
+    universal cover and the covering map is a local isometry. On a hyperbolic
+    one they are not even close: two Poincare-disc points a chart-tenth apart
+    near the boundary are several units apart in the plane they chart, so a
+    chart norm would report a kernel that had not decayed where in fact it has,
+    and vice versa.
+    """
+    surface = FundamentalDomain.crosscaps(3)
+    kernel = make_periodic(gaussian, surface, n_images=1)
+    here = surface.interior_point
+    there = surface.sample_uniform(np.random.default_rng(4))
+
+    expected = sum(
+        gaussian(surface.model.distance(here, np.asarray(image, dtype=float)))
+        for image in surface.orbit(surface.wrap(there), 1)
+    )
+    assert kernel(here, there) == pytest.approx(float(expected))
+
+    chart_norms = sum(
+        gaussian(float(np.linalg.norm(np.asarray(image, dtype=float) - here)))
+        for image in surface.orbit(surface.wrap(there), 1)
+    )
+    assert kernel(here, there) != pytest.approx(float(chart_norms), rel=1e-3)
+
+
+def test_a_slowly_decaying_kernel_on_a_hyperbolic_surface_warns():
+    """The tail of an image sum in ``H^2`` is a race the kernel can lose.
+
+    The number of deck elements at distance ``R`` grows like ``exp(R)``, so the
+    truncated tail is of order ``exp(R) * sup_{d > R} kappa(d)`` and converges
+    only for a kernel decaying faster than ``exp(-d)``. A power law does not,
+    and nothing about a power law announces that it does not -- the sum simply
+    comes back smaller than the model asks for, and the process runs with less
+    excitation than it was given.
+    """
+    surface = FundamentalDomain.crosscaps(3)
+    with pytest.warns(UserWarning, match="truncated where the spatial kernel has not decayed"):
+        make_periodic(lambda d: 1.0 / (1.0 + d) ** 2, surface, n_images=2)
+
+
+def test_a_fast_decaying_kernel_does_not_warn(recwarn):
+    surface = FundamentalDomain.crosscaps(3)
+    make_periodic(lambda d: np.exp(-4.0 * d**2), surface, n_images=2)
+    assert [w for w in recwarn.list if issubclass(w.category, UserWarning)] == []
+
+
+def test_the_flat_image_sum_is_unaffected(recwarn):
+    """A lattice grows polynomially, so an ordinary kernel wins comfortably."""
+    make_periodic(gaussian, FundamentalDomain.hexagon(1.0), n_images=2)
+    assert [w for w in recwarn.list if issubclass(w.category, UserWarning)] == []
+
+
+def test_lift_distance_defaults_to_the_chart_norm():
+    """Which is the right answer for every flat domain, and only for those."""
+    torus = Torus2D(L1=3.0, L2=5.0)
+    assert torus.lift_distance([0.0, 0.0], [3.0, 4.0]) == pytest.approx(5.0)
+    # Unlike `distance`, it does not fold: these are lifts, not quotient points.
+    assert torus.distance([0.0, 0.0], [3.0, 4.0]) == pytest.approx(1.0)

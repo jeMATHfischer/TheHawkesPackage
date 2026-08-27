@@ -345,3 +345,161 @@ def test_sampler_matches_a_narrow_target_on_a_wide_domain():
     total = quad(lambda v: density(np.array([v])), lo, hi, limit=400)[0]
     in_peak = quad(lambda v: density(np.array([v])), -0.5, 0.5, limit=400)[0]
     assert float(np.mean(np.abs(samples) < 0.5)) == pytest.approx(in_peak / total, abs=0.08)
+
+
+# ---------------------------------------------------------------------------
+# The curved measure
+# ---------------------------------------------------------------------------
+
+
+class Weighted(hp.SpatialDomain):
+    """A one-dimensional domain whose chart measure is deliberately not flat.
+
+    Nothing about it is geometric — it is ``[0, 1]`` with the measure density
+    ``1 + 3x``, chosen only so that the density is four times heavier at one end
+    than the other. The point is to have a domain where the chart measure and
+    the true measure differ *without* also changing the distance, the boundary,
+    or anything else at the same time, so a failure can only mean one thing.
+    """
+
+    def distance(self, x, y):
+        return abs(float(np.ravel(x)[0]) - float(np.ravel(y)[0]))
+
+    def wrap(self, x):
+        return np.clip(np.asarray(x, dtype=float).reshape(-1), 0.0, 1.0)
+
+    def sample_uniform(self, rng):
+        # Inverse transform for the density (1 + 3x) / 2.5 on [0, 1].
+        u = rng.uniform()
+        return np.array([(-1 + np.sqrt(1 + 15 * u)) / 3])
+
+    def volume_element(self, x):
+        return 1.0 + 3.0 * float(np.ravel(x)[0])
+
+    @property
+    def volume(self):
+        return 2.5  # integral of 1 + 3x over [0, 1]
+
+    @property
+    def bounds(self):
+        return np.array([[0.0, 1.0]])
+
+
+@pytest.mark.statistical
+def test_the_location_sampler_targets_the_surface_measure_not_the_chart():
+    """The event location is distributed as ``lambda dA``, not as ``lambda dx``.
+
+    The sampler walks in *chart* coordinates with a symmetric Gaussian proposal
+    and accepts on the raw ratio, so the density it must be handed is
+    ``lambda * volume_element``. Handing it ``lambda`` alone samples from the
+    chart measure instead, which on this domain shifts the mean by 8% and on a
+    sphere would pile every event at the poles.
+
+    Dormant until 0.4.0 because every domain that had shipped by then carried
+    ``volume_element == 1``, and silently wrong on the first one that did not —
+    which is why this domain exists only in this file.
+    """
+    domain = Weighted()
+    process = hp.SpatioTemporalHawkesProcess(
+        base=lambda x: 1.0,
+        spatial=lambda d: 0.0,
+        temporal=lambda dt: 0.0,
+        domain=domain,
+        monotone_temporal_kernel=True,
+        rng=11,
+    )
+
+    rng = np.random.default_rng(4242)
+    samples = np.array(
+        [
+            mcmc_sampler(
+                lambda x: process._confined_density(x, 0.0),
+                domain.bounds,
+                n_iter=500,
+                burn_in=200,
+                seed=rng,
+            )[0]
+            for _ in range(1500)
+        ]
+    )
+
+    # With a constant background the target is the measure itself, normalised:
+    # (1 + 3x) / 2.5, whose mean is 0.6 and second moment 0.425. Ignoring the
+    # measure would sample the chart uniformly instead, giving 0.5 and 1/3 --
+    # both far outside the bands below, which is what makes this a test and not
+    # a tolerance exercise.
+    error = 4 * float(samples.std()) / np.sqrt(len(samples))
+    assert float(samples.mean()) == pytest.approx(0.6, abs=error)
+    assert float((samples**2).mean()) == pytest.approx(0.425, rel=0.08)
+    assert abs(float(samples.mean()) - 0.5) > 0.05
+
+    def cdf(x):
+        """The integral of the density, for a Kolmogorov-Smirnov comparison."""
+        return (x + 1.5 * x**2) / 2.5
+
+    assert stats.kstest(samples, cdf).pvalue > 1e-3
+
+
+@pytest.mark.statistical
+def test_event_locations_on_a_sphere_are_uniform_in_area():
+    """A constant background must scatter events evenly over the sphere.
+
+    The chart is where this goes wrong. ``(theta, phi)`` gives every colatitude
+    the same width, so a sampler handed the intensity without the area element
+    concentrates events at the poles -- by a factor that goes to infinity there.
+    ``cos(theta)`` is uniform on ``[-1, 1]`` exactly when the sample is uniform
+    on the sphere, so its distribution is the whole test.
+
+    Drawn from the conditional density directly rather than simulated: the
+    location sampler is what is under test, and a run long enough to be
+    statistically interesting costs quadratic time in the event count for no
+    extra coverage.
+    """
+    sphere = hp.Sphere()
+    process = hp.SpatioTemporalHawkesProcess(
+        base=lambda x: 1.0,
+        spatial=lambda d: 0.0,
+        temporal=lambda dt: 0.0,
+        domain=sphere,
+        monotone_temporal_kernel=True,
+        rng=5,
+    )
+
+    rng = np.random.default_rng(909)
+    samples = np.array(
+        [
+            mcmc_sampler(
+                lambda x: process._confined_density(x, 0.0),
+                sphere.bounds,
+                n_iter=400,
+                burn_in=150,
+                seed=rng,
+            )
+            for _ in range(1000)
+        ]
+    )
+
+    heights = np.cos(samples[:, 0])
+    assert abs(float(heights.mean())) < 4 / np.sqrt(3 * len(heights))
+    assert float(heights.var()) == pytest.approx(1 / 3, rel=0.15)
+    assert stats.kstest(heights, "uniform", args=(-1, 2)).pvalue > 1e-3
+
+
+@pytest.mark.statistical
+def test_the_background_rate_on_a_sphere_is_mu_times_its_area():
+    """The integrated intensity must be ``mu * 4 pi R^2``, exactly.
+
+    The same check the hexagon gets, on the domain where the factor to get wrong
+    is not the fraction of a box but the whole curved measure.
+    """
+    for radius in (1.0, 2.0):
+        sphere = hp.Sphere(radius)
+        process = hp.SpatioTemporalHawkesProcess(
+            base=lambda x: 0.75,
+            spatial=lambda d: 0.0,
+            temporal=lambda dt: 0.0,
+            domain=sphere,
+            monotone_temporal_kernel=True,
+            rng=3,
+        )
+        assert process._integrated_intensity(0.0) == pytest.approx(0.75 * sphere.volume, rel=1e-9)

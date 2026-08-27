@@ -107,6 +107,37 @@ plt.contourf(times, points[:, 0], field, 50)
 `points` defaults to 200 equispaced points across a one-dimensional domain, and
 is required in two or more dimensions.
 
+## Which surface
+
+`domain=` is the only thing that changes, and between them the built-in domains
+reach every closed surface:
+
+```python
+hp.Circle()  # the circle
+hp.Sphere()  # the sphere
+hp.Torus2D()  # the flat torus, written out by hand
+hp.FundamentalDomain.rectangle(3, 5)  # the same torus, as a glued polygon
+hp.FundamentalDomain.hexagon(1.0)  # the hexagonal torus
+hp.FundamentalDomain.klein_bottle(3, 5)  # non-orientable, and still flat
+hp.FundamentalDomain.projective_plane()  # a hemisphere, antipodes identified
+hp.FundamentalDomain.genus(2)  # two handles; hyperbolic, necessarily
+hp.FundamentalDomain.crosscaps(3)  # three crosscaps; hyperbolic too
+```
+
+The geometry is not a setting. A surface's Euler characteristic fixes the sign
+of its curvature through Gauss–Bonnet, so the torus and the Klein bottle are
+flat, the sphere and the projective plane are spherical, and everything else is
+hyperbolic. Each domain reports what it built:
+
+```pycon
+>>> hp.FundamentalDomain.klein_bottle().topology
+Topology(orientable=False, euler_characteristic=0, genus=2, name='Klein bottle')
+```
+
+A hyperbolic domain is expensive — its deck group is infinite, and a distance
+searches a window of it — so keep runs on one short, and expect the quadrature
+to want four times the nodes per axis a flat polygon does.
+
 ## Your own domain
 
 Subclass {class}`~hawkes_package.spatio_temporal.domains.SpatialDomain` and

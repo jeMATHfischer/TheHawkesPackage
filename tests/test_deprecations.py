@@ -16,6 +16,13 @@ import hawkes_package as hp
 
 ALIASES = ["propagate_by_amount", "propagate_by_k_events", "propogate_by_amount"]
 
+#: (what is going away, why, removal version) — kept in lockstep with
+#: docs/migration.md. Distinct from RENAMES: nothing replaces these, they simply
+#: stopped being needed.
+RETIREMENTS = [
+    ("the n_images argument of FundamentalDomain", "truncated by displacement radius", "0.5.0"),
+]
+
 #: (old name, new name, removal version) — kept in lockstep with docs/migration.md.
 RENAMES = [
     ("propagate_by_amount", "simulate", "0.4.0"),
@@ -266,3 +273,39 @@ def test_every_documented_rename_is_real():
     for old, _new, version in RENAMES:
         assert version == "0.4.0"
         assert old in ALIASES or hasattr(hp, "LegacySpatioTemporalHawkesProcess")
+
+
+# ---------------------------------------------------------------------------
+# Retired parameters
+# ---------------------------------------------------------------------------
+
+
+def test_n_images_on_a_fundamental_domain_warns_and_still_works():
+    """It tuned a truncation that now bounds itself, so nothing replaces it.
+
+    `FundamentalDomain.distance` used to search words of length `n_images` and
+    hope that was enough. It now searches by displacement radius and certifies
+    per call that no unexamined element could have done better, so there is
+    nothing left to tune — but `orbit` still takes its own `n_images`, and the
+    attribute still exists, so a caller passing it keeps working.
+    """
+    square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+    pairings = [
+        [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 2.0], [0.0, 0.0, 1.0]],
+    ]
+    with pytest.warns(DeprecationWarning, match="n_images.*removed in the-hawkes-package 0.5.0"):
+        domain = hp.FundamentalDomain(square, pairings, n_images=4)
+    assert domain.n_images == 4
+    assert len(domain.orbit([0.0, 0.0], 2)) > 1
+
+
+def test_not_passing_n_images_does_not_warn(recwarn):
+    hp.FundamentalDomain.hexagon(1.0)
+    assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
+
+
+def test_every_documented_retirement_names_its_version():
+    """The retirement table in docs/migration.md is generated from this list."""
+    for _what, _why, version in RETIREMENTS:
+        assert version == "0.5.0"

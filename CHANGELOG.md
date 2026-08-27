@@ -7,17 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every closed surface.** `FundamentalDomain` is no longer restricted to flat orientable
+  quotients: a polygon may now live in any of three constant-curvature model spaces, and the
+  sign of the Euler characteristic decides which. New presentations:
+  `FundamentalDomain.klein_bottle`, `FundamentalDomain.projective_plane`,
+  `FundamentalDomain.genus(g)` for the orientable surface of genus `g`, and
+  `FundamentalDomain.crosscaps(k)` for the non-orientable surface `N_k`. Together with the new
+  `Sphere` domain and the existing `rectangle`/`hexagon`, that is the whole classification of
+  closed surfaces.
+- **`Sphere`**: the round 2-sphere, the one closed surface that is not a quotient — it is simply
+  connected, so a deck group is the wrong tool for it. It needs no machinery beyond the curved
+  measure, which is why it also serves as the end-to-end proof that the curved-measure path works.
+- **`FundamentalDomain.topology`** reports the orientability, Euler characteristic, genus and
+  plain-language name of the surface a presentation actually glues to — read off the corner
+  cycles, not declared by the caller. `FundamentalDomain.cycles` exposes the cycles themselves.
+- `SpatialDomain` gains three optional hooks, all with backwards-compatible defaults: `lift_distance`
+  (default the chart norm — the distance between two *lifts*, which an image sum needs and the
+  quotient distance is not) and `max_distance` (default the box half-diagonal — an upper bound on
+  `distance`, which the chart cannot supply on a curved domain), plus `nodes_per_axis`, the
+  quadrature resolution the domain knows it needs.
+- `hawkes_package.spatio_temporal.kernels.check_image_sum` warns when a periodised kernel is
+  truncated where it has not yet decayed.
+
+### Fixed
+
+- **The location sampler was handed the intensity without the measure.** The event location is
+  distributed as `lambda dA` on the surface, but `mcmc_sampler` walks in *chart* coordinates with
+  a symmetric proposal and accepts on the raw ratio, so the density it must be given is
+  `lambda * volume_element` — the same factor `restrict()` already applied to the quadrature
+  weights, and which the sampler was never given. **No previously produced number moves**: every
+  domain that had shipped carried `volume_element == 1`, so the factor is identically one on all
+  of them. It is not one on the first curved domain, where the omission would have piled events
+  wherever the chart compresses area — at the poles, on a sphere.
+- **Freeness of the side pairings was never checked.** A rotation pairing is an isometry with
+  determinant `+1`, so it passed every test the package made; it has a fixed point, and quotients
+  to an *orbifold* — a cone point — rather than to a surface. Nothing downstream could tell the
+  difference. Pairings are now classified and a non-free one is refused, with the motion named.
+
+### Changed
+
+- **Orientation-reversing side pairings are accepted.** Through 0.3.0 a pairing with determinant
+  `-1` raised. That was a policy rather than a correctness check, and it cost the entire
+  non-orientable half of the classification. What replaces it is the check that was actually
+  missing — freeness — which a glide reflection passes and a pure reflection does not.
+- **A presentation is validated at construction, against Poincaré's polygon theorem.** The side
+  correspondence must be complete, every corner cycle must close with an interior-angle sum of
+  exactly `2*pi` and a trivial cycle transformation, and Gauss-Bonnet must tie the area, the
+  curvature and the Euler characteristic together. Previously a bad presentation surfaced — if at
+  all — as a `ValueError` from `wrap`, mid-simulation and far from the mistake. Code that built
+  a domain which never in fact tiled now fails at the constructor instead of later or never.
+- **`FundamentalDomain.distance` truncates the deck group by displacement radius, certified per
+  call**, rather than by word length. Both points are reduced into the polygon first, after which
+  the triangle inequality bounds the displacement of any element that could improve on the best
+  distance found; once the window covers that, the answer is the exact minimum. Word length was a
+  heuristic, and on a hyperbolic surface — where the element count grows like `exp(R)` — the
+  difference is between a kernel that stays periodic and one that quietly decays to zero. Flat
+  domains produce identical numbers: the old window already contained the minimiser.
+- `make_periodic` sums over `lift_distance` rather than the chart norm. Identical on every flat
+  domain, where the chart *is* the universal cover; on a curved one the chart norm is not a
+  distance at all. It also now warns when the last ring of images still contributes more than 1%
+  of the sum, which on a hyperbolic surface is the difference between a convergent image sum and
+  a silently truncated one.
+- The boundary convention is now "one representative per orbit, chosen lexicographically" rather
+  than a closed/open flag per side. The flag rule reproduces `Torus2D`'s `[-L/2, L/2)` convention
+  on the rectangle and the hexagon and is wrong in general: on the projective plane's hemisphere
+  every assignment of flags leaves one corner cycle with two representatives and the other with
+  none. Which boundary points a flat domain admits is unchanged.
+- `SpatioTemporalHawkesProcess` takes its default `n_quad` from the domain rather than from the
+  dimension. A flat polygon still asks for 32 nodes per axis; a hyperbolic one asks for 128,
+  because 32 misses its area by 5% — and mismeasuring the area scales the simulated event rate
+  by exactly that factor.
+
+### Deprecated
+
+- The `n_images` argument of `FundamentalDomain`, removed in 0.5.0. It tuned a truncation that
+  now bounds itself, so nothing replaces it; `FundamentalDomain.orbit` still takes its own
+  `n_images`, and the attribute still exists.
+
 ### Planned
 
 - Rename the public attributes `Events` → `events` and `Sim_num` → `n_simulated` (0.4.0).
   Deferred from 0.2.0 and again from 0.3.0 because every existing notebook cell touches them;
   they now land with the shim removal, so one release carries every breaking name change.
 - Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
-  buffer redesign, because the intensity hooks read `Events` mid-loop (0.4.0).
-- Hyperbolic fundamental domains (genus >= 2, the Poincaré disc). The masked, metric-weighted
-  quadrature that `FundamentalDomain` needed is already in place and generalises; what is left is
-  the hyperbolic metric, an infinite Fuchsian group needing a truncation with an error bound, and
-  a reversible proposal for Möbius pairings — folding is not one.
+  buffer redesign, because the intensity hooks read `Events` mid-loop (0.4.0). It matters more
+  now than it did: a hyperbolic `distance` searches a deck-group window per quadrature node per
+  past event, so the quadratic term is multiplied by a much larger constant.
+- Hyperbolic surfaces above about genus 4 are out of reach of the hyperboloid model in double
+  precision: a deck element at displacement 18 has coordinates near `5e7`, where the spacing of
+  doubles exceeds the gap between the sheet and its asymptotic cone. Reaching further needs a
+  different representation, not a bigger window.
 
 ## [0.3.0] — 2026-08-26
 

@@ -11,7 +11,12 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
-__all__ = ["DeprecatedAlias", "deprecated_module_getattr", "warn_renamed"]
+__all__ = [
+    "DeprecatedAlias",
+    "deprecated_module_getattr",
+    "warn_removed",
+    "warn_renamed",
+]
 
 #: Version in which everything currently deprecated is removed.
 REMOVED_IN = "0.4.0"
@@ -38,6 +43,38 @@ def warn_renamed(
     warnings.warn(
         f"{old} is deprecated and will be removed in the-hawkes-package "
         f"{removed_in}; use {new} instead.",
+        DeprecationWarning,
+        stacklevel=stacklevel,
+    )
+
+
+def warn_removed(
+    what: str,
+    because: str,
+    *,
+    removed_in: str = REMOVED_IN,
+    stacklevel: int = 3,
+) -> None:
+    """Warn that something is going away without being replaced by a new spelling.
+
+    Distinct from :func:`warn_renamed`, which points at a new name. Some things
+    are deprecated because they stopped being *needed* — a tuning parameter for
+    a search that now bounds itself — and telling the caller to use a
+    replacement would be wrong.
+
+    Parameters
+    ----------
+    what : str
+        Human-readable name of the thing going away.
+    because : str
+        Why it is no longer needed, phrased so the caller can act on it.
+    removed_in : str
+        Version in which `what` stops working.
+    stacklevel : int
+        Passed through to :func:`warnings.warn`.
+    """
+    warnings.warn(
+        f"{what} is deprecated and will be removed in the-hawkes-package {removed_in}; {because}.",
         DeprecationWarning,
         stacklevel=stacklevel,
     )

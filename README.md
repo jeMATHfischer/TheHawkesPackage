@@ -48,7 +48,7 @@ otherwise — an unstable process would not terminate.
 | `ExponentialHawkes` | Linear intensity, exponential kernel. The classic case. |
 | `MonotoneKernelHawkes` | Any monotone-decreasing kernel, with a monotone-increasing nonlinearity `φ`. |
 | `BellShapeHawkes` | Kernels with a single interior maximum, where the excitation ramps up before decaying. |
-| `SpatioTemporalHawkesProcess` | Events carry a location on a `Circle`, `Torus2D` or `FundamentalDomain`. |
+| `SpatioTemporalHawkesProcess` | Events carry a location on a surface: `Circle`, `Sphere`, `Torus2D` or any `FundamentalDomain`. |
 
 ### Spatial domains
 
@@ -75,13 +75,23 @@ to simulate on your own geometry. A domain need not fill its bounding box: overr
 `volume_element` over the part of `bounds` that `contains` admits. For a domain that does fill its
 box — the default — that reduces to `volume == prod(bounds widths)`.
 
-`Circle` and `Torus2D` are written out by hand. `FundamentalDomain` is the general construction
-they are instances of, a convex polygon plus the side-pairing isometries that identify its
-boundary, and reaches quotients no rectangle expresses — the hexagonal torus first among them:
+`Circle`, `Torus2D` and `Sphere` are written out by hand. `FundamentalDomain` is the general
+construction the first two are instances of — a convex geodesic polygon plus the side-pairing
+isometries that identify its boundary — and between them they reach **every closed surface**:
 
 ```python
-domain = hp.FundamentalDomain.hexagon(1.0)
+hp.Sphere()  # the sphere
+hp.FundamentalDomain.hexagon(1.0)  # the hexagonal torus, which no rectangle expresses
+hp.FundamentalDomain.klein_bottle(3, 5)  # non-orientable, and still flat
+hp.FundamentalDomain.projective_plane()  # a hemisphere, antipodes identified
+hp.FundamentalDomain.genus(2)  # two handles, so hyperbolic — necessarily
+hp.FundamentalDomain.crosscaps(3)  # three crosscaps, hyperbolic too
 ```
+
+Which geometry a surface gets is not a setting: Gauss–Bonnet ties the sign of the curvature to the
+Euler characteristic, so the torus and the Klein bottle are flat, the sphere and the projective
+plane are spherical, and everything else is hyperbolic. Each domain reports what it built, through
+`domain.topology`, and refuses at construction to build something that is not a closed surface.
 
 `make_periodic` wraps an isotropic kernel so it sums correctly over the domain's image points, and
 can be passed straight in as `spatial=`:

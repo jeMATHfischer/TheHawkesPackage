@@ -2,6 +2,117 @@
 
 One section per release that requires action. Newest first.
 
+## Migrating to the unreleased surfaces work
+
+**Nothing here changes what an existing script produces.** Every domain that had
+shipped — `Circle`, `Torus2D`, `FundamentalDomain.rectangle`,
+`FundamentalDomain.hexagon` — is flat and carries the flat chart measure, so the
+one behavioural fix below is identically a no-op on all of them and the same
+seed runs the same code path. This section is for two audiences: authors of a
+custom `SpatialDomain` subclass, and anyone who built a `FundamentalDomain` by
+hand from vertices and pairings.
+
+### The location sampler now carries the measure
+
+The event location is distributed as $\lambda\,\mathrm{d}A$ on the surface. The
+sampler walks in *chart* coordinates with a symmetric Gaussian proposal and
+accepts on the raw ratio, so the density it must be handed is
+$\lambda \cdot \sqrt{\det g}$ — exactly the `volume_element` factor `restrict()`
+already applied to the quadrature weights, and which the sampler had never been
+given.
+
+```text
+before:  _confined_density(x, t) == lambda(x, t)
+after:   _confined_density(x, t) == lambda(x, t) * domain.volume_element(x)
+```
+
+**If your `volume_element` is the default `1.0`, nothing changes at all.** If it
+is not, your sampled locations were previously biased by exactly the factor your
+chart compresses area by, and are now correct. On a sphere that bias put every
+event at the poles.
+
+### Orientation-reversing pairings are now accepted
+
+```python
+glide = [[-1, 0, 0], [0, 1, L2], [0, 0, 1]]  # det -1
+FundamentalDomain(rectangle, [translation, glide])
+```
+
+Through 0.3.0 this raised `ValueError: a side pairing must be
+orientation-preserving`. It now builds the Klein bottle. Nothing that used to
+work stops working; a call that used to raise may now succeed.
+
+If you were relying on the rejection to catch a mistake, the check that replaced
+it is stricter where it matters: a pairing must act **freely**. A rotation, a
+pure reflection, or any other isometry with a fixed point is refused — including
+several that 0.3.0 accepted.
+
+### Presentations are validated at construction
+
+Three conditions are now enforced when a `FundamentalDomain` is built:
+
+| Condition | Failure |
+|---|---|
+| every pairing acts freely | `a side pairing must act freely, and this one is a rotation…` |
+| every side is glued to exactly one other | `sides [0, 2] … are not carried onto another side` |
+| every corner cycle sums to $2\pi$, trivially | `the corners [...] form a cycle whose interior angles sum to…` |
+
+A presentation that does not tile used to construct happily and fail later —
+from inside `wrap`, mid-simulation, and only if a point ever needed reducing
+along the axis nothing moved. **A domain you built by hand that was never a
+valid presentation will now raise at the constructor.** That is the intended
+reading: it was not the surface you meant.
+
+`FundamentalDomain.topology` reports what you did build:
+
+```pycon
+>>> FundamentalDomain.hexagon(1.0).topology
+Topology(orientable=True, euler_characteristic=0, genus=1, name='torus')
+```
+
+### `distance` truncates by displacement, not by word length
+
+The deck-group window is now chosen by how far an element moves the polygon's
+centre, and the search certifies per call that no unexamined element could have
+done better. **Flat domains return identical numbers** — the old word-length
+window already contained the minimiser — but the guarantee is new, and on a
+hyperbolic surface it is the difference between a periodic kernel and one that
+decays to zero.
+
+One consequence: `n_images` no longer has anything to tune.
+
+### Retired arguments
+
+| Retired | Why | Removed in |
+|---|---|---|
+| `FundamentalDomain(..., n_images=)` | the deck group truncates by displacement radius and certifies it per call | 0.5.0 |
+
+Passing it warns and still works. `FundamentalDomain.orbit(y, n_images=...)` is
+unaffected: an image sum wants images, not the nearest one, so it keeps its own
+knob.
+
+:::{note}
+This table is kept in lockstep with the test suite: `RETIREMENTS` in
+`tests/test_deprecations.py` drives a test that asserts the warning still fires
+and the argument still works.
+:::
+
+### New optional hooks on `SpatialDomain`
+
+All three have defaults that leave an existing subclass behaving exactly as
+before.
+
+| Hook | Default | Override it when |
+|---|---|---|
+| `lift_distance(x, y)` | the chart norm | your chart is not the universal cover — any curved domain |
+| `max_distance` | the box half-diagonal | your chart box does not bound geodesic distance — any curved domain |
+| `nodes_per_axis` | 256 in 1-D, 32 in 2-D | a coarse rule mismeasures your domain's own volume |
+
+The first two matter only for a curved domain. The third is worth setting for
+any domain whose boundary or measure a 32-node rule cannot resolve: the summed
+weights are checked against your declared `volume`, and a mismatch scales the
+simulated event rate by the same factor.
+
 ## Migrating to 0.3.0
 
 **Nothing here changes what an existing script produces.** `Circle` and

@@ -12,8 +12,8 @@ implementation, ``hawkes_package.spatio_temporal.legacy``.
 """
 
 from ..mcmc import mcmc_sampler
-from .domains import Circle, FundamentalDomain, SpatialDomain, Torus2D
-from .kernels import make_periodic
+from .domains import Circle, FundamentalDomain, SpatialDomain, Sphere, Torus2D
+from .kernels import check_image_sum, make_periodic
 from .legacy import LegacySpatioTemporalHawkesProcess
 from .process import SpatioTemporalHawkesProcess
 
@@ -23,7 +23,9 @@ __all__ = [
     "LegacySpatioTemporalHawkesProcess",
     "SpatialDomain",
     "SpatioTemporalHawkesProcess",
+    "Sphere",
     "Torus2D",
+    "check_image_sum",
     "make_periodic",
     "mcmc_sampler",
 ]
