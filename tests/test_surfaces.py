@@ -164,10 +164,20 @@ def test_wrap_of_a_boundary_point_is_that_representative(presentation):
     probes = list(corners) + [
         domain.model.midpoint(corners[i], corners[(i + 1) % count]) for i in range(count)
     ]
-    for point in probes:
+    for index, point in enumerate(probes):
         wrapped = domain.wrap(point)
-        assert domain.contains(wrapped)
-        assert domain.distance(wrapped, point) == pytest.approx(0.0, abs=1e-8)
+        # One-line messages on purpose: a check annotation shows the first line
+        # of the assertion and nothing more, and the raw log needs repository
+        # admin rights to read.
+        state = (
+            f"probe {index} {np.round(point, 12).tolist()} -> "
+            f"{np.round(wrapped, 12).tolist()}; window {len(domain._radius_window)} "
+            f"r={domain._window_radius:.4f}; boundary {len(domain._boundary_window)}; "
+            f"band {domain._band:.3e}; "
+            f"signed {np.round(domain._planes @ domain.model.lift(wrapped), 14).tolist()}"
+        )
+        assert domain.contains(wrapped), state
+        assert domain.distance(wrapped, point) == pytest.approx(0.0, abs=1e-8), state
 
 
 def test_a_point_and_its_images_are_the_same_point_of_the_quotient(presentation, rng):
