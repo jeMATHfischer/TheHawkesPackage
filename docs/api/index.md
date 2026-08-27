@@ -26,7 +26,6 @@
    :nosignatures:
 
    SpatioTemporalHawkesProcess
-   LegacySpatioTemporalHawkesProcess
 ```
 
 ## Spatial domains

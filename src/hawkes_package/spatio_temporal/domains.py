@@ -41,12 +41,37 @@ from typing import Any
 
 import numpy as np
 
-from .._deprecation import warn_removed
+from .._deprecation import DeprecatedAttribute, warn_removed, warn_renamed
 from .._numerics import as_point
 from . import _gluing, _integration
 from ._model import EuclideanPlane, HyperbolicPlane, ModelSpace, SphericalPlane, isometry_between
 
 __all__ = ["Circle", "FundamentalDomain", "SpatialDomain", "Sphere", "Torus2D"]
+
+
+#: Pre-0.4.0 spellings of the two side lengths, and what they are called now.
+_RENAMED_SIDES = {"L1": "width", "L2": "height"}
+
+
+def _sides(width: float, height: float, deprecated: dict[str, float]) -> tuple[float, float]:
+    """Resolve the two side lengths, accepting the pre-0.4.0 ``L1``/``L2`` spellings.
+
+    Taken as ``**kwargs`` rather than as two more parameters so the signature a
+    caller reads is the current one. The unknown-keyword branch matters: without
+    it a typo would be swallowed and the default silently used, which is how a
+    torus comes to be the wrong size with nothing said.
+
+    .. versionadded:: 0.4.0
+    """
+    unknown = set(deprecated) - set(_RENAMED_SIDES)
+    if unknown:
+        raise TypeError(f"unexpected keyword argument(s) {sorted(unknown)}")
+    sides = {"width": width, "height": height}
+    for old_name, new_name in _RENAMED_SIDES.items():
+        if old_name in deprecated:
+            warn_renamed(f"the {old_name} argument", f"{new_name}", removed_in="0.5.0")
+            sides[new_name] = deprecated[old_name]
+    return sides["width"], sides["height"]
 
 
 class SpatialDomain(ABC):
@@ -260,16 +285,28 @@ class Circle(SpatialDomain):
 
 
 class Torus2D(SpatialDomain):
-    """Flat 2-D torus [0, L1) x [0, L2) with periodic boundaries in both dimensions.
+    """Flat 2-D torus with periodic boundaries in both dimensions.
 
-    Points are represented in [-L1/2, L1/2) x [-L2/2, L2/2).
+    The two side lengths are the periods of the lattice: points are represented
+    in ``[-width/2, width/2) x [-height/2, height/2)``.
+
+    .. versionchanged:: 0.4.0
+       ``L1`` and ``L2`` are now ``width`` and ``height``, as arguments and as
+       attributes. Both old spellings still work and warn until 0.5.0.
     """
 
     periodic = True
 
-    def __init__(self, L1: float = 2 * np.pi, L2: float = 2 * np.pi):
-        self.L1 = L1
-        self.L2 = L2
+    def __init__(
+        self,
+        width: float = 2 * np.pi,
+        height: float = 2 * np.pi,
+        **deprecated: float,
+    ) -> None:
+        self.width, self.height = _sides(width, height, deprecated)
+
+    L1 = DeprecatedAttribute("width")
+    L2 = DeprecatedAttribute("height")
 
     def _wrap_1d(self, x: float, period: float) -> float:
         """Fold a single coordinate into (-period/2, period/2]."""
@@ -279,10 +316,10 @@ class Torus2D(SpatialDomain):
     def distance(self, x: np.ndarray, y: np.ndarray) -> float:
         """Euclidean distance on the flat torus, wrapping both axes."""
         x, y = as_point(x, 2), as_point(y, 2)
-        dx = abs(float(x[0] - y[0])) % self.L1
-        dy = abs(float(x[1] - y[1])) % self.L2
-        dx = min(dx, self.L1 - dx)
-        dy = min(dy, self.L2 - dy)
+        dx = abs(float(x[0] - y[0])) % self.width
+        dy = abs(float(x[1] - y[1])) % self.height
+        dx = min(dx, self.width - dx)
+        dy = min(dy, self.height - dy)
         return float(np.sqrt(dx**2 + dy**2))
 
     def wrap(self, x: np.ndarray) -> np.ndarray:
@@ -290,8 +327,8 @@ class Torus2D(SpatialDomain):
         x = as_point(x, 2)
         return np.array(
             [
-                self._wrap_1d(x[0], self.L1),
-                self._wrap_1d(x[1], self.L2),
+                self._wrap_1d(x[0], self.width),
+                self._wrap_1d(x[1], self.height),
             ]
         )
 
@@ -299,25 +336,25 @@ class Torus2D(SpatialDomain):
         """Draw one point uniformly on the torus."""
         return np.array(
             [
-                rng.uniform(-self.L1 / 2, self.L1 / 2),
-                rng.uniform(-self.L2 / 2, self.L2 / 2),
+                rng.uniform(-self.width / 2, self.width / 2),
+                rng.uniform(-self.height / 2, self.height / 2),
             ]
         )
 
     @property
     def volume(self) -> float:
         """Surface area of the torus."""
-        return self.L1 * self.L2
+        return self.width * self.height
 
     @property
     def bounds(self) -> np.ndarray:
         """Bounding rectangle, shape (2, 2)."""
-        return np.array([[-self.L1 / 2, self.L1 / 2], [-self.L2 / 2, self.L2 / 2]])
+        return np.array([[-self.width / 2, self.width / 2], [-self.height / 2, self.height / 2]])
 
     def orbit(self, y: np.ndarray, n_images: int = 3) -> list[np.ndarray]:
         """Lattice images of `y`, out to `n_images` periods on each axis."""
         y = as_point(y, 2)
-        periods = np.array([self.L1, self.L2])
+        periods = np.array([self.width, self.height])
         return [
             y + np.array([n1, n2]) * periods
             for n1 in range(-n_images, n_images + 1)
@@ -762,15 +799,25 @@ class FundamentalDomain(SpatialDomain):
     # -- presentations -------------------------------------------------
 
     @classmethod
-    def rectangle(cls, L1: float = 2 * np.pi, L2: float = 2 * np.pi) -> FundamentalDomain:
-        """Build the rectangle ``[-L1/2, L1/2] x [-L2/2, L2/2]``, opposite sides paired.
+    def rectangle(
+        cls,
+        width: float = 2 * np.pi,
+        height: float = 2 * np.pi,
+        **deprecated: float,
+    ) -> FundamentalDomain:
+        """Build the centred rectangle of these sides, opposite sides paired.
 
         Presents the same flat torus as :class:`Torus2D`, and exists chiefly so
         that the general machinery can be checked against that hand-written
         implementation.
+
+        .. versionchanged:: 0.4.0
+           ``L1`` and ``L2`` are now ``width`` and ``height``; the old spellings
+           warn and work until 0.5.0.
         """
-        corners = _rectangle_corners(L1, L2)
-        return cls(corners, [_translation(L1, 0.0), _translation(0.0, L2)])
+        width, height = _sides(width, height, deprecated)
+        corners = _rectangle_corners(width, height)
+        return cls(corners, [_translation(width, 0.0), _translation(0.0, height)])
 
     @classmethod
     def hexagon(cls, side: float = 1.0) -> FundamentalDomain:
@@ -793,10 +840,15 @@ class FundamentalDomain(SpatialDomain):
         )
 
     @classmethod
-    def klein_bottle(cls, L1: float = 2 * np.pi, L2: float = 2 * np.pi) -> FundamentalDomain:
+    def klein_bottle(
+        cls,
+        width: float = 2 * np.pi,
+        height: float = 2 * np.pi,
+        **deprecated: float,
+    ) -> FundamentalDomain:
         r"""Build the flat Klein bottle: a rectangle, one side pair glued with a flip.
 
-        One translation and one **glide reflection**, ``(x, y) -> (-x, y + L2)``.
+        One translation and one **glide reflection**, ``(x, y) -> (-x, y + height)``.
         Exactly one sign away from :meth:`rectangle`, and the whole difference
         between the two closed flat surfaces: the glide reverses orientation, so
         the quotient is non-orientable, while the corner cycle still sums to
@@ -813,9 +865,10 @@ class FundamentalDomain(SpatialDomain):
         >>> bottle.topology.orientable, bottle.topology.name
         (False, 'Klein bottle')
         """
-        corners = _rectangle_corners(L1, L2)
-        glide = np.array([[-1.0, 0.0, 0.0], [0.0, 1.0, L2], [0.0, 0.0, 1.0]])
-        return cls(corners, [_translation(L1, 0.0), glide])
+        width, height = _sides(width, height, deprecated)
+        corners = _rectangle_corners(width, height)
+        glide = np.array([[-1.0, 0.0, 0.0], [0.0, 1.0, height], [0.0, 0.0, 1.0]])
+        return cls(corners, [_translation(width, 0.0), glide])
 
     @classmethod
     def projective_plane(cls, radius: float = 1.0) -> FundamentalDomain:
@@ -1323,9 +1376,9 @@ def _translation(dx: float, dy: float) -> np.ndarray:
     return np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
 
 
-def _rectangle_corners(L1: float, L2: float) -> list[list[float]]:
+def _rectangle_corners(width: float, height: float) -> list[list[float]]:
     """Corners of the centred rectangle, counter-clockwise from the bottom left."""
-    half_1, half_2 = L1 / 2, L2 / 2
+    half_1, half_2 = width / 2, height / 2
     return [
         [-half_1, -half_2],
         [half_1, -half_2],

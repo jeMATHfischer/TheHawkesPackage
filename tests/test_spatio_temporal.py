@@ -24,11 +24,11 @@ ONE_D = [pytest.param(Circle(), id="circle"), pytest.param(Circle(radius=2.0), i
 def test_circle_end_to_end(make_st_process, dom):
     p = make_st_process(dom)
     p.simulate(5)
-    assert p.Events.shape == (2, 5)  # time + one spatial coordinate
-    assert np.all(np.diff(p.Events[0, :]) > 0)
+    assert p.events.shape == (2, 5)  # time + one spatial coordinate
+    assert np.all(np.diff(p.events[0, :]) > 0)
     lo, hi = dom.bounds[0]
-    assert np.all(p.Events[1, :] >= lo - 1e-9)
-    assert np.all(p.Events[1, :] <= hi + 1e-9)
+    assert np.all(p.events[1, :] >= lo - 1e-9)
+    assert np.all(p.events[1, :] <= hi + 1e-9)
 
 
 @pytest.mark.slow
@@ -37,12 +37,12 @@ def test_torus_end_to_end(make_st_process):
     dom = Torus2D()
     p = make_st_process(dom)
     p.simulate(4)
-    assert p.Events.shape == (3, 4)  # time + two spatial coordinates
-    assert np.all(np.diff(p.Events[0, :]) > 0)
+    assert p.events.shape == (3, 4)  # time + two spatial coordinates
+    assert np.all(np.diff(p.events[0, :]) > 0)
     bounds = dom.bounds
     for d in range(2):
-        assert np.all(p.Events[1 + d, :] >= bounds[d, 0] - 1e-9)
-        assert np.all(p.Events[1 + d, :] <= bounds[d, 1] + 1e-9)
+        assert np.all(p.events[1 + d, :] >= bounds[d, 0] - 1e-9)
+        assert np.all(p.events[1 + d, :] <= bounds[d, 1] + 1e-9)
 
 
 def test_non_monotone_kernel_path(flat_base, bump_spatial, triangular_kernel):
@@ -57,31 +57,31 @@ def test_non_monotone_kernel_path(flat_base, bump_spatial, triangular_kernel):
     assert isinstance(p.temporal_extremum, float)
     assert p.temporal_extremum == pytest.approx(0.5, abs=1e-3)
     p.simulate(3)
-    assert p.Events.shape == (2, 3)
+    assert p.events.shape == (2, 3)
 
 
 def test_repeated_simulate_continues_the_realisation(make_st_process):
     p = make_st_process(Circle())
     p.simulate(3)
-    first = p.Events.copy()
+    first = p.events.copy()
     p.simulate(2)
-    assert p.Events.shape == (2, 5)
-    assert p.Sim_num == 5
-    np.testing.assert_array_equal(p.Events[:, :3], first)
+    assert p.events.shape == (2, 5)
+    assert p.n_simulated == 5
+    np.testing.assert_array_equal(p.events[:, :3], first)
 
 
 def test_reproducible_with_seed(make_st_process):
     a, b = make_st_process(Circle(), seed=11), make_st_process(Circle(), seed=11)
     a.simulate(4)
     b.simulate(4)
-    np.testing.assert_array_equal(a.Events, b.Events)
+    np.testing.assert_array_equal(a.events, b.events)
 
 
 def test_different_seeds_differ(make_st_process):
     a, b = make_st_process(Circle(), seed=11), make_st_process(Circle(), seed=12)
     a.simulate(4)
     b.simulate(4)
-    assert not np.array_equal(a.Events, b.Events)
+    assert not np.array_equal(a.events, b.events)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ def test_integrated_intensity_1d_matches_analytic(bump_spatial, exp_kernel):
 
 def test_integrated_intensity_2d_uses_a_deterministic_rule(bump_spatial, exp_kernel):
     """The >=2-D path must integrate exactly, not estimate."""
-    dom = Torus2D(L1=2.0, L2=3.0)
+    dom = Torus2D(width=2.0, height=3.0)
     p = SpatioTemporalHawkesProcess(
         lambda x: 0.5,
         bump_spatial,
@@ -119,7 +119,7 @@ def test_integrated_intensity_2d_uses_a_deterministic_rule(bump_spatial, exp_ker
 
 def test_integrated_intensity_2d_with_varying_background(bump_spatial, exp_kernel):
     """A non-constant background integrates exactly, with no sampling error."""
-    dom = Torus2D(L1=2 * np.pi, L2=2 * np.pi)
+    dom = Torus2D(width=2 * np.pi, height=2 * np.pi)
     p = SpatioTemporalHawkesProcess(
         lambda x: 1.0 + 0.5 * np.sin(x[0]),
         bump_spatial,
@@ -144,7 +144,7 @@ def test_intensity_matches_hand_computation(flat_base, bump_spatial, exp_kernel)
     )
     # Inject a known history rather than simulating one. There is no longer a
     # hidden bootstrap column to skip: every column here is a real event.
-    p.Events = np.array([[1.0, 2.0], [0.5, -1.0]])
+    p.events = np.array([[1.0, 2.0], [0.5, -1.0]])
 
     t, x = 3.0, np.array([0.2])
     expected = 0.5
@@ -184,7 +184,7 @@ def test_intensity_over_interval_merges_event_times(make_st_process):
     p = make_st_process(Circle())
     p.simulate(3)
     times, _, _ = p.intensity_over_interval(np.linspace(0, 1, 5))
-    assert np.isin(p.Events[0, :], times).all()
+    assert np.isin(p.events[0, :], times).all()
     assert np.all(np.diff(times) > 0), "times must be sorted and de-duplicated"
 
 
@@ -256,12 +256,12 @@ def test_non_constant_background_is_usable(bump_spatial, exp_kernel, dom):
         rng=0,
     )
     p.simulate(2)
-    assert p.Events.shape == (dom.bounds.shape[0] + 1, 2)
+    assert p.events.shape == (dom.bounds.shape[0] + 1, 2)
 
 
 def test_intensity_is_invariant_to_coordinate_shape(make_st_process):
     p = make_st_process(Circle())
-    p.Events = np.array([[0.3, 0.6], [0.1, -0.4]])
+    p.events = np.array([[0.3, 0.6], [0.1, -0.4]])
     values = [p.intensity(1.0, s) for s in (0.15, [0.15], np.array([0.15]), np.array([[0.15]]))]
     assert values == pytest.approx([values[0]] * 4)
 
@@ -282,7 +282,7 @@ def test_integrated_intensity_is_deterministic(bump_spatial, exp_kernel):
         monotone_temporal_kernel=True,
         rng=0,
     )
-    p.Events = np.array([[0.5, 0.8], [0.2, -1.0], [0.3, 1.1]])
+    p.events = np.array([[0.5, 0.8], [0.2, -1.0], [0.3, 1.1]])
 
     state = p.rng.bit_generator.state
     values = {p._integrated_intensity(1.0) for _ in range(20)}
@@ -307,7 +307,7 @@ def test_quadrature_agrees_with_a_refined_rule(bump_spatial, exp_kernel):
     coarse = SpatioTemporalHawkesProcess(**kwargs, n_quad=64)
     fine = SpatioTemporalHawkesProcess(**kwargs, n_quad=512)
     for p in (coarse, fine):
-        p.Events = np.array([[0.4], [0.1]])
+        p.events = np.array([[0.4], [0.1]])
     assert coarse._integrated_intensity(1.0) == pytest.approx(
         fine._integrated_intensity(1.0), rel=1e-3
     )
@@ -398,10 +398,10 @@ def test_periodic_kernel_composes_with_the_process(exp_kernel):
         rng=0,
     )
     p.simulate(3)
-    assert p.Events.shape == (2, 3)
+    assert p.events.shape == (2, 3)
 
     # and the intensity uses the image sum, not a bare geodesic distance
-    p.Events = np.array([[1.0], [0.4]])
+    p.events = np.array([[1.0], [0.4]])
     x = np.array([0.15])
     expected = 0.5 + exp_kernel(2.0 - 1.0) * kernel(x, np.array([0.4]))
     assert p.intensity(2.0, x) == pytest.approx(expected)

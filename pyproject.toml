@@ -84,7 +84,7 @@ Changelog = "https://github.com/jeMATHfischer/TheHawkesPackage/blob/master/CHANG
 path = "src/hawkes_package/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hawkes_package", "src/TheHawkesPackage"]
+packages = ["src/hawkes_package"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -111,7 +111,11 @@ src = ["src", "tests"]
 extend-exclude = ["docs/_build"]
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "NPY", "PT", "RET", "ARG", "D", "RUF"]
+# `N` (pep8-naming) was off through 0.3.x because `Events`, `Sim_num`,
+# `Base`, `Space`, `L1` and `L2` were public API. 0.4.0 renamed or removed
+# every one of them, and turning it back on is what stops them creeping in
+# again -- the point of doing the rename at all.
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "C4", "NPY", "PT", "RET", "ARG", "D", "RUF"]
 # `TID` is deliberately absent: TID252 bans parent-relative imports, but
 # `from ..mcmc import mcmc_sampler` is exactly the right way for a subpackage to
 # reach its sibling and rewriting them as absolute would only add coupling.
@@ -120,8 +124,6 @@ ignore = [
   "D107", # __init__ docstring — documented on the class, numpydoc style
   "E731", # lambda assignment — pervasive and idiomatic in the kernel code
 ]
-# Deliberately NOT selecting `N` (pep8-naming): `Events`, `Sim_num`, `Base`,
-# `Space`, `L1`, `L2` are public API through 0.3.x. The renames land in 0.4.0.
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
@@ -129,13 +131,13 @@ convention = "numpy"
 [tool.ruff.lint.per-file-ignores]
 # NPY002: tests/test_base.py calls np.random.seed on purpose, to prove that the
 # legacy global stream no longer influences simulations.
-"tests/**" = ["D", "ARG", "B018", "NPY002"]
-"src/hawkes_package/spatio_temporal/legacy.py" = ["D", "ARG", "B023"]
-"src/TheHawkesPackage/__init__.py" = ["D", "F401"]
+# N: a test may name a fixture or a helper after the deprecated spelling it
+# exists to pin.
+"tests/**" = ["D", "ARG", "B018", "NPY002", "N"]
 "docs/conf.py" = ["D", "INP001"]
 # Notebooks are narrative: throwaway kernel helpers do not need docstrings, and
 # demonstration loops legitimately ignore their index.
-"*.ipynb" = ["D", "ARG", "B007", "RET504", "E402"]
+"*.ipynb" = ["D", "ARG", "B007", "RET504", "E402", "N816"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -159,19 +161,6 @@ pretty = true
 module = ["scipy.*"]
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-# The legacy periodic-interval simulator is a wall of nested closures kept for
-# bit-compatibility with previously published results. It is frozen and slated
-# for removal in 0.4.0, so it is checked loosely rather than rewritten.
-module = ["hawkes_package.spatio_temporal.legacy"]
-disallow_untyped_defs = false
-disallow_untyped_calls = false
-disable_error_code = ["no-any-return", "var-annotated", "misc"]
-
-[[tool.mypy.overrides]]
-module = ["TheHawkesPackage.*"]
-ignore_errors = true
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -194,7 +183,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 parallel = true
-source_pkgs = ["hawkes_package", "TheHawkesPackage"]
+source_pkgs = ["hawkes_package"]
 
 [tool.coverage.paths]
 source = ["src", "*/site-packages"]

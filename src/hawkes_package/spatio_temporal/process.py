@@ -66,9 +66,12 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
     Attributes
     ----------
-    Events : numpy.ndarray
+    events : numpy.ndarray
         Shape ``(ndim + 1, n)``. Row 0 holds event times, rows 1.. hold
         coordinates.
+
+        .. versionchanged:: 0.4.0
+           Renamed from ``Events``, which still works and warns until 0.5.0.
 
     Examples
     --------
@@ -81,7 +84,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     ...     rng=0,
     ... )
     >>> process.simulate(5)
-    >>> process.Events.shape
+    >>> process.events.shape
     (2, 5)
     """
 
@@ -100,7 +103,6 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         proposal_std: Any = None,
         n_iter: int = 2000,
     ) -> None:
-        super().__init__(rng=rng)
         self.base = base
         self.spatial = spatial
         self.temporal = temporal
@@ -109,12 +111,13 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
         ndim = self.domain.bounds.shape[0]
         self._ndim = ndim
+        # The record is one row of times above `ndim` rows of coordinates, and
+        # the domain has to be known before the buffer can be shaped -- which is
+        # why `super().__init__` comes after it rather than first.
+        super().__init__(rng=rng, rows=ndim + 1)
         self.proposal_std = proposal_std
         self.n_iter = int(n_iter)
         self._build_quadrature(n_quad)
-        # Empty: `Events` holds only real events at every moment. See
-        # TemporalHawkesProcess.__init__ for why the bootstrap column is gone.
-        self.Events = np.empty((ndim + 1, 0), dtype=float)
 
         if not monotone_temporal_kernel:
             if peak_lag is None:
@@ -130,8 +133,8 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _past_event_indices(self, t: float, inclusive: bool = False) -> list[int]:
-        """Column indices of events before time `t`.
+    def _past_events(self, t: float, inclusive: bool = False) -> np.ndarray:
+        """Return the events before time `t`, as a ``(ndim + 1, m)`` slice of the record.
 
         `inclusive` also admits an event at exactly `t`, which the thinning
         bound needs: at the start of a step `t` *is* the most recent event time.
@@ -139,10 +142,17 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         There is no ``0 < ...`` guard: it used to hide the bootstrap column, but
         it also silently discarded any user-supplied event at a non-positive
         time for the whole life of the object.
+
+        .. versionchanged:: 0.4.0
+           Returns the events rather than a list of their indices, and selects
+           them with a mask rather than a Python loop over every column. It is
+           called four times per thinning step and once per quadrature node
+           within each, so the loop was a per-event constant on the hot path.
         """
-        if inclusive:
-            return [i for i in range(self.Events.shape[1]) if self.Events[0, i] <= t]
-        return [i for i in range(self.Events.shape[1]) if self.Events[0, i] < t]
+        record = self.events
+        times = record[0]
+        keep = times <= t if inclusive else times < t
+        return np.asarray(record[:, keep])
 
     def _temporal_factors(self, t: float, bound: bool = False) -> np.ndarray:
         """Temporal kernel factors at time `t`, or their future suprema.
@@ -152,8 +162,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         its current value if it has. For a monotone-decreasing kernel the two
         coincide, so only the inclusive event set differs.
         """
-        idx = self._past_event_indices(t, inclusive=bound)
-        lags = np.array([t - self.Events[0, i] for i in idx])
+        lags = np.asarray(t - self._past_events(t, inclusive=bound)[0])
         if lags.size == 0:
             return lags
         values = np.array([float(self.temporal(lag)) for lag in lags])
@@ -165,12 +174,12 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         return self._temporal_factors(t)
 
     def _dist_spatial(self, x: Any, t: float, bound: bool = False) -> np.ndarray:
-        idx = self._past_event_indices(t, inclusive=bound)
+        past = self._past_events(t, inclusive=bound)
         # as_float on every element: a user `spatial` returning a 0-d or
         # shape-(1,) array would otherwise build a (n, 1) column here, which
         # broadcasts against the (n,) temporal factors to an (n, n) outer
         # product -- silently computing (sum kappa_t)(sum kappa_s).
-        values = np.array([self._spatial_at(x, self.Events[1:, i]) for i in idx], dtype=float)
+        values = np.array([self._spatial_at(x, event) for event in past[1:].T], dtype=float)
         if bound:
             # sup_s kappa_t(s - t_i) * kappa_s(d) equals sup(kappa_t) * kappa_s(d)
             # only where kappa_s(d) >= 0; where it is negative the supremum is 0,
@@ -325,7 +334,8 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
     def _propagate(self, k: int) -> None:
         for done in range(k):
-            t = float(self.Events[0, -1]) if self.Events.shape[1] else 0.0
+            record = self.events
+            t = float(record[0, -1]) if record.shape[1] else 0.0
 
             # --- Temporal thinning on the space-integrated intensity ---
             while True:
@@ -359,11 +369,10 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
             # boundary-equal representative.
             coord = self.domain.wrap(coord)
 
-            new_event = np.vstack(
-                [np.array([[event_time]]), np.asarray(coord, dtype=float).reshape(-1, 1)]
+            self._events.append(
+                np.concatenate([[event_time], np.asarray(coord, dtype=float).reshape(-1)])
             )
-            self.Events = np.append(self.Events, new_event, axis=1)
-            self.Sim_num += 1
+            self.n_simulated += 1
 
     # ------------------------------------------------------------------
     # Intensity accessors
@@ -450,7 +459,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
                     f"points must have shape (n_x, {ndim}) for this domain, got {points_arr.shape}"
                 )
 
-        event_times = self.Events[0, :]
+        event_times = self.events[0, :]
         times_arr = np.unique(np.append(np.asarray(times, dtype=float).ravel(), event_times))
 
         intensity = np.array(

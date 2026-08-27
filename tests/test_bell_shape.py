@@ -18,13 +18,13 @@ def test_extremum_is_a_finite_float(triangular_kernel):
 def test_simulation_runs(triangular_kernel):
     p = BellShapeHawkes(triangular_kernel, rng=0)
     p.simulate(50)
-    assert len(p.Events) == 50
+    assert len(p.events) == 50
 
 
 def test_events_strictly_increasing(triangular_kernel):
     p = BellShapeHawkes(triangular_kernel, rng=1)
     p.simulate(100)
-    assert np.all(np.diff(p.Events) > 0)
+    assert np.all(np.diff(p.events) > 0)
 
 
 def test_vectorised_kernel(triangular_kernel):
@@ -37,7 +37,7 @@ def test_vectorised_kernel(triangular_kernel):
 def test_intensity_non_negative(triangular_kernel):
     p = BellShapeHawkes(triangular_kernel, rng=5)
     p.simulate(30)
-    _, intensity = p.intensity_over_interval(np.linspace(0, float(p.Events[-1]), 100))
+    _, intensity = p.intensity_over_interval(np.linspace(0, float(p.events[-1]), 100))
     assert np.all(intensity >= 0)
 
 
@@ -49,7 +49,7 @@ def test_bound_is_inflated_while_the_kernel_rises(triangular_kernel):
     """
     p = BellShapeHawkes(triangular_kernel, rng=2)
     p.simulate(10)
-    t_last = float(p.Events[-1])
+    t_last = float(p.events[-1])
 
     rising = t_last + p.ext / 2  # still before the peak
     settled = t_last + p.ext * 2  # past the peak
@@ -62,7 +62,7 @@ def test_bound_dominates_intensity_across_the_rise(triangular_kernel):
     """The inflated branch must actually dominate the rising intensity."""
     p = BellShapeHawkes(triangular_kernel, rng=3)
     p.simulate(10)
-    t_last = float(p.Events[-1])
+    t_last = float(p.events[-1])
     bound = p._upper_bound(t_last)
     grid = np.linspace(t_last + 1e-9, t_last + p.ext, 60)
     assert np.all([p._conditional_intensity(t) <= bound + 1e-9 for t in grid])
@@ -82,7 +82,7 @@ def test_delayed_kernel_peak_is_located(delayed_bump_kernel):
 def test_delayed_kernel_bound_dominates_the_rise(delayed_bump_kernel):
     p = BellShapeHawkes(delayed_bump_kernel, rng=0)
     p.simulate(20)
-    t_last = float(p.Events[-1])
+    t_last = float(p.events[-1])
     bound = p._upper_bound(t_last)
     grid = np.linspace(t_last + 1e-9, t_last + p.ext, 80)
     assert all(p._conditional_intensity(float(t)) <= bound + 1e-9 for t in grid)

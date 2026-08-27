@@ -85,7 +85,8 @@ TEMPORAL = [
 ]
 
 #: Spatio-temporal cases. Before 0.2.0 only `st-circle` was covered, which is
-#: why every other configuration below shipped with a broken bound.
+#: why every other configuration below shipped with a broken bound. The
+#: `legacy` case went with the frozen class it exercised, in 0.4.0.
 SPATIO_TEMPORAL = [
     "st-circle",
     pytest.param("st-torus", marks=pytest.mark.slow),
@@ -117,7 +118,6 @@ SPATIO_TEMPORAL = [
     # reaches outside the model space, and a distance that is certified rather
     # than truncated by word length.
     pytest.param("st-crosscaps", marks=pytest.mark.slow),
-    "legacy",
 ]
 
 
@@ -125,13 +125,10 @@ SPATIO_TEMPORAL = [
 def build(
     exp_kernel,
     triangular_kernel,
-    legacy_kernels,
     bump_spatial,
     delayed_bump_kernel,
     signed_spatial,
 ):
-    base, spatial, temporal = legacy_kernels
-
     def _spatio_temporal(**kwargs):
         defaults = {
             "base": lambda x: 0.5,
@@ -188,7 +185,7 @@ def build(
                 spatial=lambda d: max(0.0, 1.0 - d / 1.5),
                 rng=seed,
             )
-        return hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, rng=seed)
+        raise AssertionError(f"unknown process {name!r}")
 
     return _build
 
@@ -244,7 +241,7 @@ def test_instrumentation_detects_a_broken_bound(exp_kernel):
 
     # Reproduce the pre-0.2.0 bug: exclude the most recent event from the bound.
     def broken_bound(t):
-        past = proc.Events[proc.Events < t]
+        past = proc.events[proc.events < t]
         return float(proc.nonlinearity(np.sum(proc.temporal(t - past))))
 
     proc._upper_bound = broken_bound

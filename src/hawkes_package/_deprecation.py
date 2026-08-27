@@ -2,24 +2,23 @@
 
 Everything the package deprecates routes through here so the wording, the
 removal version and the ``stacklevel`` stay consistent across call sites.
+
+.. versionchanged:: 0.4.0
+   ``DeprecatedAlias`` and ``deprecated_module_getattr`` are gone, along with
+   the last names that used them. :class:`DeprecatedAttribute` replaces the
+   first: an alias for a renamed *attribute* cannot be a method wrapper, which
+   is all ``DeprecatedAlias`` could produce.
 """
 
 from __future__ import annotations
 
-import functools
 import warnings
-from collections.abc import Callable
 from typing import Any
 
-__all__ = [
-    "DeprecatedAlias",
-    "deprecated_module_getattr",
-    "warn_removed",
-    "warn_renamed",
-]
+__all__ = ["DeprecatedAttribute", "warn_removed", "warn_renamed"]
 
 #: Version in which everything currently deprecated is removed.
-REMOVED_IN = "0.4.0"
+REMOVED_IN = "0.5.0"
 
 
 def warn_renamed(
@@ -34,7 +33,7 @@ def warn_renamed(
     Parameters
     ----------
     old, new : str
-        Human-readable names, e.g. ``"BellShapeHawkes.propagate_by_amount()"``.
+        Human-readable names, e.g. ``"HawkesProcess.Events"``.
     removed_in : str
         Version in which `old` stops working.
     stacklevel : int
@@ -80,26 +79,32 @@ def warn_removed(
     )
 
 
-class DeprecatedAlias:
-    """Descriptor exposing a deprecated alias of another method.
+class DeprecatedAttribute:
+    """Descriptor exposing a deprecated spelling of a renamed attribute.
+
+    Reads *and writes* forward to `target`, both warning. Assignment is not
+    optional: ``process.Events = history`` is how a caller seeds a realisation
+    before simulating, and dropping the setter would turn that from a
+    deprecation into a silent shadowing — the assignment would bind a plain
+    instance attribute over the descriptor and the simulator would never see it.
 
     The alias learns its own name from :meth:`__set_name__`, so declaring one
-    costs a single line and the warning text can never drift from reality.
+    costs a single line and the warning text cannot drift from reality.
 
     Parameters
     ----------
     target : str
-        Name of the method this alias forwards to.
+        Name of the attribute this alias forwards to.
     removed_in : str
         Version in which the alias stops working.
 
     Examples
     --------
     >>> class Process:
-    ...     def simulate(self, k):
-    ...         return k
+    ...     def __init__(self):
+    ...         self.events = []
     ...
-    ...     propagate_by_amount = DeprecatedAlias("simulate")
+    ...     Events = DeprecatedAttribute("events")
     """
 
     def __init__(self, target: str, *, removed_in: str = REMOVED_IN) -> None:
@@ -111,63 +116,28 @@ class DeprecatedAlias:
         """Record the attribute name this descriptor was bound to."""
         self.public_name = name
         self.__doc__ = (
-            f"Deprecated alias for :meth:`~{owner.__module__}.{owner.__qualname__}.{self.target}`."
+            f"Deprecated alias for :attr:`~{owner.__module__}.{owner.__qualname__}.{self.target}`."
         )
 
-    def __get__(self, obj: Any, objtype: type | None = None) -> Callable[..., Any]:
-        """Return a wrapper that warns and then forwards to the target method."""
-        owner = objtype if objtype is not None else type(obj)
-        bound = getattr(obj if obj is not None else owner, self.target)
-        old = f"{owner.__name__}.{self.public_name}()"
-        new = f"{owner.__name__}.{self.target}()"
-        removed_in = self.removed_in
-
-        @functools.wraps(bound)
-        def _alias(*args: Any, **kwargs: Any) -> Any:
-            warn_renamed(old, new, removed_in=removed_in, stacklevel=2)
-            return bound(*args, **kwargs)
-
-        _alias.__name__ = self.public_name
-        _alias.__qualname__ = f"{owner.__qualname__}.{self.public_name}"
-        _alias.__doc__ = self.__doc__
-        return _alias
-
-
-def deprecated_module_getattr(
-    mapping: dict[str, tuple[str, Any]],
-    *,
-    module: str,
-    removed_in: str = REMOVED_IN,
-) -> Callable[[str], Any]:
-    """Build a :pep:`562` ``__getattr__`` that warns for renamed module globals.
-
-    Parameters
-    ----------
-    mapping : dict
-        ``{old_name: (new_name, new_object)}``.
-    module : str
-        ``__name__`` of the calling module, used in the message and in the
-        :class:`AttributeError` raised for unknown names.
-    removed_in : str
-        Version in which the old names stop working.
-
-    Returns
-    -------
-    callable
-        A function suitable for assignment to a module-level ``__getattr__``.
-    """
-
-    def __getattr__(name: str) -> Any:
-        try:
-            new_name, obj = mapping[name]
-        except KeyError:
-            raise AttributeError(f"module {module!r} has no attribute {name!r}") from None
+    def _warn(self, owner: type) -> None:
+        """Point from this spelling to the current one."""
         warn_renamed(
-            f"{module}.{name}",
-            f"{module}.{new_name}",
-            removed_in=removed_in,
-            stacklevel=3,
+            f"{owner.__name__}.{self.public_name}",
+            f"{owner.__name__}.{self.target}",
+            removed_in=self.removed_in,
+            stacklevel=4,
         )
-        return obj
 
-    return __getattr__
+    def __get__(self, obj: Any, objtype: type | None = None) -> Any:
+        """Warn, then read the attribute this one was renamed to."""
+        if obj is None:
+            # Class-level access: hand back the descriptor so `help()` and
+            # `inspect` can see the docstring without a warning fired at import.
+            return self
+        self._warn(objtype if objtype is not None else type(obj))
+        return getattr(obj, self.target)
+
+    def __set__(self, obj: Any, value: Any) -> None:
+        """Warn, then write through to the attribute this one was renamed to."""
+        self._warn(type(obj))
+        setattr(obj, self.target, value)

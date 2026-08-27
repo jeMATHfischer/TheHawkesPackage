@@ -213,18 +213,18 @@ class TestCircle:
 
 class TestTorus2D:
     def test_distance_wraps_both_axes(self):
-        t = Torus2D(L1=2.0, L2=2.0)
+        t = Torus2D(width=2.0, height=2.0)
         d = t.distance(np.array([-1.0, -1.0]), np.array([0.9, 0.9]))
         assert d == pytest.approx(np.sqrt(0.1**2 + 0.1**2), rel=1e-6)
 
     def test_wrap_both_axes(self):
-        t = Torus2D(L1=4.0, L2=6.0)
+        t = Torus2D(width=4.0, height=6.0)
         wrapped = t.wrap(np.array([4.3, -3.5]))
         assert -2.0 <= wrapped[0] <= 2.0
         assert -3.0 <= wrapped[1] <= 3.0
 
     def test_volume_is_the_area(self):
-        assert Torus2D(L1=3.0, L2=5.0).volume == pytest.approx(15.0)
+        assert Torus2D(width=3.0, height=5.0).volume == pytest.approx(15.0)
 
     def test_bounds_are_two_dimensional(self):
         assert Torus2D().bounds.shape == (2, 2)
@@ -240,11 +240,14 @@ class TestFundamentalDomainAgreesWithTorus2D:
     known answer rather than against itself.
     """
 
-    L1, L2 = 3.0, 5.0
+    width, height = 3.0, 5.0
 
     @pytest.fixture
     def pair(self):
-        return FundamentalDomain.rectangle(self.L1, self.L2), Torus2D(L1=self.L1, L2=self.L2)
+        return (
+            FundamentalDomain.rectangle(self.width, self.height),
+            Torus2D(width=self.width, height=self.height),
+        )
 
     def test_volume_and_bounds_agree(self, pair):
         polygon, torus = pair
@@ -266,7 +269,7 @@ class TestFundamentalDomainAgreesWithTorus2D:
         choices of representative, so what must agree is the lattice class.
         """
         polygon, torus = pair
-        periods = np.array([self.L1, self.L2])
+        periods = np.array([self.width, self.height])
         for _ in range(200):
             x = rng.uniform(-9, 9, size=2)
             offset = (polygon.wrap(x) - torus.wrap(x)) / periods

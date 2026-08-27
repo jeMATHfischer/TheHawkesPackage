@@ -60,7 +60,7 @@ def bump_spatial():
         Circle(),
         Circle(radius=2.0),
         Torus2D(),
-        Torus2D(L1=3.0, L2=5.0),
+        Torus2D(width=3.0, height=5.0),
         FundamentalDomain.rectangle(3.0, 5.0),
         FundamentalDomain.hexagon(1.0),
         FundamentalDomain.hexagon(2.5),
@@ -121,29 +121,6 @@ def make_st_process(flat_base, exp_kernel, bump_spatial):
         )
 
     return _make
-
-
-@pytest.fixture
-def legacy_kernels():
-    """The (base, spatial, temporal) triple the original notebook used."""
-
-    def base(x):
-        return 0.5
-
-    def spatial(s):
-        b = np.pi
-        s = np.asarray(s, dtype=float)
-        inside = ((s + b / 2) >= 0) & ((s + b / 2) <= b)
-        return (504 / (5 * np.pi**4) * s**4 - 146 / (5 * np.pi**2) * s**2 + 1) * inside
-
-    def temporal(dt):
-        a, b = 0.9, 2.0
-        dt = np.asarray(dt, dtype=float)
-        rise = (dt < b / 2) & (dt > 0)
-        decay = (dt >= b / 2) & (dt < b)
-        return 2 * a / b * dt * rise + ((-2 * a / b) * dt + 2 * a) * decay
-
-    return base, spatial, temporal
 
 
 @pytest.fixture

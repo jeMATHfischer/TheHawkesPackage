@@ -10,7 +10,7 @@ import hawkes_package as hp
 process = hp.ExponentialHawkes(np.array([2.0, 0.5, 1.0]), rng=42)
 process.simulate(100)
 
-print(process.Events[:5])  # the first five event times
+print(process.events[:5])  # the first five event times
 ```
 
 `simulate(k)` appends `k` further events; calling it again continues the same
@@ -91,7 +91,7 @@ P = hp.SpatioTemporalHawkesProcess(
 )
 P.simulate(50)
 
-P.Events.shape  # (2, 50): row 0 is times, row 1 the coordinate
+P.events.shape  # (2, 50): row 0 is times, row 1 the coordinate
 P.intensity(1.5, [0.0])  # lambda at one time and place
 ```
 

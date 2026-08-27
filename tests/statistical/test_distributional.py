@@ -50,7 +50,7 @@ def test_time_rescaling_gives_unit_exponential_gaps(seed):
     p = hp.ExponentialHawkes(np.array([mu, alpha, beta]), rng=seed)
     p.simulate(2000)
 
-    rescaled = compensator(p.Events, p.Events, mu, alpha, beta)
+    rescaled = compensator(p.events, p.events, mu, alpha, beta)
     gaps = np.diff(rescaled)
 
     result = stats.kstest(gaps, "expon")
@@ -69,7 +69,7 @@ def test_stationary_rate_matches_theory(seed):
     p.simulate(4000)
 
     burn = 500
-    events = p.Events
+    events = p.events
     empirical = (len(events) - burn) / (events[-1] - events[burn])
     theoretical = mu / (1 - alpha / beta)
     assert empirical == pytest.approx(theoretical, rel=0.12)
@@ -83,7 +83,7 @@ def test_vanishing_excitation_degenerates_to_poisson(seed):
     p = hp.ExponentialHawkes(np.array([mu, 1e-9, 1.0]), rng=seed)
     p.simulate(2000)
 
-    gaps = np.diff(p.Events)
+    gaps = np.diff(p.events)
     result = stats.kstest(gaps, "expon", args=(0, 1 / mu))
     assert result.pvalue > 1e-3, f"seed={seed}: gaps are not Exp({mu}) (p={result.pvalue:.2e})"
 
@@ -96,7 +96,7 @@ def test_stronger_excitation_raises_the_rate():
     for alpha in (0.2, 0.8, 1.4):
         p = hp.ExponentialHawkes(np.array([mu, alpha, beta]), rng=5)
         p.simulate(2000)
-        rates.append(len(p.Events) / p.Events[-1])
+        rates.append(len(p.events) / p.events[-1])
     assert rates[0] < rates[1] < rates[2]
 
 
@@ -117,7 +117,7 @@ def test_monotone_matches_exponential_for_the_same_model():
     )
     p.simulate(3000)
     burn = 500
-    empirical = (len(p.Events) - burn) / (p.Events[-1] - p.Events[burn])
+    empirical = (len(p.events) - burn) / (p.events[-1] - p.events[burn])
     assert empirical == pytest.approx(mu / (1 - alpha / beta), rel=0.12)
 
 
@@ -147,7 +147,7 @@ def test_zero_excitation_is_poisson_in_time_and_uniform_in_space():
     )
     p.simulate(120)
 
-    times, coords = p.Events[0, :], p.Events[1, :]
+    times, coords = p.events[0, :], p.events[1, :]
 
     gaps = np.diff(times)
     expected_rate = domain.volume * mu
@@ -260,7 +260,7 @@ def test_simulation_on_a_fundamental_domain_stays_inside_it():
     )
     process.simulate(30)
 
-    locations = process.Events[1:].T
+    locations = process.events[1:].T
     assert all(hexagon.contains(point) for point in locations)
     hugging = [point for point in locations if not hexagon._inside(point, -1e-3)]
     assert not hugging, f"{len(hugging)} of {len(locations)} events sit on the boundary"
@@ -290,7 +290,7 @@ def test_spatial_sampler_reproduces_the_conditional_density():
         rng=0,
     )
     # One real event at the origin.
-    p.Events = np.array([[1.0], [0.0]])
+    p.events = np.array([[1.0], [0.0]])
 
     def density(x):
         return p._full_intensity(x, 1.5)

@@ -89,6 +89,7 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
 
     Examples
     --------
+    >>> from hawkes_package import Circle
     >>> kernel = make_periodic(lambda d: np.exp(-(d**2)), Circle())
     >>> round(kernel(0.3, -1.2), 6)
     0.105399
@@ -114,7 +115,7 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
         return PairwiseKernel(circle_kernel)
 
     if isinstance(domain, Torus2D):
-        length_1, length_2 = domain.L1, domain.L2
+        length_1, length_2 = domain.width, domain.height
 
         periods = np.array([length_1, length_2])
 

@@ -67,7 +67,7 @@ class BellShapeHawkes(TemporalHawkesProcess):
     ...     return 2 * s * ((s > 0) & (s < 0.5)) + (-2 * s + 2) * ((s >= 0.5) & (s < 1))
     >>> process = BellShapeHawkes(triangular, rng=0)
     >>> process.simulate(20)
-    >>> len(process.Events)
+    >>> len(process.events)
     20
     """
 
@@ -92,7 +92,8 @@ class BellShapeHawkes(TemporalHawkesProcess):
             self.peak = as_float(peak_value if peak_value is not None else temporal(self.ext))
 
     def _conditional_intensity(self, t: float) -> float:
-        past = self.Events[self.Events < t]
+        record = self.events
+        past = record[record < t]
         return float(self.nonlinearity(np.sum(self.temporal(t - past))))
 
     def _upper_bound(self, t: float) -> float:
@@ -100,7 +101,8 @@ class BellShapeHawkes(TemporalHawkesProcess):
         # that has not yet peaked can still climb to the peak, one that has is
         # already decaying. Events at exactly `t` count -- at the start of a
         # thinning step `t` *is* the most recent event time.
-        past = self.Events[self.Events <= t]
+        record = self.events
+        past = record[record <= t]
         if past.size == 0:
             return float(self.nonlinearity(0.0))
         lags = t - past

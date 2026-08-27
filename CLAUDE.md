@@ -30,8 +30,8 @@ a fitting method. Adding any of those is new territory, not a gap to fill in by
 analogy with what is already here.
 
 **Three names for one project**: the distribution is `the-hawkes-package`, the
-import name is `hawkes_package`, and `TheHawkesPackage` is a deprecated import shim
-still built into the wheel (removed in 0.4.0). Import `hawkes_package`.
+import name is `hawkes_package`, and `TheHawkesPackage` was a deprecated import
+shim, removed in 0.4.0. Import `hawkes_package`.
 
 Theory, including the full bound argument: `docs/theory.md`.
 
@@ -88,7 +88,7 @@ between the value and its per-event future supremum.
 
 | Path | Go here for |
 |---|---|
-| `src/hawkes_package/base.py` | the Ogata loop, `simulate`, `Events`/`Sim_num`, `SeedLike` |
+| `src/hawkes_package/base.py` | the Ogata loop, `simulate`, `events`/`n_simulated`, `_EventBuffer`, `SeedLike` |
 | `exponential.py`, `monotone.py`, `bell_shape.py` | the three temporal classes and their bounds |
 | `mcmc.py` | random-walk Metropolis–Hastings — the spatial location sampler only |
 | `_numerics.py` | `as_point` (the coordinate contract), `locate_peak` |
@@ -96,8 +96,6 @@ between the value and its per-event future supremum.
 | `spatio_temporal/domains.py` | `SpatialDomain` ABC, `Circle`, `Torus2D`, `FundamentalDomain` |
 | `spatio_temporal/_integration.py` | `TensorQuadrature`, `build`, `restrict`, `check_resolution` |
 | `spatio_temporal/process.py` | the domain-aware simulator |
-| `spatio_temporal/legacy.py` | frozen for bit-compatibility with published results; removed in 0.4.0 — do not refactor it |
-| `src/TheHawkesPackage/` | the deprecated import shim; removed in 0.4.0 |
 
 **Geometry and quadrature.** `SpatialDomain` requires `distance`, `wrap`,
 `sample_uniform`, `volume` and `bounds`; it optionally supports `contains`,
@@ -142,8 +140,8 @@ This is the section that matters. None of the following raises when violated.
   `tests/test_base.py` is the one deliberate exception, and it exists to prove the
   global stream no longer influences simulations.
 - **`filterwarnings = ["error"]`, with no blanket exemptions.** Intentional warnings
-  must be wrapped in `pytest.warns`; a test module doing a top-level
-  `import TheHawkesPackage` errors at collection.
+  must be wrapped in `pytest.warns`; a module reading `process.Events` at import
+  time errors at collection.
 - **Exact-value reproducibility may be asserted only for the three temporal
   classes.** The spatio-temporal path branches on floating-point comparisons whose
   last bits vary across SciPy and BLAS builds; a different branch consumes a
@@ -164,17 +162,19 @@ This is the section that matters. None of the following raises when violated.
 
 ## Conventions
 
-- **Public naming is frozen through 0.3.x.** `Events`, `Sim_num`, `Base`, `Space`,
-  `L1` and `L2` are public API. Ruff's `N` (pep8-naming) rules are disabled for
-  exactly this reason. The rename is scheduled for 0.4.0, alongside the removal of
-  the shim, so one release carries every breaking name change — do not do it
-  opportunistically before then.
+- **The frozen public names were renamed in 0.4.0** and ruff's `N` (pep8-naming)
+  is selected again, which is what keeps them renamed. `Events` → `events`,
+  `Sim_num` → `n_simulated`, `L1`/`L2` → `width`/`height`; `Base` and `Space`
+  went with the legacy class. Each old spelling survives as a
+  `DeprecatedAttribute` until 0.5.0 — including its setter, because
+  `process.Events = history` is how a realisation is seeded and a read-only
+  alias would let that assignment silently shadow the real attribute.
 - `TID` is also off on purpose: `from ..mcmc import mcmc_sampler` is the sanctioned
   way for a subpackage to reach a sibling.
 - Python floor 3.10; `from __future__ import annotations` in every module; PEP 604
   unions and PEP 585 generics; `collections.abc.Callable`.
 - mypy `strict` over `src`, and `py.typed` ships — downstream typing must not
-  regress. Loosened only for `spatio_temporal/legacy.py`, ignored for the shim.
+  regress, and since 0.4.0 there is no module it is loosened for.
 - numpydoc docstrings, line length 100. `D105`/`D107` are ignored because
   constructor parameters are documented on the class. Carry `.. versionadded::` /
   `.. versionchanged::` / `.. deprecated::` directives with the version.
@@ -239,18 +239,22 @@ filename `release.yml`.
 
 ## Current state and roadmap
 
-Released: **0.3.0** — `FundamentalDomain`, the masked metric-weighted quadrature,
-and the domain-restricted location sampler. `master` carries no unreleased work;
-`## [Unreleased]` holds only `### Planned`.
+Released: **0.4.0** — every closed surface through `FundamentalDomain` and the
+three constant-curvature model spaces, plus the breaking sweep: the import shim,
+the deprecated aliases and the frozen legacy class removed, the frozen public
+names renamed, and the event record moved onto a growing buffer. `master`
+carries no unreleased work; `## [Unreleased]` holds only `### Planned`.
 
-- **0.4.0** — remove the `TheHawkesPackage` shim and every deprecated alias
-  (`REMOVED_IN` in `_deprecation.py` is the single source for that date); rename
-  `Events` → `events` and `Sim_num` → `n_simulated`; fix the O(n²) `np.append`
-  growth, which needs a buffer redesign because the intensity hooks read `Events`
-  mid-loop. The rename and the buffer redesign land together: `Events` becomes a
-  view onto the buffer either way, and 0.4.0 is already the breaking release.
-  A renamed *attribute* needs a new descriptor — `DeprecatedAlias.__get__` returns
-  a callable wrapper, so it aliases methods only.
+- **0.5.0** — remove the aliases 0.4.0 introduced (`REMOVED_IN` in
+  `_deprecation.py` is the single source for that date): `Events`, `Sim_num`,
+  `L1`, `L2`, and the `n_images` argument of `FundamentalDomain`.
+- **The quadratic term is the intensity, not the record.** 0.4.0 replaced
+  `np.append` with a doubling buffer — 7× faster at 5 000 events, 17× at 50 000,
+  and linear rather than quadratic — and it changed no simulation's running time
+  measurably, because the record was never where the time went. The remaining
+  `O(n²)` is the intensity sum, `O(n)` per thinning step. Making it incremental
+  is possible for the exponential kernel and is the real fix; do not reach for
+  the buffer again.
 - **Longer term** — hyperbolic fundamental domains (genus ≥ 2, the Poincaré disc).
   The masked, metric-weighted quadrature generalises already; what is missing is the
   hyperbolic metric, a truncation with an error bound for an infinite Fuchsian

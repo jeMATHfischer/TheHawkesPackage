@@ -31,9 +31,13 @@ package — see [contributing](contributing.md).
 
 ## Upgrading from `TheHawkesPackage`
 
-`import TheHawkesPackage` still works and forwards to identical objects, but
-emits a `DeprecationWarning`; the shim is removed in 0.4.0. Several behaviours
-changed in 0.2.0 in ways that alter previously produced numbers without raising
-— read [migration](migration.md) before re-running old scripts. 0.3.0 leaves
-those numbers alone, but changes what a custom `SpatialDomain` subclass must
-satisfy; the same page says how.
+The `TheHawkesPackage` import shim was **removed in 0.4.0**, after two releases
+of warning: `import TheHawkesPackage` is now an `ImportError`, and the import
+name is `hawkes_package`. 0.4.0 also renamed `Events` to `events` and `Sim_num`
+to `n_simulated`, which still work and warn, and dropped the frozen legacy
+spatio-temporal class.
+
+Several behaviours changed in 0.2.0 in ways that alter previously produced
+numbers without raising — read [migration](migration.md) before re-running old
+scripts. 0.3.0 and 0.4.0 leave those numbers alone, but 0.3.0 changed what a
+custom `SpatialDomain` subclass must satisfy; the same page says how.

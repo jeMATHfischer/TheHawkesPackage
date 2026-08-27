@@ -201,37 +201,37 @@ class TestKleinBottle:
     Both are the same rectangle with the same first pairing; the second is a
     translation for one and a glide reflection for the other. Everything that
     follows -- non-orientability, the identification of ``(x, y)`` with
-    ``(-x, y + L2)``, the shorter distances -- follows from that one sign.
+    ``(-x, y + height)``, the shorter distances -- follows from that one sign.
     """
 
-    L1, L2 = 3.0, 5.0
+    width, height = 3.0, 5.0
 
     @pytest.fixture
     def bottle(self):
-        return FundamentalDomain.klein_bottle(self.L1, self.L2)
+        return FundamentalDomain.klein_bottle(self.width, self.height)
 
     def test_area_matches_the_torus_on_the_same_rectangle(self, bottle):
-        assert bottle.volume == pytest.approx(self.L1 * self.L2)
+        assert bottle.volume == pytest.approx(self.width * self.height)
 
     def test_the_glide_identification_holds(self, bottle, rng):
-        """``(x, y) ~ (-x, y + L2)`` is what the second pairing says."""
+        """``(x, y) ~ (-x, y + height)`` is what the second pairing says."""
         for _ in range(30):
             point = bottle.sample_uniform(rng)
-            glided = np.array([-point[0], point[1] + self.L2])
+            glided = np.array([-point[0], point[1] + self.height])
             assert bottle.distance(point, glided) == pytest.approx(0.0, abs=1e-9)
 
     def test_it_refines_the_double_length_torus(self, bottle, rng):
         """Its deck group contains that torus's lattice, and strictly more besides.
 
-        The comparison has to be against ``L2`` *doubled*. Squaring the glide
-        gives the translation ``(0, 2 L2)`` — not ``(0, L2)`` — so the Klein
-        bottle's group contains the lattice of ``Torus2D(L1, 2 L2)`` at index
-        two, and does *not* contain the lattice of ``Torus2D(L1, L2)`` at all.
+        The comparison has to be against the height *doubled*. Squaring the
+        glide gives the translation ``(0, 2h)`` — not ``(0, h)`` — so the Klein
+        bottle's group contains the lattice of ``Torus2D(w, 2h)`` at index two,
+        and does *not* contain the lattice of ``Torus2D(w, h)`` at all.
         Points can therefore be further apart on the Klein bottle than on the
         equal-sized torus, which is not a defect but the difference between the
         two surfaces.
         """
-        double = Torus2D(L1=self.L1, L2=2 * self.L2)
+        double = Torus2D(width=self.width, height=2 * self.height)
         shorter = 0
         for _ in range(300):
             x, y = bottle.sample_uniform(rng), bottle.sample_uniform(rng)

@@ -58,7 +58,7 @@ Ogata's thinning, stability conditions, and the spatio-temporal intensity.
 :link: migration
 :link-type: doc
 
-Moving from `TheHawkesPackage` 0.0.1, and what 0.3.0 asks of a custom domain.
+What 0.4.0 renamed and removed, and what it asks of a custom domain.
 :::
 
 ::::
@@ -70,7 +70,7 @@ Moving from `TheHawkesPackage` 0.0.1, and what 0.3.0 asks of a custom domain.
 | {class}`~hawkes_package.exponential.ExponentialHawkes` | Linear intensity, exponential kernel. The classic case. |
 | {class}`~hawkes_package.monotone.MonotoneKernelHawkes` | Any monotone-decreasing kernel, with a monotone-increasing nonlinearity. |
 | {class}`~hawkes_package.bell_shape.BellShapeHawkes` | Kernels with a single interior maximum: excitation ramps up before decaying. |
-| {class}`~hawkes_package.spatio_temporal.process.SpatioTemporalHawkesProcess` | Events carry a location on a `Circle`, a `Torus2D`, or your own domain. |
+| {class}`~hawkes_package.spatio_temporal.process.SpatioTemporalHawkesProcess` | Events carry a location on a closed surface, or on your own domain. |
 
 ```{toctree}
 :hidden:

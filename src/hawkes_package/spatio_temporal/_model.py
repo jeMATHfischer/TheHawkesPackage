@@ -398,7 +398,7 @@ class EuclideanPlane(ModelSpace):
         """
         point = np.asarray(x, dtype=float)
         images: np.ndarray = np.einsum("kij,j->ki", matrices[:, :2, :2], point)
-        return images + matrices[:, :2, 2]
+        return np.asarray(images + matrices[:, :2, 2])
 
     def is_isometry(self, matrix: np.ndarray) -> bool:
         """Affine with an orthogonal linear part."""

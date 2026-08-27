@@ -30,7 +30,6 @@ MODULES = [
     "hawkes_package.spatio_temporal._gluing",
     "hawkes_package.spatio_temporal._integration",
     "hawkes_package.spatio_temporal.kernels",
-    "hawkes_package.spatio_temporal.legacy",
     "hawkes_package.spatio_temporal.process",
 ]
 
@@ -92,13 +91,12 @@ def test_package_ships_type_information():
     assert (Path(hp.__file__).parent / "py.typed").is_file()
 
 
-def test_compat_shim_is_importable_as_a_top_level_package():
-    """The shim must be a real top-level package, not just an attribute alias.
+def test_only_one_top_level_package_ships():
+    """0.4.0 removed the second one.
 
-    ``find_spec`` locates it without executing it, so no DeprecationWarning is
-    raised here. Whether it is packaged *into the wheel* is asserted by CI.
+    ``TheHawkesPackage`` was a real top-level package in the wheel for two
+    releases, not merely an attribute alias, so its removal is a packaging
+    change as much as a source one: the ``packages`` entry, the coverage source
+    and two tool overrides all had to go with it.
     """
-    spec = importlib.util.find_spec("TheHawkesPackage")
-    assert spec is not None
-    assert spec.origin is not None
-    assert Path(spec.origin).name == "__init__.py"
+    assert importlib.util.find_spec("TheHawkesPackage") is None

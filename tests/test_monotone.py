@@ -22,7 +22,7 @@ NONLINEARITIES = [
 def test_event_count(exp_kernel):
     p = MonotoneKernelHawkes(exp_kernel, rng=42)
     p.simulate(100)
-    assert len(p.Events) == 100
+    assert len(p.events) == 100
 
 
 def test_default_nonlinearity_is_affine(exp_kernel):
@@ -39,22 +39,22 @@ def test_nonlinearity_paths(nonlinearity):
         rng=1,
     )
     p.simulate(40)
-    assert len(p.Events) == 40
-    assert np.all(np.diff(p.Events) > 0)
+    assert len(p.events) == 40
+    assert np.all(np.diff(p.events) > 0)
 
 
 def test_intensity_applies_the_nonlinearity(exp_kernel):
     p = MonotoneKernelHawkes(exp_kernel, nonlinearity=lambda x: x + 2, rng=2)
     p.simulate(20)
-    times, intensity = p.intensity_over_interval(np.linspace(0, float(p.Events[-1]), 60))
-    expected = np.array([2.0 + exp_kernel(t - p.Events[p.Events < t]).sum() for t in times])
+    times, intensity = p.intensity_over_interval(np.linspace(0, float(p.events[-1]), 60))
+    expected = np.array([2.0 + exp_kernel(t - p.events[p.events < t]).sum() for t in times])
     np.testing.assert_allclose(intensity, expected)
 
 
 def test_intensity_non_negative(exp_kernel):
     p = MonotoneKernelHawkes(exp_kernel, rng=3)
     p.simulate(30)
-    _, intensity = p.intensity_over_interval(np.linspace(0, float(p.Events[-1]), 100))
+    _, intensity = p.intensity_over_interval(np.linspace(0, float(p.events[-1]), 100))
     assert np.all(intensity >= 0)
 
 
@@ -66,7 +66,7 @@ def test_upper_bound_includes_the_most_recent_event(exp_kernel):
     """
     p = MonotoneKernelHawkes(exp_kernel, rng=4)
     p.simulate(10)
-    t_last = float(p.Events[-1])
+    t_last = float(p.events[-1])
     assert p._upper_bound(t_last) >= p._conditional_intensity(t_last + 1e-9) - 1e-12
     # strictly above the pre-jump intensity, i.e. the last event is counted
     assert p._upper_bound(t_last) > p._conditional_intensity(t_last)

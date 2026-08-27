@@ -35,7 +35,7 @@ import hawkes_package as hp
 process = hp.ExponentialHawkes(np.array([2.0, 0.5, 1.0]), rng=42)
 process.simulate(100)
 
-times, intensity = process.intensity_over_interval(np.linspace(0, process.Events[-1], 1000))
+times, intensity = process.intensity_over_interval(np.linspace(0, process.events[-1], 1000))
 ```
 
 The constructor enforces the stationarity condition `alpha / beta < 1` and raises `ValueError`

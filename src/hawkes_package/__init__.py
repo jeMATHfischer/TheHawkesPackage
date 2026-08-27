@@ -7,8 +7,7 @@ Temporal processes
 
 Spatio-temporal processes
 -------------------------
-:class:`SpatioTemporalHawkesProcess` (domain-aware) and
-:class:`LegacySpatioTemporalHawkesProcess` (frozen, removed in 0.4.0)
+:class:`SpatioTemporalHawkesProcess`
 
 Spatial domains
 ---------------
@@ -26,7 +25,6 @@ Every process takes ``rng=``, accepting ``None``, an ``int`` seed or an existing
 influences simulations.
 """
 
-from ._deprecation import deprecated_module_getattr
 from .base import HawkesProcess, TemporalHawkesProcess
 from .bell_shape import BellShapeHawkes
 from .exponential import ExponentialHawkes
@@ -35,7 +33,6 @@ from .monotone import MonotoneKernelHawkes
 from .spatio_temporal import (
     Circle,
     FundamentalDomain,
-    LegacySpatioTemporalHawkesProcess,
     SpatialDomain,
     SpatioTemporalHawkesProcess,
     Sphere,
@@ -51,7 +48,6 @@ __all__ = [
     "ExponentialHawkes",
     "FundamentalDomain",
     "HawkesProcess",
-    "LegacySpatioTemporalHawkesProcess",
     "MonotoneKernelHawkes",
     "SpatialDomain",
     "SpatioTemporalHawkesProcess",
@@ -62,19 +58,3 @@ __all__ = [
     "make_periodic",
     "mcmc_sampler",
 ]
-
-# Deprecated top-level names. Deliberately absent from __all__ and never bound
-# as globals, so PEP 562 __getattr__ fires and warns on first access.
-#
-# `Spatio_Temporal_Hawkes_Process` resolves to the LEGACY class: that is what
-# the name has always meant at top level, and silently switching callers to the
-# domain-aware class would change both the algorithm and the shape of `Events`.
-__getattr__ = deprecated_module_getattr(
-    {
-        "Spatio_Temporal_Hawkes_Process": (
-            "LegacySpatioTemporalHawkesProcess",
-            LegacySpatioTemporalHawkesProcess,
-        ),
-    },
-    module=__name__,
-)

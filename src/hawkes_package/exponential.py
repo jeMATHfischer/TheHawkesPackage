@@ -40,7 +40,7 @@ class ExponentialHawkes(TemporalHawkesProcess):
     --------
     >>> process = ExponentialHawkes(np.array([2.0, 0.5, 1.0]), rng=42)
     >>> process.simulate(100)
-    >>> len(process.Events)
+    >>> len(process.events)
     100
     """
 
@@ -69,7 +69,8 @@ class ExponentialHawkes(TemporalHawkesProcess):
         self.temporal = lambda s: alpha * np.exp(-beta * np.asarray(s, dtype=float))
 
     def _conditional_intensity(self, t: float) -> float:
-        past = self.Events[self.Events < t]
+        record = self.events
+        past = record[record < t]
         return float(self.mu + self.alpha * np.exp(-self.beta * (t - past)).sum())
 
     def _upper_bound(self, t: float) -> float:
@@ -77,4 +78,4 @@ class ExponentialHawkes(TemporalHawkesProcess):
         # one, so the intensity at `t` dominates the whole interval. Bounding at
         # `t` rather than at the last event is both tighter after a rejection
         # and well defined when no events have occurred yet.
-        return float(self.mu + self.alpha * np.exp(-self.beta * (t - self.Events)).sum())
+        return float(self.mu + self.alpha * np.exp(-self.beta * (t - self.events)).sum())

@@ -3,66 +3,77 @@
 The global ``filterwarnings = ["error"]`` in pyproject.toml means an
 *accidental* deprecation path anywhere fails the suite; ``pytest.warns`` below
 opts the intentional ones back in.
+
+0.4.0 emptied this file and refilled it. Everything it used to pin — the
+``TheHawkesPackage`` import shim, the three ``propagate_*`` spellings, the
+ambiguous ``Spatio_Temporal_Hawkes_Process`` name and the frozen legacy class —
+was dated for removal in 0.4.0 and is gone, and what replaced it is the naming
+sweep that release carried. The tests that guarded the removals now guard the
+*absence*: a name that was supposed to disappear and quietly did not is exactly
+as bad as one that disappeared early.
 """
 
 import importlib
-import subprocess
-import sys
 
 import numpy as np
 import pytest
 
 import hawkes_package as hp
 
-ALIASES = ["propagate_by_amount", "propagate_by_k_events", "propogate_by_amount"]
+#: (old spelling, new spelling, removal version) — kept in lockstep with the
+#: rename table in docs/migration.md.
+RENAMES = [
+    ("Events", "events", "0.5.0"),
+    ("Sim_num", "n_simulated", "0.5.0"),
+]
 
-#: (what is going away, why, removal version) — kept in lockstep with
-#: docs/migration.md. Distinct from RENAMES: nothing replaces these, they simply
-#: stopped being needed.
+#: The same, for the two side lengths of a rectangular domain.
+SIDE_RENAMES = [("L1", "width"), ("L2", "height")]
+
+#: (what is going away, why, removal version). Distinct from RENAMES: nothing
+#: replaces these, they simply stopped being needed.
 RETIREMENTS = [
     ("the n_images argument of FundamentalDomain", "truncated by displacement radius", "0.5.0"),
 ]
 
-#: (old name, new name, removal version) — kept in lockstep with docs/migration.md.
-RENAMES = [
-    ("propagate_by_amount", "simulate", "0.4.0"),
-    ("propagate_by_k_events", "simulate", "0.4.0"),
-    ("propogate_by_amount", "simulate", "0.4.0"),
-    ("Spatio_Temporal_Hawkes_Process", "LegacySpatioTemporalHawkesProcess", "0.4.0"),
+#: Removed in 0.4.0. Each was deprecated for two releases first.
+REMOVED = [
+    "propagate_by_amount",
+    "propagate_by_k_events",
+    "propogate_by_amount",
+    "Spatio_Temporal_Hawkes_Process",
+    "LegacySpatioTemporalHawkesProcess",
 ]
 
 
-def _processes(exp_kernel, triangular_kernel, legacy_kernels):
-    base, spatial, temporal = legacy_kernels
+@pytest.fixture
+def process(exp_kernel):
+    return hp.MonotoneKernelHawkes(exp_kernel, rng=0)
+
+
+@pytest.fixture
+def processes(exp_kernel, triangular_kernel, bump_spatial):
     return {
         "ExponentialHawkes": hp.ExponentialHawkes(np.array([1.0, 0.4, 2.0]), rng=0),
         "MonotoneKernelHawkes": hp.MonotoneKernelHawkes(exp_kernel, rng=0),
         "BellShapeHawkes": hp.BellShapeHawkes(triangular_kernel, rng=0),
         "SpatioTemporalHawkesProcess": hp.SpatioTemporalHawkesProcess(
-            base,
-            lambda d: max(0.0, 1 - d / np.pi),
+            lambda x: 0.5,
+            bump_spatial,
             exp_kernel,
             domain=hp.Circle(),
             monotone_temporal_kernel=True,
             rng=0,
         ),
-        "LegacySpatioTemporalHawkesProcess": hp.LegacySpatioTemporalHawkesProcess(
-            base, spatial, temporal, rng=0
-        ),
     }
 
 
-@pytest.fixture
-def processes(exp_kernel, triangular_kernel, legacy_kernels):
-    return _processes(exp_kernel, triangular_kernel, legacy_kernels)
-
-
 # ---------------------------------------------------------------------------
-# Method aliases
+# The renamed event record
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("alias", ALIASES)
+@pytest.mark.parametrize(("old", "new", "version"), RENAMES)
 @pytest.mark.parametrize(
     "cls_name",
     [
@@ -70,209 +81,89 @@ def processes(exp_kernel, triangular_kernel, legacy_kernels):
         "MonotoneKernelHawkes",
         "BellShapeHawkes",
         "SpatioTemporalHawkesProcess",
-        "LegacySpatioTemporalHawkesProcess",
     ],
 )
-def test_alias_warns_and_forwards(processes, cls_name, alias):
+def test_the_old_spelling_warns_and_reads_the_new_one(processes, cls_name, old, new, version):
     proc = processes[cls_name]
-    with pytest.warns(DeprecationWarning, match=rf"{alias}\(\).*use .*simulate\(\)"):
-        getattr(proc, alias)(2)
-    assert proc.Sim_num == 2
+    proc.simulate(2)
+    with pytest.warns(DeprecationWarning, match=rf"{old}.*removed in the-hawkes-package {version}"):
+        through_alias = getattr(proc, old)
+    canonical = getattr(proc, new)
+    if isinstance(canonical, np.ndarray):
+        np.testing.assert_array_equal(through_alias, canonical)
+    else:
+        assert through_alias == canonical
 
 
-def test_alias_names_the_removal_version(processes):
-    with pytest.warns(DeprecationWarning, match="removed in the-hawkes-package 0.4.0"):
-        processes["MonotoneKernelHawkes"].propagate_by_amount(1)
+def test_assigning_through_the_old_spelling_still_seeds_the_record(process):
+    """The setter is not optional.
+
+    ``process.Events = history`` is how a caller conditions a realisation on
+    events it did not simulate, and a descriptor with only ``__get__`` would let
+    that assignment bind a plain instance attribute *over* the descriptor: no
+    warning, no error, and a simulator that never sees the history.
+    """
+    with pytest.warns(DeprecationWarning, match="Events"):
+        process.Events = np.array([0.5, 1.5])
+    np.testing.assert_array_equal(process.events, [0.5, 1.5])
+    process.simulate(3)
+    assert len(process.events) == 5
+    assert process.events[0] == 0.5
 
 
-def test_alias_is_accessible_on_the_class(processes):
-    """Class-level access must not blow up (it did not go through an instance)."""
-    assert callable(hp.MonotoneKernelHawkes.propagate_by_amount)
+def test_the_new_spelling_does_not_warn(process, recwarn):
+    process.simulate(2)
+    process.events
+    process.n_simulated
+    process.events = np.array([1.0])
+    assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
 
 
-def test_canonical_method_does_not_warn(processes, recwarn):
-    processes["MonotoneKernelHawkes"].simulate(2)
+def test_the_alias_is_readable_on_the_class_without_warning(recwarn):
+    """``help()`` and ``inspect`` must not fire a deprecation at import time."""
+    assert hp.HawkesProcess.Events.__doc__.startswith("Deprecated alias")
     assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
 
 
 # ---------------------------------------------------------------------------
-# The renamed legacy class
+# The renamed side lengths
 # ---------------------------------------------------------------------------
 
 
-def test_top_level_legacy_name_warns_and_is_the_legacy_class():
-    """The top-level name must keep meaning the LEGACY class.
-
-    Pointing it at the domain-aware class would silently change both the
-    algorithm and the shape of `Events` for existing callers.
-    """
-    with pytest.warns(DeprecationWarning, match="LegacySpatioTemporalHawkesProcess"):
-        cls = hp.Spatio_Temporal_Hawkes_Process
-    assert cls is hp.LegacySpatioTemporalHawkesProcess
+@pytest.mark.parametrize(("old", "new"), SIDE_RENAMES)
+def test_the_old_side_keyword_warns_and_still_sizes_the_domain(old, new):
+    with pytest.warns(DeprecationWarning, match=rf"the {old} argument.*use {new}"):
+        torus = hp.Torus2D(**{old: 7.0})
+    assert getattr(torus, new) == 7.0
 
 
-def test_ambiguous_subpackage_name_is_gone():
-    """In the subpackage the same name used to mean the *new* class.
-
-    It is removed rather than repointed, so the ambiguity surfaces as an
-    AttributeError instead of a silent change of meaning.
-    """
-    import hawkes_package.spatio_temporal as st
-
-    with pytest.raises(AttributeError):
-        st.Spatio_Temporal_Hawkes_Process
+@pytest.mark.parametrize(("old", "new"), SIDE_RENAMES)
+def test_the_old_side_attribute_warns_and_reads_the_new_one(old, new):
+    torus = hp.Torus2D(width=3.0, height=5.0)
+    with pytest.warns(DeprecationWarning, match=rf"Torus2D.{old}"):
+        assert getattr(torus, old) == getattr(torus, new)
 
 
-def test_unknown_top_level_attribute_raises_without_warning(recwarn):
-    with pytest.raises(AttributeError, match="no attribute 'does_not_exist'"):
-        hp.does_not_exist
-    assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
+def test_the_old_side_keyword_works_on_both_rectangle_builders():
+    """Both spellings at once, so both warnings have to be expected."""
+    with pytest.warns(DeprecationWarning, match="L1|L2"):
+        rectangle = hp.FundamentalDomain.rectangle(L1=3.0, L2=5.0)
+    with pytest.warns(DeprecationWarning, match="L1|L2"):
+        bottle = hp.FundamentalDomain.klein_bottle(L1=3.0, L2=5.0)
+    assert rectangle.volume == pytest.approx(15.0)
+    assert bottle.volume == pytest.approx(15.0)
 
 
-def test_legacy_space_keyword_warns(legacy_kernels):
-    base, spatial, temporal = legacy_kernels
-    with pytest.warns(DeprecationWarning, match=r"Space=\.\.\..*use.*space=\.\.\."):
-        p = hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, Space=[-1.0, 1.0], rng=0)
-    assert p.space == (-1.0, 1.0)
-
-
-def test_legacy_space_attribute_warns(legacy_kernels):
-    base, spatial, temporal = legacy_kernels
-    p = hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, rng=0)
-    with pytest.warns(DeprecationWarning, match=r"\.Space.*use.*\.space"):
-        assert p.Space == p.space
-
-
-def test_unexpected_keyword_still_raises(legacy_kernels):
-    base, spatial, temporal = legacy_kernels
+def test_an_unknown_keyword_still_raises():
+    """Or a typo would be swallowed and the default silently used."""
     with pytest.raises(TypeError, match="unexpected keyword"):
-        hp.LegacySpatioTemporalHawkesProcess(base, spatial, temporal, nonsense=1)
+        hp.Torus2D(widht=3.0)
 
 
-# ---------------------------------------------------------------------------
-# The TheHawkesPackage import shim
-# ---------------------------------------------------------------------------
-
-
-def _purge_shim():
-    """Drop the shim from sys.modules so a re-import actually re-executes it."""
-    for name in [m for m in list(sys.modules) if m.split(".")[0] == "TheHawkesPackage"]:
-        del sys.modules[name]
-
-
-def test_importing_the_shim_warns():
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="use 'import hawkes_package' instead"):
-        importlib.import_module("TheHawkesPackage")
-
-
-def test_shim_forwards_attributes_to_the_same_objects():
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
-        shim = importlib.import_module("TheHawkesPackage")
-    assert shim.ExponentialHawkes is hp.ExponentialHawkes
-    assert shim.Circle is hp.Circle
-    assert shim.mcmc_sampler is hp.mcmc_sampler
-    assert shim.__version__ == hp.__version__
-
-
-@pytest.mark.parametrize(
-    ("old_path", "new_path"),
-    [
-        ("TheHawkesPackage.MCMC_sampler", "hawkes_package.mcmc"),
-        ("TheHawkesPackage.ExponentialHawkes", "hawkes_package.exponential"),
-        ("TheHawkesPackage.MonotoneKernelHawkes", "hawkes_package.monotone"),
-        ("TheHawkesPackage.BellShapeHawkes", "hawkes_package.bell_shape"),
-        (
-            "TheHawkesPackage.SpatioTemporal_Hawkes_Monotone",
-            "hawkes_package.spatio_temporal.legacy",
-        ),
-        ("TheHawkesPackage.spatio_temporal", "hawkes_package.spatio_temporal"),
-        (
-            "TheHawkesPackage.spatio_temporal.domains",
-            "hawkes_package.spatio_temporal.domains",
-        ),
-        ("TheHawkesPackage.spatio_temporal.sampler", "hawkes_package.mcmc"),
-    ],
-)
-def test_shim_submodule_imports_resolve_to_the_same_module(old_path, new_path):
-    """A PEP 562 __getattr__ never fires for `import pkg.sub`, so the shim also
-    aliases sys.modules. Both mechanisms are required."""
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
-        importlib.import_module("TheHawkesPackage")
-    assert importlib.import_module(old_path) is importlib.import_module(new_path)
-
-
-def test_shim_dotted_from_import_yields_identical_classes():
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
-        importlib.import_module("TheHawkesPackage")
-    mod = importlib.import_module("TheHawkesPackage.spatio_temporal.domains")
-    assert mod.Circle is hp.Circle
-
-
-def test_shim_attribute_is_the_class_not_the_module():
-    """`THP.ExponentialHawkes` has always been the class; that must not change.
-
-    Binding the aliased submodules into globals() would have shadowed it with
-    the module object and broken every existing notebook.
-    """
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
-        shim = importlib.import_module("TheHawkesPackage")
-    assert isinstance(shim.ExponentialHawkes, type)
-
-
-def test_shim_dir_lists_names_and_submodules():
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
-        shim = importlib.import_module("TheHawkesPackage")
-    listed = dir(shim)
-    assert "ExponentialHawkes" in listed
-    assert "spatio_temporal" in listed
-    assert "__version__" in listed
-    assert listed == sorted(listed)
-
-
-def test_shim_unknown_attribute_raises_attribute_error():
-    _purge_shim()
-    with pytest.warns(DeprecationWarning, match="import hawkes_package"):
-        shim = importlib.import_module("TheHawkesPackage")
-    with pytest.raises(AttributeError, match="no attribute 'nope'"):
-        shim.nope
-
-
-def test_canonical_import_emits_no_warning():
-    """`import hawkes_package` under -W error must succeed in a clean process."""
-    subprocess.run(
-        [sys.executable, "-W", "error::DeprecationWarning", "-c", "import hawkes_package"],
-        check=True,
-        capture_output=True,
-    )
-
-
-def test_shim_import_fails_under_werror():
-    """Conversely, the shim's warning must be real enough to trip -W error."""
-    result = subprocess.run(
-        [sys.executable, "-W", "error::DeprecationWarning", "-c", "import TheHawkesPackage"],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode != 0
-    assert "DeprecationWarning" in result.stderr
-
-
-# ---------------------------------------------------------------------------
-# Documentation cannot drift from behaviour
-# ---------------------------------------------------------------------------
-
-
-def test_every_documented_rename_is_real():
-    """The rename table in docs/migration.md is generated from this list."""
-    for old, _new, version in RENAMES:
-        assert version == "0.4.0"
-        assert old in ALIASES or hasattr(hp, "LegacySpatioTemporalHawkesProcess")
+def test_the_new_side_names_do_not_warn(recwarn):
+    hp.Torus2D(width=3.0, height=5.0)
+    hp.FundamentalDomain.rectangle(3.0, 5.0)
+    assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
 
 
 # ---------------------------------------------------------------------------
@@ -281,14 +172,7 @@ def test_every_documented_rename_is_real():
 
 
 def test_n_images_on_a_fundamental_domain_warns_and_still_works():
-    """It tuned a truncation that now bounds itself, so nothing replaces it.
-
-    `FundamentalDomain.distance` used to search words of length `n_images` and
-    hope that was enough. It now searches by displacement radius and certifies
-    per call that no unexamined element could have done better, so there is
-    nothing left to tune — but `orbit` still takes its own `n_images`, and the
-    attribute still exists, so a caller passing it keeps working.
-    """
+    """It tuned a truncation that now bounds itself, so nothing replaces it."""
     square = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
     pairings = [
         [[1.0, 0.0, 2.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
@@ -305,7 +189,75 @@ def test_not_passing_n_images_does_not_warn(recwarn):
     assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
 
 
+# ---------------------------------------------------------------------------
+# What 0.4.0 removed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", REMOVED)
+def test_the_removed_names_are_gone(name):
+    """Not merely undocumented: absent, and absent from every process too.
+
+    A name kept alive "just in case" after its removal version is the reason the
+    next removal gets argued about instead of executed.
+    """
+    assert not hasattr(hp, name)
+    assert not hasattr(hp.ExponentialHawkes, name)
+
+
+def test_the_import_shim_is_gone():
+    """``import TheHawkesPackage`` was two releases deprecated and is now an error."""
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("TheHawkesPackage")
+
+
+def test_the_legacy_module_is_gone():
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("hawkes_package.spatio_temporal.legacy")
+
+
+def test_the_deprecation_helpers_that_lost_their_callers_are_gone():
+    """An unused deprecation helper is worse than none: it reads as supported."""
+    from hawkes_package import _deprecation
+
+    assert not hasattr(_deprecation, "DeprecatedAlias")
+    assert not hasattr(_deprecation, "deprecated_module_getattr")
+
+
+def test_an_unknown_top_level_attribute_raises_without_warning(recwarn):
+    with pytest.raises(AttributeError):
+        hp.does_not_exist
+    assert [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)] == []
+
+
+# ---------------------------------------------------------------------------
+# Documentation cannot drift from behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_every_documented_rename_is_real(process):
+    """The rename table in docs/migration.md is generated from these lists.
+
+    Checked on an *instance*: ``n_simulated`` is set in ``__init__``, so the
+    class carries only the deprecated spelling, which is the descriptor.
+    """
+    for old, new, version in RENAMES:
+        assert version == "0.5.0"
+        assert hasattr(hp.HawkesProcess, old)
+        assert hasattr(process, new)
+    for old, new in SIDE_RENAMES:
+        assert hasattr(hp.Torus2D, old)
+        assert hasattr(hp.Torus2D(), new)
+
+
 def test_every_documented_retirement_names_its_version():
-    """The retirement table in docs/migration.md is generated from this list."""
     for _what, _why, version in RETIREMENTS:
         assert version == "0.5.0"
+
+
+def test_everything_still_deprecated_names_one_removal_version():
+    """`REMOVED_IN` is the single source for the date, and it has moved on."""
+    from hawkes_package._deprecation import REMOVED_IN
+
+    assert REMOVED_IN == "0.5.0"
+    assert {version for _, _, version in RENAMES} == {REMOVED_IN}

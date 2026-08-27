@@ -2,17 +2,90 @@
 
 One section per release that requires action. Newest first.
 
-## Migrating to the unreleased surfaces work
+## Migrating to 0.4.0
 
-**Nothing here changes what an existing script produces.** Every domain that had
-shipped — `Circle`, `Torus2D`, `FundamentalDomain.rectangle`,
+The breaking release. Everything dated 0.4.0 for removal is gone, and the frozen
+public names are renamed. **No simulation produces different numbers** — the
+event times of all four simulators are bit-identical to 0.3.0 — but code that
+used a removed name stops importing, and code that used a renamed one warns.
+
+### Removed, with no replacement spelling
+
+| Gone | Since | Use |
+|---|---|---|
+| `import TheHawkesPackage` | deprecated 0.2.0 | `import hawkes_package` |
+| `propagate_by_amount(k)`, `propagate_by_k_events(k)`, `propogate_by_amount(k)` | deprecated 0.2.0 | `simulate(k)` |
+| `Spatio_Temporal_Hawkes_Process` | deprecated 0.2.0 | see below |
+| `LegacySpatioTemporalHawkesProcess` | frozen since 0.2.0 | `SpatioTemporalHawkesProcess` |
+| `hawkes_package.spatio_temporal.legacy` | frozen since 0.2.0 | `hawkes_package.spatio_temporal.process` |
+
+**The legacy class is the one removal that changes numbers**, and it changes
+them by design. It integrated the spatial intensity by Monte Carlo, which is why
+0.2.0 froze it rather than fixing it: reproducing a figure published against it
+requires the version it was published against. `SpatioTemporalHawkesProcess` on
+a `Circle` is the same model computed correctly, not the same realisation.
+
+```python
+- G = hp.LegacySpatioTemporalHawkesProcess(Base, spatial, temporal, rng=42)
++ G = hp.SpatioTemporalHawkesProcess(
++     base=Base, spatial=spatial, temporal=temporal, domain=hp.Circle(), rng=42
++ )
+```
+
+Its `spatial` also changes meaning: the legacy class passed a **signed offset**,
+the domain-aware one passes a **non-negative distance**. A kernel that was even
+in its argument — as the legacy example's was — needs no change.
+
+### Renamed, and still working until 0.5.0
+
+| Old | New | On |
+|---|---|---|
+| `Events` | `events` | every process |
+| `Sim_num` | `n_simulated` | every process |
+| `L1`, `L2` | `width`, `height` | `Torus2D`, `FundamentalDomain.rectangle`, `.klein_bottle` |
+
+Each old spelling warns and forwards. Assignment forwards too:
+
+```python
+process.Events = history  # warns, and still seeds the realisation
+process.events = history  # the same thing, silently
+```
+
+:::{note}
+This table is kept in lockstep with the test suite: `RENAMES` and `SIDE_RENAMES`
+in `tests/test_deprecations.py` drive tests that assert each old spelling still
+warns, still reads, and still writes.
+:::
+
+### `events` is a view, not a fresh array
+
+The record now grows by doubling rather than by reallocating on each event, and
+`process.events` hands back a view onto its filled prefix. For a reader nothing
+changes — a view of length `n` stays a stable snapshot of the first `n` events
+however much the process goes on to simulate — but two habits are worth knowing:
+
+- `process.events` is not a copy. `np.array(process.events)` if you want one.
+- `process.events = history` **copies** what you give it, so mutating your array
+  afterwards no longer reaches into the process.
+
+### `pep8-naming` is on
+
+Only relevant if you lint against this project's `pyproject.toml`. `N` was
+disabled for exactly as long as `Events`, `Sim_num`, `Base`, `Space`, `L1` and
+`L2` were public API.
+
+### Surfaces: what changed for a custom domain
+
+0.4.0 also carried the work that made `FundamentalDomain` reach every closed
+surface. **None of it changes what an existing script produces.** Every domain
+that had shipped — `Circle`, `Torus2D`, `FundamentalDomain.rectangle`,
 `FundamentalDomain.hexagon` — is flat and carries the flat chart measure, so the
 one behavioural fix below is identically a no-op on all of them and the same
 seed runs the same code path. This section is for two audiences: authors of a
 custom `SpatialDomain` subclass, and anyone who built a `FundamentalDomain` by
 hand from vertices and pairings.
 
-### The location sampler now carries the measure
+#### The location sampler now carries the measure
 
 The event location is distributed as $\lambda\,\mathrm{d}A$ on the surface. The
 sampler walks in *chart* coordinates with a symmetric Gaussian proposal and
@@ -31,7 +104,7 @@ is not, your sampled locations were previously biased by exactly the factor your
 chart compresses area by, and are now correct. On a sphere that bias put every
 event at the poles.
 
-### Orientation-reversing pairings are now accepted
+#### Orientation-reversing pairings are now accepted
 
 ```python
 glide = [[-1, 0, 0], [0, 1, L2], [0, 0, 1]]  # det -1
@@ -47,7 +120,7 @@ it is stricter where it matters: a pairing must act **freely**. A rotation, a
 pure reflection, or any other isometry with a fixed point is refused — including
 several that 0.3.0 accepted.
 
-### Presentations are validated at construction
+#### Presentations are validated at construction
 
 Three conditions are now enforced when a `FundamentalDomain` is built:
 
@@ -70,7 +143,7 @@ reading: it was not the surface you meant.
 Topology(orientable=True, euler_characteristic=0, genus=1, name='torus')
 ```
 
-### `distance` truncates by displacement, not by word length
+#### `distance` truncates by displacement, not by word length
 
 The deck-group window is now chosen by how far an element moves the polygon's
 centre, and the search certifies per call that no unexamined element could have
@@ -81,7 +154,7 @@ decays to zero.
 
 One consequence: `n_images` no longer has anything to tune.
 
-### Retired arguments
+#### Retired arguments
 
 | Retired | Why | Removed in |
 |---|---|---|
@@ -97,7 +170,7 @@ This table is kept in lockstep with the test suite: `RETIREMENTS` in
 and the argument still works.
 :::
 
-### New optional hooks on `SpatialDomain`
+#### New optional hooks on `SpatialDomain`
 
 All three have defaults that leave an existing subclass behaving exactly as
 before.
@@ -192,6 +265,13 @@ general machinery. Only orientation-preserving pairings are accepted. See
 Ogata bound intact.
 
 ## Migrating to 0.2.0
+
+:::{note}
+Historical. Every name this section deprecates was **removed in 0.4.0** — the
+import shim, the three `propagate_*` spellings, `Spatio_Temporal_Hawkes_Process`
+and the legacy class. Coming from 0.0.1, read this for what changed and the
+0.4.0 section above for what no longer exists.
+:::
 
 Version 0.2.0 is the first packaged release. The import name changed, the API
 was unified, and several genuine bugs were fixed — including some that change

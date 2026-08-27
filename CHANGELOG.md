@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Remove the aliases 0.4.0 deprecated — `Events`, `Sim_num`, `L1`, `L2`, and the `n_images`
+  argument of `FundamentalDomain` — in 0.5.0. `REMOVED_IN` in `_deprecation.py` is the date.
+- Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
+  simulation. This is now the whole of the quadratic term: 0.4.0's buffer made the event record
+  grow linearly, and measuring showed the record was never where the time went.
+- Hyperbolic surfaces above about genus 4 are out of reach of the hyperboloid model in double
+  precision: a deck element at displacement 18 has coordinates near `5e7`, where the spacing of
+  doubles exceeds the gap between the sheet and its asymptotic cone. Reaching further needs a
+  different representation, not a bigger window.
+
+## [0.4.0] — 2026-08-27
+
+The breaking release every deferred rename was deferred *to*. Two halves: the
+removals and renames below, and the surfaces work that made the release worth
+cutting now.
+
+### Removed
+
+- **The `TheHawkesPackage` import shim.** `import TheHawkesPackage` is an
+  `ImportError`; the import name is `hawkes_package`. Deprecated since 0.2.0.
+- **The three `simulate` aliases** — `propagate_by_amount`,
+  `propagate_by_k_events` and the `propogate_by_amount` typo. `simulate(k)` is
+  the method.
+- **`Spatio_Temporal_Hawkes_Process`**, the top-level name that used to mean two
+  different classes depending on the import path.
+- **`LegacySpatioTemporalHawkesProcess`** and `hawkes_package.spatio_temporal.legacy`,
+  frozen since 0.2.0 for bit-compatibility with results published before it.
+  `SpatioTemporalHawkesProcess` on a `Circle` is the replacement, and it is not
+  bit-compatible: it integrates deterministically where the legacy class used
+  Monte Carlo. Its `Base`/`Space` argument spellings go with it.
+- `DeprecatedAlias` and `deprecated_module_getattr` from the internal
+  `_deprecation` module, which lost their last callers. An unused deprecation
+  helper reads as supported machinery, which is worse than none.
+
 ### Added
 
 - **Every closed surface.** `FundamentalDomain` is no longer restricted to flat orientable
@@ -31,22 +67,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hawkes_package.spatio_temporal.kernels.check_image_sum` warns when a periodised kernel is
   truncated where it has not yet decayed.
 
-### Fixed
-
-- **The location sampler was handed the intensity without the measure.** The event location is
-  distributed as `lambda dA` on the surface, but `mcmc_sampler` walks in *chart* coordinates with
-  a symmetric proposal and accepts on the raw ratio, so the density it must be given is
-  `lambda * volume_element` — the same factor `restrict()` already applied to the quadrature
-  weights, and which the sampler was never given. **No previously produced number moves**: every
-  domain that had shipped carried `volume_element == 1`, so the factor is identically one on all
-  of them. It is not one on the first curved domain, where the omission would have piled events
-  wherever the chart compresses area — at the poles, on a sphere.
-- **Freeness of the side pairings was never checked.** A rotation pairing is an isometry with
-  determinant `+1`, so it passed every test the package made; it has a fixed point, and quotients
-  to an *orbifold* — a cone point — rather than to a surface. Nothing downstream could tell the
-  difference. Pairings are now classified and a non-free one is refused, with the motion named.
-
 ### Changed
+
+- **`Events` is now `events`, and `Sim_num` is now `n_simulated`.** Both old
+  spellings still work, warn, and are removed in 0.5.0 — including assignment,
+  because `process.Events = history` is how a realisation is conditioned on
+  events it did not simulate, and an alias that only supported reading would let
+  that assignment silently shadow the real attribute.
+- **`Torus2D(L1=, L2=)` is now `Torus2D(width=, height=)`**, as arguments and as
+  attributes, and likewise for `FundamentalDomain.rectangle` and
+  `FundamentalDomain.klein_bottle`. Old spellings warn and work until 0.5.0; an
+  unrecognised keyword still raises, so a typo cannot silently fall back to the
+  default.
+- With the last of the frozen names gone, ruff's `N` (pep8-naming) is selected
+  again. That was the point of doing the rename, and it is what stops the names
+  coming back.
+- **The event record grows by doubling** instead of reallocating on every
+  accepted event, and `events` is a view onto it. In isolation that is 7x faster
+  at 5 000 events and 17x at 50 000, and linear rather than quadratic — but it
+  changes no simulation's running time measurably, because the record was never
+  where the time went: the intensity sums are themselves `O(n)` per thinning
+  step and dominate by two orders of magnitude. What it removes is a term that
+  would become dominant the moment the intensity is made incremental. The
+  event-lookup on the spatio-temporal path was vectorised at the same time,
+  19x faster at 5 000 events and equally invisible end to end.
+- Existing scripts produce **identical numbers**. The rename and the buffer
+  consume the same draws in the same order; the event times of all four
+  simulators are bit-identical to 0.3.0.
 
 - **Orientation-reversing side pairings are accepted.** Through 0.3.0 a pairing with determinant
   `-1` raised. That was a policy rather than a correctness check, and it cost the entire
@@ -80,25 +127,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because 32 misses its area by 5% — and mismeasuring the area scales the simulated event rate
   by exactly that factor.
 
+### Fixed
+
+- **The location sampler was handed the intensity without the measure.** The event location is
+  distributed as `lambda dA` on the surface, but `mcmc_sampler` walks in *chart* coordinates with
+  a symmetric proposal and accepts on the raw ratio, so the density it must be given is
+  `lambda * volume_element` — the same factor `restrict()` already applied to the quadrature
+  weights, and which the sampler was never given. **No previously produced number moves**: every
+  domain that had shipped carried `volume_element == 1`, so the factor is identically one on all
+  of them. It is not one on the first curved domain, where the omission would have piled events
+  wherever the chart compresses area — at the poles, on a sphere.
+- **Freeness of the side pairings was never checked.** A rotation pairing is an isometry with
+  determinant `+1`, so it passed every test the package made; it has a fixed point, and quotients
+  to an *orbifold* — a cone point — rather than to a surface. Nothing downstream could tell the
+  difference. Pairings are now classified and a non-free one is refused, with the motion named.
+
 ### Deprecated
 
 - The `n_images` argument of `FundamentalDomain`, removed in 0.5.0. It tuned a truncation that
   now bounds itself, so nothing replaces it; `FundamentalDomain.orbit` still takes its own
   `n_images`, and the attribute still exists.
-
-### Planned
-
-- Rename the public attributes `Events` → `events` and `Sim_num` → `n_simulated` (0.4.0).
-  Deferred from 0.2.0 and again from 0.3.0 because every existing notebook cell touches them;
-  they now land with the shim removal, so one release carries every breaking name change.
-- Simulation is O(n^2) in `np.append`: each accepted event reallocates `Events`. Batching needs a
-  buffer redesign, because the intensity hooks read `Events` mid-loop (0.4.0). It matters more
-  now than it did: a hyperbolic `distance` searches a deck-group window per quadrature node per
-  past event, so the quadratic term is multiplied by a much larger constant.
-- Hyperbolic surfaces above about genus 4 are out of reach of the hyperboloid model in double
-  precision: a deck element at displacement 18 has coordinates near `5e7`, where the spacing of
-  doubles exceeds the gap between the sheet and its asymptotic cone. Reaching further needs a
-  different representation, not a bigger window.
 
 ## [0.3.0] — 2026-08-26
 

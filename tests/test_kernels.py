@@ -69,7 +69,7 @@ def test_circle_radius_changes_the_period():
 
 
 def test_torus_equals_explicit_image_sum():
-    domain = Torus2D(L1=2.0, L2=3.0)
+    domain = Torus2D(width=2.0, height=3.0)
     n_images = 2
     k = make_periodic(gaussian, domain, n_images=n_images)
     x, y = np.array([0.2, -0.4]), np.array([-0.9, 1.1])
@@ -90,12 +90,12 @@ def test_torus_sums_over_the_full_image_lattice():
 
 @pytest.mark.parametrize("axis", [0, 1])
 def test_torus_kernel_is_periodic_in_each_axis(axis):
-    domain = Torus2D(L1=2.0, L2=3.0)
+    domain = Torus2D(width=2.0, height=3.0)
     k = make_periodic(gaussian, domain, n_images=5)
     x = np.array([0.2, -0.4])
     y = np.array([-0.9, 1.1])
     shift = np.zeros(2)
-    shift[axis] = domain.L1 if axis == 0 else domain.L2
+    shift[axis] = domain.width if axis == 0 else domain.height
     assert k(x + shift, y) == pytest.approx(k(x, y), rel=1e-9)
 
 
@@ -149,11 +149,11 @@ def test_circle_kernel_stays_periodic_far_outside_the_window():
 
 
 def test_torus_kernel_stays_periodic_far_outside_the_window():
-    domain = Torus2D(L1=2.0, L2=3.0)
+    domain = Torus2D(width=2.0, height=3.0)
     k = make_periodic(gaussian, domain, n_images=2)
     x, y = np.array([0.2, -0.4]), np.array([-0.9, 1.1])
     reference = k(x, y)
-    far = x + np.array([9 * domain.L1, 7 * domain.L2])
+    far = x + np.array([9 * domain.width, 7 * domain.height])
     assert k(far, y) == pytest.approx(reference, rel=1e-9)
 
 
@@ -198,7 +198,7 @@ def test_rectangle_kernel_matches_the_torus_one():
     """The two spellings of the same quotient must periodise identically."""
     length_1, length_2 = 2.0, 3.0
     polygon = make_periodic(gaussian, FundamentalDomain.rectangle(length_1, length_2), n_images=3)
-    torus = make_periodic(gaussian, Torus2D(L1=length_1, L2=length_2), n_images=3)
+    torus = make_periodic(gaussian, Torus2D(width=length_1, height=length_2), n_images=3)
     x, y = np.array([0.2, -0.4]), np.array([-0.9, 1.1])
     # Not equal: the two sum over different windows of the same lattice -- the
     # torus branch over a square of offsets, the orbit branch over words of
@@ -273,7 +273,7 @@ def test_the_flat_image_sum_is_unaffected(recwarn):
 
 def test_lift_distance_defaults_to_the_chart_norm():
     """Which is the right answer for every flat domain, and only for those."""
-    torus = Torus2D(L1=3.0, L2=5.0)
+    torus = Torus2D(width=3.0, height=5.0)
     assert torus.lift_distance([0.0, 0.0], [3.0, 4.0]) == pytest.approx(5.0)
     # Unlike `distance`, it does not fold: these are lifts, not quotient points.
     assert torus.distance([0.0, 0.0], [3.0, 4.0]) == pytest.approx(1.0)

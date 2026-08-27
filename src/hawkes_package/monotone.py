@@ -46,7 +46,7 @@ class MonotoneKernelHawkes(TemporalHawkesProcess):
     --------
     >>> process = MonotoneKernelHawkes(lambda s: np.exp(-10 * s), rng=0)
     >>> process.simulate(50)
-    >>> len(process.Events)
+    >>> len(process.events)
     50
     """
 
@@ -61,10 +61,11 @@ class MonotoneKernelHawkes(TemporalHawkesProcess):
         self.nonlinearity = nonlinearity
 
     def _conditional_intensity(self, t: float) -> float:
-        past = self.Events[self.Events < t]
+        record = self.events
+        past = record[record < t]
         return float(self.nonlinearity(np.sum(self.temporal(t - past))))
 
     def _upper_bound(self, t: float) -> float:
         # Includes the event at t itself: the kernel decreases, so this
         # dominates the intensity for every s >= t.
-        return float(self.nonlinearity(np.sum(self.temporal(t - self.Events))))
+        return float(self.nonlinearity(np.sum(self.temporal(t - self.events))))
