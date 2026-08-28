@@ -18,6 +18,7 @@ single parametrized test over all five.
 
 import numpy as np
 import pytest
+from _pytest.mark.structures import ParameterSet
 
 import hawkes_package as hp
 
@@ -72,6 +73,56 @@ def _check(state, *, label):
         f"{label}: every candidate was accepted (min ratio {float(np.min(ratio)):.4f}); "
         "the bound is degenerate and this is a Poisson process, not a Hawkes one"
     )
+
+
+#: Stopping rules the loop can be driven by. The invariant is a property of the
+#: *bound*, not of what ends the run, so every case below is checked under both:
+#: `simulate_until` reaches the acceptance test through a second loop, and a
+#: bound that only dominates on the path `simulate` happens to take would be a
+#: bound that does not dominate.
+STOPPING = ["count", "horizon"]
+
+
+def last_time(proc):
+    """Time of the most recent event, whichever record layout `proc` uses."""
+    record = proc.events
+    return float(record[-1] if record.ndim == 1 else record[0, -1])
+
+
+def stopping_rule(build, name, seed, size, stop):
+    """Return a process and a no-argument callable that drives it.
+
+    The driver is built before `instrument` wraps the hooks, so the work of
+    sizing the horizon is not recorded as a comparison the loop never made.
+
+    A horizon cannot be guessed from the intensity here. Several cases in the
+    tables below are deliberately **supercritical** -- the bump kernel on a unit
+    circle integrates to pi over the domain and the temporal kernel carries mass
+    0.45, so its branching ratio is 1.41 -- and they stay finite only because
+    `simulate` stops counting. Given a horizon instead, such a process explodes
+    and the run ends in the stall guard rather than in an assertion about the
+    bound.
+
+    So the horizon is read off a reference realisation of the same length --
+    ``simulate_until(t_k)`` reproduces ``simulate(k)`` exactly, which
+    `test_simulate_until` pins, so the horizon run then covers the same ground
+    through the other loop.
+
+    The reference runs the full `size` rather than half of it, and the halving
+    is not a saving worth having: `_check` insists that some candidate was
+    *rejected*, and the counts below are already the smallest at which that is
+    reliable. At four events on a torus instead of eight, the smallest recorded
+    ratio was 0.9935 against the 0.99 the check wants -- a bound that is fine,
+    reported as degenerate because the run was too short to see it work.
+    """
+    proc = build(name, seed)
+    if stop == "count":
+        return proc, lambda: proc.simulate(size)
+
+    reference = build(name, seed)
+    reference.simulate(size)
+    horizon = last_time(reference)
+    return proc, lambda: proc.simulate_until(horizon)
 
 
 TEMPORAL = [
@@ -191,42 +242,67 @@ def build(
 
 
 @pytest.mark.statistical
+@pytest.mark.parametrize("stop", STOPPING)
 @pytest.mark.parametrize("name", TEMPORAL)
 @pytest.mark.parametrize("seed", [11, 23, 47])
-def test_temporal_thinning_invariant(build, name, seed):
-    proc = build(name, seed)
+def test_temporal_thinning_invariant(build, name, seed, stop):
+    proc, drive = stopping_rule(build, name, seed, 300, stop)
     state = instrument(proc, "_conditional_intensity")
-    proc.simulate(300)
-    _check(state, label=f"{name}(seed={seed})")
+    drive()
+    _check(state, label=f"{name}(seed={seed}, stop={stop})")
+
+
+#: The two-dimensional domains cost ~1000 kernel evaluations per integration, so
+#: they run shorter. Long enough that candidates are still rejected, which
+#: `_check` insists on.
+TWO_DIMENSIONAL = {
+    "st-torus",
+    "st-rectangle",
+    "st-hexagon",
+    "st-hexagon-periodic",
+    "st-sphere",
+    "st-klein",
+}
+
+#: The curved domains cost more again: a hyperbolic `distance` searches a
+#: deck-group window per quadrature node per past event, so four events is
+#: already a minute of work. Still long enough that candidates are rejected.
+EXPENSIVE = {"st-projective", "st-crosscaps"}
+
+
+def case_size(name):
+    """Events to simulate for a spatio-temporal case, by how much one costs."""
+    if name in EXPENSIVE:
+        return 4
+    return 8 if name in TWO_DIMENSIONAL else 15
+
+
+def spatio_temporal_cases():
+    """Every case crossed with every stopping rule, carrying its own marks.
+
+    The horizon rule costs twice its case -- a reference realisation and the
+    instrumented one -- so on the domains that are already the expensive ones it
+    is marked `slow` and runs in the coverage job rather than in the ten-job
+    matrix. The count rule keeps every case in the fast suite, and the cheap
+    domains keep both.
+    """
+    for case in SPATIO_TEMPORAL:
+        name = case.values[0] if isinstance(case, ParameterSet) else case
+        inherited = list(case.marks) if isinstance(case, ParameterSet) else []
+        for stop in STOPPING:
+            costly = stop == "horizon" and name in TWO_DIMENSIONAL | EXPENSIVE
+            marks = [*inherited, *([pytest.mark.slow] if costly else [])]
+            yield pytest.param(name, stop, marks=marks, id=f"{name}-{stop}")
 
 
 @pytest.mark.statistical
-@pytest.mark.parametrize("name", SPATIO_TEMPORAL)
-def test_spatio_temporal_thinning_invariant(build, name):
+@pytest.mark.parametrize(("name", "stop"), list(spatio_temporal_cases()))
+def test_spatio_temporal_thinning_invariant(build, name, stop):
     """Same invariant, but thinning runs against the space-integrated intensity."""
-    proc = build(name, 11)
+    proc, drive = stopping_rule(build, name, 11, case_size(name), stop)
     state = instrument(proc, "_integrated_intensity")
-    # The two-dimensional domains cost ~1000 kernel evaluations per integration,
-    # so they run shorter. Long enough that candidates are still rejected, which
-    # `_check` insists on.
-    two_dimensional = {
-        "st-torus",
-        "st-rectangle",
-        "st-hexagon",
-        "st-hexagon-periodic",
-        "st-sphere",
-        "st-klein",
-    }
-    # The curved domains cost more again: a hyperbolic `distance` searches a
-    # deck-group window per quadrature node per past event, so four events is
-    # already a minute of work. Still long enough that candidates are rejected,
-    # which `_check` insists on.
-    expensive = {"st-projective", "st-crosscaps"}
-    if name in expensive:
-        proc.simulate(4)
-    else:
-        proc.simulate(8 if name in two_dimensional else 15)
-    _check(state, label=name)
+    drive()
+    _check(state, label=f"{name}(stop={stop})")
 
 
 @pytest.mark.statistical

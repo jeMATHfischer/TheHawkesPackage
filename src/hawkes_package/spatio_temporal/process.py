@@ -332,47 +332,87 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     # Simulation
     # ------------------------------------------------------------------
 
+    def _bound_at(self, t: float) -> float:
+        """Return the thinning bound at `t`, refusing a non-positive one."""
+        bound = self._upper_bound(t)
+        if not bound > 0:
+            raise RuntimeError(
+                f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
+                "background intensity must be positive somewhere."
+            )
+        return bound
+
+    def _draw_location(self, event_time: float) -> np.ndarray:
+        """Draw the location of an event at `event_time` from its conditional density.
+
+        Costs :attr:`n_iter` Metropolis-Hastings steps, each one a full spatial
+        intensity evaluation, so it is by far the most expensive thing the loop
+        does per event. That is why
+        :meth:`~hawkes_package.base.HawkesProcess.simulate_until` refuses an
+        over-horizon candidate *before* getting here.
+        """
+        coord = mcmc_sampler(
+            lambda x: self._confined_density(x, event_time),
+            self.domain.bounds,
+            n_iter=self.n_iter,
+            proposal_std=self.proposal_std,
+            seed=self.rng,
+            # Folding is reversible only where `wrap` is a translation
+            # symmetry; elsewhere out-of-domain proposals are rejected.
+            transform=self.domain.wrap if self.domain.periodic else None,
+        )
+        # Idempotent: the sampler already returns an in-domain point. Kept only
+        # as a guard against a third-party `wrap` returning a boundary-equal
+        # representative.
+        return np.asarray(self.domain.wrap(coord), dtype=float).reshape(-1)
+
+    def _record(self, event_time: float, coord: np.ndarray) -> None:
+        """Append one located event to the record."""
+        self._events.append(np.concatenate([[event_time], coord]))
+        self.n_simulated += 1
+
     def _propagate(self, k: int) -> None:
         for done in range(k):
-            record = self.events
-            t = float(record[0, -1]) if record.shape[1] else 0.0
+            t = self._events.last_time
 
             # --- Temporal thinning on the space-integrated intensity ---
             while True:
-                bound = self._upper_bound(t)
-                if not bound > 0:
-                    raise RuntimeError(
-                        f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
-                        "background intensity must be positive somewhere."
-                    )
+                bound = self._bound_at(t)
                 advanced = t + self.rng.exponential() / bound
                 if not advanced > t:
-                    raise RuntimeError(_stalled_message(t, bound, done, k))
+                    raise RuntimeError(
+                        _stalled_message(t, bound, f"after {done} of {k} requested events")
+                    )
                 t = advanced
                 if self.rng.uniform() * bound <= self._integrated_intensity(t):
                     break
-            event_time = t
 
             # --- Spatial coordinate from the conditional density at that time ---
-            coord = mcmc_sampler(
-                lambda x: self._confined_density(x, event_time),  # noqa: B023
-                self.domain.bounds,
-                n_iter=self.n_iter,
-                proposal_std=self.proposal_std,
-                seed=self.rng,
-                # Folding is reversible only where `wrap` is a translation
-                # symmetry; elsewhere out-of-domain proposals are rejected.
-                transform=self.domain.wrap if self.domain.periodic else None,
-            )
-            # Idempotent: the sampler already returns an in-domain point. Kept
-            # only as a guard against a third-party `wrap` returning a
-            # boundary-equal representative.
-            coord = self.domain.wrap(coord)
+            self._record(t, self._draw_location(t))
 
-            self._events.append(
-                np.concatenate([[event_time], np.asarray(coord, dtype=float).reshape(-1)])
-            )
-            self.n_simulated += 1
+    def _propagate_until(self, t_end: float, start: float) -> None:
+        t = start
+        accepted = 0
+
+        while True:
+            bound = self._bound_at(t)
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} events past t={start!r}")
+                )
+            t = advanced
+
+            # The horizon is checked before the acceptance test, and so before
+            # `_draw_location`: the candidate that ends the run would otherwise
+            # burn `n_iter` Metropolis-Hastings steps on an event that is thrown
+            # away, which is most of the cost of one event.
+            if t > t_end:
+                return
+
+            if self.rng.uniform() * bound <= self._integrated_intensity(t):
+                self._record(t, self._draw_location(t))
+                accepted += 1
 
     # ------------------------------------------------------------------
     # Intensity accessors

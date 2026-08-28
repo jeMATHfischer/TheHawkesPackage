@@ -90,6 +90,21 @@ class _EventBuffer:
         self._data[..., self._count] = event
         self._count += 1
 
+    @property
+    def last_time(self) -> float:
+        """Time of the most recent event, or ``0.0`` when the record is empty.
+
+        Both layouts put the event count last, so the most recent event is the
+        last column; in the spatio-temporal layout its time is row 0. Written
+        once here because the two thinning loops each spelled it out inline and
+        :meth:`~HawkesProcess.simulate_until` needs a third copy.
+        """
+        if self._count == 0:
+            return 0.0
+        if self._rows is None:
+            return float(self._data[self._count - 1])
+        return float(self._data[0, self._count - 1])
+
     def _reserve(self, capacity: int) -> None:
         """Move the record into a buffer of the given capacity."""
         bigger = np.empty(self._shaped(capacity), dtype=float)
@@ -117,20 +132,28 @@ class _EventBuffer:
         self._count = record.shape[-1]
 
 
-def _stalled_message(t: float, bound: float, accepted: int, requested: int) -> str:
+def _stalled_message(t: float, bound: float, progress: str) -> str:
     """Explain an exploding process instead of spinning forever.
 
     When the intensity diverges, the inter-arrival time underflows to zero and
     the thinning loop stops advancing: events pile up at one instant and the
     simulation never returns. Detecting that and raising turns a hang into an
     actionable error.
+
+    `progress` says how far the caller had got in whatever terms its stopping
+    rule counts in -- events for :meth:`~HawkesProcess.simulate`, elapsed time
+    for :meth:`~HawkesProcess.simulate_until`.
+
+    .. versionchanged:: 0.5.0
+       Takes a phrase rather than an accepted/requested pair, because a run
+       stopped by a time horizon has no requested count to report.
     """
     return (
-        f"Simulation stalled at t={t!r} after {accepted} of {requested} requested "
-        f"events: the thinning bound has reached {bound!r} and the inter-arrival "
-        "time has underflowed to zero, so time can no longer advance. The process "
-        "is exploding -- the expected number of offspring per event is at or above "
-        "one. Reduce the kernel's mass or use a more slowly growing nonlinearity."
+        f"Simulation stalled at t={t!r} {progress}: the thinning bound has "
+        f"reached {bound!r} and the inter-arrival time has underflowed to zero, "
+        "so time can no longer advance. The process is exploding -- the expected "
+        "number of offspring per event is at or above one. Reduce the kernel's "
+        "mass or use a more slowly growing nonlinearity."
     )
 
 
@@ -198,6 +221,14 @@ class HawkesProcess(ABC):
     def _propagate(self, k: int) -> None:
         """Simulate exactly `k` further events, appending them to :attr:`events`."""
 
+    @abstractmethod
+    def _propagate_until(self, t_end: float, start: float) -> None:
+        """Simulate the events falling in ``(start, t_end]``, appending them.
+
+        `start` is where the thinning loop resumes, which is not always the last
+        recorded event time -- see :meth:`simulate_until`.
+        """
+
     def simulate(self, k: int) -> None:
         """Simulate `k` further events and append them to :attr:`events`.
 
@@ -223,6 +254,82 @@ class HawkesProcess(ABC):
             return
         self._propagate(k_int)
 
+    def simulate_until(self, t_end: float, *, start: float | None = None) -> None:
+        """Simulate every event up to time `t_end` and append them to :attr:`events`.
+
+        The complement of :meth:`simulate`: that one fixes the number of events
+        and lets the horizon fall where it may, this one fixes the horizon and
+        lets the count fall where it may. Which is the one a *forecast* needs,
+        because "how many events by time T" is the question being asked, and
+        because simulating a fixed count and truncating cannot express the
+        outcome "no events at all in ``(start, t_end]``" -- the most informative
+        one there is.
+
+        Parameters
+        ----------
+        t_end : float
+            End of the horizon, inclusive. ``t_end <= start`` is a no-op.
+        start : float, optional
+            Where the loop resumes. Defaults to the last recorded event time, or
+            ``0.0`` when the record is empty -- which is what continues the
+            realisation, exactly as :meth:`simulate` does.
+
+            Passing a `start` **later** than the last recorded event conditions
+            on more than the record holds: it asserts that nothing happened in
+            ``(last event, start]``. That is the forecasting case, and it is the
+            reason this argument exists.
+
+        Raises
+        ------
+        ValueError
+            If `t_end` or `start` is not finite, or if `start` lies before the
+            last recorded event. Rewinding would leave the record holding events
+            the loop is about to generate around, so the result would be neither
+            the conditional process nor a fresh one.
+
+        Notes
+        -----
+        The first candidate past `t_end` is discarded rather than appended, and
+        the acceptance test is never reached for it. Truncating the thinning
+        loop this way is exact rather than approximate: a candidate beyond the
+        horizon cannot influence whether an earlier one was accepted, and the
+        exponential clock is memoryless, so the events on ``(start, t_end]`` are
+        distributed exactly as the untruncated process would have put them
+        there. The variate that carried the loop past `t_end` is consumed all
+        the same, so a seeded ``simulate_until`` and a seeded ``simulate`` do
+        not leave the stream in the same place.
+
+        Examples
+        --------
+        >>> process = ExponentialHawkes(np.array([2.0, 0.5, 1.0]), rng=0)
+        >>> process.simulate_until(10.0)
+        >>> bool(process.events.max() <= 10.0)
+        True
+
+        .. versionadded:: 0.5.0
+        """
+        horizon = float(t_end)
+        if not np.isfinite(horizon):
+            raise ValueError(f"t_end must be finite, got {t_end!r}")
+
+        last = self._events.last_time
+        if start is None:
+            origin = last
+        else:
+            origin = float(start)
+            if not np.isfinite(origin):
+                raise ValueError(f"start must be finite, got {start!r}")
+            if origin < last:
+                raise ValueError(
+                    f"start={origin!r} lies before the last recorded event at {last!r}; "
+                    "a realisation cannot be rewound. Pass a start at or after the last "
+                    "event, or simulate a fresh process."
+                )
+
+        if horizon <= origin:
+            return
+        self._propagate_until(horizon, origin)
+
 
 class TemporalHawkesProcess(HawkesProcess):
     """A Hawkes process on the time line, simulated by Ogata's thinning.
@@ -243,22 +350,28 @@ class TemporalHawkesProcess(HawkesProcess):
         silently degenerates towards a Poisson process.
         """
 
+    def _bound_at(self, t: float) -> float:
+        """Return the thinning bound at `t`, refusing a non-positive one."""
+        bound = self._upper_bound(t)
+        if not bound > 0:
+            raise RuntimeError(
+                f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
+                "kernel or nonlinearity must keep the intensity positive."
+            )
+        return bound
+
     def _propagate(self, k: int) -> None:
         # The bootstrap time is a local, not an element of `events`.
-        record = self.events
-        t = float(record[-1]) if record.size else 0.0
+        t = self._events.last_time
         accepted = 0
 
         while accepted < k:
-            bound = self._upper_bound(t)
-            if not bound > 0:
-                raise RuntimeError(
-                    f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
-                    "kernel or nonlinearity must keep the intensity positive."
-                )
+            bound = self._bound_at(t)
             advanced = t + self.rng.exponential() / bound
             if not advanced > t:
-                raise RuntimeError(_stalled_message(t, bound, accepted, k))
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} of {k} requested events")
+                )
             t = advanced
 
             if self.rng.uniform() * bound <= self._conditional_intensity(t):
@@ -266,6 +379,30 @@ class TemporalHawkesProcess(HawkesProcess):
                 accepted += 1
                 # Counted per event, so `n_simulated == len(events)` still holds
                 # if the loop raises partway through.
+                self.n_simulated += 1
+
+    def _propagate_until(self, t_end: float, start: float) -> None:
+        t = start
+        accepted = 0
+
+        while True:
+            bound = self._bound_at(t)
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} events past t={start!r}")
+                )
+            t = advanced
+
+            # Tested before the acceptance test rather than after it, so the
+            # candidate that ends the run costs one intensity evaluation fewer
+            # rather than one more.
+            if t > t_end:
+                return
+
+            if self.rng.uniform() * bound <= self._conditional_intensity(t):
+                self._events.append(t)
+                accepted += 1
                 self.n_simulated += 1
 
     def intensity_over_interval(self, x: Any) -> tuple[np.ndarray, np.ndarray]:
