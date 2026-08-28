@@ -23,11 +23,16 @@ intensity is separable, `λ(t, x) = μ(x) + Σ κ_t(t − t_i)·κ_s(d(x, x_i))`
 the **geodesic distance on the domain** — the shorter arc on a `Circle`, the wrapped
 Euclidean distance on a `Torus2D`.
 
-**Scope boundaries.** This is a *simulation* library. There is no estimation or
-inference, no multivariate or mutually-exciting processes, and no discrete marks —
-space is the only mark. MCMC appears solely as the spatial location sampler, not as
-a fitting method. Adding any of those is new territory, not a gap to fill in by
-analogy with what is already here.
+**Scope boundaries.** Simulation, plus — since 0.5.0 — **inference**, which lives
+entirely in `hawkes_package.inference` and is built on the same intensity hooks the
+simulator thins against. Still out of scope: multivariate or mutually-exciting
+processes, and discrete marks — space is the only mark. Partially observed data is
+out too, and for a reason rather than by omission: it creates a genuine latent
+state and needs a different algorithm, not a different setting of this one.
+`hawkes_package.mcmc` remains the spatial location sampler on the Ogata correctness
+path and nothing else; inference has its own chain in `inference/mcmc.py`, named so
+it cannot read as a drop-in. Adding anything in the out-of-scope list is new
+territory, not a gap to fill in by analogy with what is already here.
 
 **Three names for one project**: the distribution is `the-hawkes-package`, the
 import name is `hawkes_package`, and `TheHawkesPackage` was a deprecated import
@@ -67,9 +72,9 @@ pytest tests/statistical/test_thinning_invariant.py -q -p no:randomly
 ```
 
 The docs build is a real check, not a formality: `docs/conf.py` reads the version
-from **installed** distribution metadata, and both notebooks under `docs/examples/`
-execute on every build under `-W`. An API change that breaks an example fails the
-Docs job. Reproduce it with the `sphinx-build` line above.
+from **installed** distribution metadata, and every notebook under
+`docs/examples/` executes on every build under `-W`. An API change that breaks an
+example fails the Docs job. Reproduce it with the `sphinx-build` line above.
 
 Pre-commit is not run by any workflow — CI re-runs only `ruff` and `mypy`. So
 `nbstripout`, `validate-pyproject` and the large-file guard are local-only
@@ -92,10 +97,14 @@ between the value and its per-event future supremum.
 | `exponential.py`, `monotone.py`, `bell_shape.py` | the three temporal classes and their bounds |
 | `mcmc.py` | random-walk Metropolis–Hastings — the spatial location sampler only |
 | `_numerics.py` | `as_point` (the coordinate contract), `locate_peak` |
-| `_deprecation.py` | every deprecation in the package routes through here |
 | `spatio_temporal/domains.py` | `SpatialDomain` ABC, `Circle`, `Torus2D`, `FundamentalDomain` |
 | `spatio_temporal/_integration.py` | `TensorQuadrature`, `build`, `restrict`, `check_resolution` |
 | `spatio_temporal/process.py` | the domain-aware simulator |
+| `inference/likelihood.py` | `History`, the three log-likelihoods, `_bind_history` |
+| `inference/smc.py` | the IBIS loop, `ParticleCloud`, `SMCDiagnostics` |
+| `inference/models.py` | `ProcessModel` — theta to a process, and where it is defined |
+| `inference/_geometry.py` | the theta-independent distance tensors |
+| `inference/_compensator.py` | panelled Gauss–Legendre for `∫ λ` |
 
 **Geometry and quadrature.** `SpatialDomain` requires `distance`, `wrap`,
 `sample_uniform`, `volume` and `bounds`; it optionally supports `contains`,
@@ -153,12 +162,43 @@ This is the section that matters. None of the following raises when violated.
   the worst failure mode in a scientific package.** It goes under `### Changed` or
   `### Fixed` in `CHANGELOG.md` *and* into `docs/migration.md`, in terms a user can
   act on.
-- Deprecations route through `hawkes_package._deprecation`. Add the old/new pair to
-  `RENAMES` in `tests/test_deprecations.py` — `docs/migration.md` is written from
-  that list, so the documentation cannot drift from behaviour.
-- Simulation is O(n²) in `np.append`: eight events on a 2-D domain already takes
-  ~12 s. Budget test sizes accordingly, and reach for `@pytest.mark.slow` for
-  anything over a second.
+- **The package currently carries no deprecations**, and `_deprecation.py` was
+  deleted with the last of them in 0.5.0 — an unused deprecation helper reads as
+  supported machinery. Adding one means recreating the module, and adding the
+  old/new pair to the removal tables in `tests/test_deprecations.py`, which
+  `docs/migration.md` is written from so the documentation cannot drift from
+  behaviour.
+- Simulation is O(n²) in the intensity sum: eight events on a 2-D domain already
+  takes ~12 s, and 60 events on a `Circle` takes ~65 s. Budget test sizes
+  accordingly, and reach for `@pytest.mark.slow` for anything over a second. Note
+  which side is slow: a spatio-temporal *fit* of 60 events is 3 s against 65 s to
+  generate them.
+- **A compensator computed too small is the inference-side twin of a bound
+  computed too small.** Every unit of `∫ λ` that goes missing is a penalty on a
+  high intensity that never gets applied, so `mu` and the excitation both come
+  back too large and the fit looks converged. Guarded by exact quadrature at the
+  event jumps, an order-`P`-versus-`2P` resolution check, and the time-rescaling
+  test — and the residuals for that test must use a compensator that does *not*
+  share the estimator's bug, because a fit made with a compensator 20% too small
+  inflates the intensity by 25% and the two errors cancel exactly.
+- **`SpatioTemporalLogLikelihood`'s cached backend has a precondition, and it
+  raises rather than degrading.** `_full_intensity` floors *after* summing, so the
+  separability identity `∫_D λ = ∫_D μ + Σ κ_t·S_i` holds only where the pre-floor
+  integrand is non-negative at every node. `backend="hooks"` is the normative
+  definition; `"auto"` falls back to it once, with a warning, and records what ran.
+- **Particle degeneracy reads as confidence.** A collapsed cloud reports a very
+  tight posterior centred wherever the resampling noise left it. Neither obvious
+  diagnostic catches a frozen rejuvenation kernel: the effective sample size is
+  perfect for N copies of one particle, and the *acceptance rate* reads 1.000,
+  because a proposal scaled to 1e-12 proposes the point it starts from.
+  `StepRecord.move_size` — the distance travelled in units of the cloud's own
+  width — is what tells them apart, 0.5 against 5.7e-12.
+- **Never assert a statistical threshold without sweeping seeds 0–20 first.** The
+  sweep for `test_ibis_agrees_with_an_independent_metropolis_run` is what found
+  that the Metropolis proposal could shrink irrecoverably: the step reached
+  2e-159, every proposal became the point it started from, the acceptance rate
+  read 1.000 and the chain returned 40 000 copies of one sample while looking
+  healthy.
 
 ## Conventions
 
@@ -179,7 +219,9 @@ This is the section that matters. None of the following raises when violated.
   constructor parameters are documented on the class. Carry `.. versionadded::` /
   `.. versionchanged::` / `.. deprecated::` directives with the version.
 - Runtime dependencies are **numpy and scipy only** — scipy in exactly one place
-  (`minimize_scalar` in `_numerics.py`). Do not reach for pandas, numba or jax;
+  (`minimize_scalar` in `_numerics.py`), which is why `ks_exponential` hand-rolls
+  the Kolmogorov series rather than importing `scipy.stats`. Tests may use scipy
+  freely, and check the hand-rolled versions against it. Do not reach for pandas, numba or jax;
   matplotlib is a docs extra, not a runtime dependency. NumPy 2 compatibility is an
   active concern.
 - `ValueError` for bad construction input, `RuntimeError` for a simulation that
@@ -218,10 +260,17 @@ Releasing (runbook in `CONTRIBUTING.md § Releasing`):
    truth; hatchling reads it from there.
 3. Tag `vX.Y.Z` and push.
 
-Three gates stop a mistagged release: the build job asserts tag == wheel == sdist
-version, the `github-release` job hard-fails when `CHANGELOG.md` has no
-`## [<version>]` section, and both trusted publishers are bound to the literal
-filename `release.yml`.
+Two gates stop a mistagged release *before* it uploads: the build job asserts
+tag == wheel == sdist version, and both trusted publishers are bound to the
+literal filename `release.yml`.
+
+- **The `CHANGELOG.md` check is not one of them.** The `github-release` job
+  hard-fails when there is no `## [<version>]` section, but it is
+  `needs: [build, publish-testpypi, publish-pypi]` — it runs *after* the upload,
+  so on a final tag PyPI has already accepted the files and the version is burnt.
+  The rc rehearsal does not cover it either: the prerelease path falls back to a
+  "Rehearsal build of …" note and passes. **Verify the section by reading
+  `CHANGELOG.md` before tagging**, not by a green rc.
 
 - **Never rename `release.yml`.** Both publishers are bound to that filename, and
   renaming it silently breaks every future release on both indexes.
@@ -240,14 +289,17 @@ filename `release.yml`.
 ## Current state and roadmap
 
 Released: **0.4.0** — every closed surface through `FundamentalDomain` and the
-three constant-curvature model spaces, plus the breaking sweep: the import shim,
-the deprecated aliases and the frozen legacy class removed, the frozen public
-names renamed, and the event record moved onto a growing buffer. `master`
-carries no unreleased work; `## [Unreleased]` holds only `### Planned`.
+three constant-curvature model spaces, plus the breaking sweep.
 
-- **0.5.0** — remove the aliases 0.4.0 introduced (`REMOVED_IN` in
-  `_deprecation.py` is the single source for that date): `Events`, `Sim_num`,
-  `L1`, `L2`, and the `n_images` argument of `FundamentalDomain`.
+Unreleased, for **0.5.0**: `hawkes_package.inference`,
+`HawkesProcess.simulate_until`, `HawkesEstimator`, and the removal of every name
+0.4.0 dated for this release. The plan the inference work was built from is
+`docs/plans/bayesian_module.md`; where the plan and the code differ, the code
+records the measurement that decided it.
+
+Nothing dated 0.5.0 is outstanding. What follows is the roadmap **past** it —
+each item is also under `### Planned` in `CHANGELOG.md`, which is the source:
+
 - **The quadratic term is the intensity, not the record.** 0.4.0 replaced
   `np.append` with a doubling buffer — 7× faster at 5 000 events, 17× at 50 000,
   and linear rather than quadratic — and it changed no simulation's running time

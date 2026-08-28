@@ -7,10 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Bayesian inference.** `hawkes_package.inference` fits the parameters of any process this
+  package simulates, from observed events, in blocks as they arrive. The algorithm is an SMC
+  sampler over the data-tempered posterior sequence (Chopin's IBIS) with resample–move
+  rejuvenation, not a bootstrap filter: with a static parameter and no transition noise a
+  bootstrap filter degenerates to a single point carrying weight one, reporting empty credible
+  intervals around wherever the resampling noise left it, and reporting nothing about having
+  done so.
+
+  The likelihood is computed from **the simulator's own intensity hooks** — the same functions
+  the Ogata loop thins against — so what is fitted is what would be drawn. Temporal and
+  spatio-temporal, any kernel, any nonlinearity, any `SpatialDomain`.
+  `SpatioTemporalLogLikelihood` carries two backends that compute the same number and always
+  records which one ran: `"hooks"` is the definition, `"cached"` precomputes the geometry that
+  does not depend on the parameters and is roughly 10⁵ times faster, and it **raises** rather
+  than degrading where its precondition fails. Also: time-rescaling residuals with a hand-rolled
+  Kolmogorov–Smirnov test, posterior-predictive forecasting, an independent Metropolis chain for
+  reference posteriors, and drifting parameters behind an `evolution=` switch.
+
+  `hawkes_package.__all__` gains exactly one name, `"inference"`. See `docs/inference.md` for the
+  guide and `docs/theory.md` for why each of those choices is the one it is.
+- **`HawkesProcess.simulate_until(t_end, *, start=None)`** — simulate to a time horizon rather
+  than to an event count. The complement of `simulate(k)`, and the one a forecast needs: a
+  fixed-count simulation cannot express "no events at all in the horizon", which is an outcome.
+  `start` may be *later* than the last recorded event, which conditions on the observed fact
+  that nothing happened in between. Truncating the thinning loop this way is exact rather than
+  approximate. Both loops implement it; `_propagate_until` is a new abstract hook on
+  `HawkesProcess`, so a class subclassing it directly (rather than `TemporalHawkesProcess`) must
+  implement it.
+- **`HawkesEstimator`**, a scikit-learn-shaped front door to the same fit: `fit`, `partial_fit`,
+  `predict`, `score`, `forecast`, in one object where the subpackage otherwise asks for four.
+  It infers nothing new, and three exact equalities say so and are tested — a `fit` is
+  `fit_smc` bit-for-bit at the same seed, a `partial_fit` per block is `fit(blocks=k)`
+  bit-for-bit, and a `score` is the log-evidence increment the next `partial_fit` records.
+
+  It **inherits nothing from scikit-learn and does not import it at module scope.** `clone`,
+  `Pipeline` and `GridSearchCV` reach an estimator through `get_params`/`set_params` and never
+  through `isinstance` — `clone`'s own gate is `hasattr(estimator, "get_params")` — so
+  inheriting `BaseEstimator` buys no behaviour, while a base class chosen by whichever packages
+  happen to be installed would make `repr`, parameter ordering and pickling differ between
+  environments. It is also refused by `mypy --strict`, since scikit-learn ships no `py.typed`
+  and `disallow_subclassing_any` applies. `tests/inference/test_sklearn_interop.py` pins the
+  reimplementation against `BaseEstimator`'s own, which is what stops the two drifting.
+
+  Three choices worth knowing before reading a number off it. `predict` returns the conditional
+  intensity **averaged over the particles**, not evaluated at the posterior mean; the intensity
+  is convex in the decay rate, so the plug-in is biased low wherever the posterior has width.
+  It **refuses times past `history.end`**, where the intensity computed from the observed record
+  is the intensity given that nothing has happened since, and understates the truth by exactly
+  the excitation of the events that would have occurred — `forecast` answers that question by
+  simulating forward. And `blocks` defaults to **8**, not `fit_smc`'s 1: a single block is IBIS
+  with one tempering step, which is importance sampling from the prior and degenerates on any
+  history long enough to be worth fitting.
+
+  `end` is a required keyword on `fit` with no default, for the reason `History.end` has none.
+  There is no `GridSearchCV` support, and not for a technical reason: a point-process history
+  cannot be sliced into folds when every fold's likelihood depends on the events before it.
+- `hawkes_package.inference.block_boundaries` is now exported from the subpackage — it is how a
+  `partial_fit` loop reproduces `fit`'s blocking.
+- `README.md` covers `HawkesEstimator`, `simulate_until`'s `start=` argument, and links the four
+  executed notebooks. Its intro said the package "extends the construction to a spatial domain
+  with periodic boundaries", which has undersold it since 0.4.0 — it reaches every closed surface.
+- **`docs/examples/surfaces.ipynb`**, a fourth executed notebook, on the one part of the package
+  that had no runnable example: `FundamentalDomain`. It walks the six constructors and the
+  surfaces they present, shows a point's images under the gluing and the resulting quotient
+  distance — two points at opposite edges of the Klein bottle's polygon are 8.2 times closer on
+  the surface than on the page — checks Gauss–Bonnet by reading each hyperbolic area back as
+  `-2*pi*chi`, and draws the tensor quadrature masked by `contains` on a hexagon that fills only
+  75% of its bounding box. It simulates on the hexagonal torus, which no `Torus2D` expresses.
+
+  The cost section reports **structural** numbers only — sides, `nodes_per_axis`, and the
+  quadrature grid as its square, so a genus-3 surface reads as 64× a flat one — and no timings.
+  A measured microsecond cost swung by a factor of 240 across sampling protocols on one machine,
+  because `distance` grows and caches its search window on demand, so a printed timing would be
+  noise that differs on every build. The section ends on the `genus(4)` refusal, which states the
+  reason better than a benchmark could.
+
+  A hyperbolic *simulation* is deliberately absent: genus-2 needs a 128×128 quadrature grid at
+  roughly a millisecond per distance call, which is minutes per intensity integration.
+- **Two new sections in `docs/examples/online_inference.ipynb`**, both executed on every docs
+  build. "The same fit in one object" runs `HawkesEstimator` beside the four-object form it is
+  a front door to, and plots the posterior intensity band — the figure that shows what
+  averaging over the particles buys, which a plug-in at the posterior mean cannot draw. "When
+  the parameter moves" contrasts `RandomWalkDrift` against `Static` across a regime change in
+  `mu`: the drifting filter climbs toward the new level while the static fit *falls*, because
+  shrinking the background is the only way it can reconcile events it has no mechanism to
+  follow. That section is also the first runnable example of `simulate_until(..., start=)`,
+  whose whole purpose — conditioning on an observed empty gap — had no code anywhere in the
+  docs.
+- `ProcessModel` has a readable `__repr__`. The generated dataclass one printed three closures by
+  address plus every `Parameter` in full, and `HawkesEstimator`'s repr embeds it.
+- `hawkes_package.spatio_temporal.kernels.image_distance_fn`, the map from a pair of points to
+  the distances a periodised kernel sums over. Factored out of `make_periodic` so that the
+  simulator and the cached likelihood cannot disagree about which images they see — a
+  disagreement that would show up as a plausible but wrong posterior rather than as an error.
+
+### Changed
+
+- **A periodised spatial kernel on `Torus2D` moves by about one unit in the last place.**
+  `make_periodic` now sums its image contributions with the built-in `sum`, which since CPython
+  3.12 sums floats with Neumaier compensation; two of its four branches already did. `Circle` is
+  bit-identical either way — its lattice has seven terms — and the 49-term torus lattice moves by
+  1.1e-16. That is enough to flip a thinning acceptance, so a seeded spatio-temporal simulation
+  using `make_periodic` on a `Torus2D` produces a different realisation than it did in 0.4.0. It
+  is the same process, sampled more accurately; exact reproducibility was never guaranteed on the
+  spatio-temporal path, as `CONTRIBUTING.md` states. `docs/migration.md` has the details.
+- `hawkes_package.base._stalled_message` takes a progress phrase rather than an
+  accepted/requested pair, since a run stopped by a time horizon has no requested count. The
+  message `simulate` produces is unchanged.
+
+### Fixed
+
+- **`SpatioTemporalLogLikelihood` reused a geometry cache built for a *different* history**
+  whenever the two happened to hold the same number of events. The prefix-consistency check
+  lives inside `extend_geometry`, and `geometry_for` only called it when the event count
+  changed — so a second history of equal length was answered with the distance tensors built
+  for the first, and the log-likelihood came back for data nobody had passed, with nothing
+  raised. The check now runs on every reuse, which costs nothing: `extend_geometry` already
+  returns the cache unchanged once the prefix matches. Reachable before only by reusing a
+  likelihood object across two fits by hand.
+- **`docs/examples/temporal_processes.ipynb` taught the deprecated `.Events` spelling**, in five
+  places, so the published page rendered three `DeprecationWarning` boxes telling readers that
+  the attribute the tutorial itself uses is going away in 0.5.0. It now uses `.events`. This
+  mattered beyond tidiness: `REMOVED_IN` is `0.5.0`, so removing the aliases would have broken
+  the Docs job on a notebook nobody had reason to look at. `sphinx-build -W` does not catch it,
+  because `-W` promotes Sphinx warnings and not Python ones raised inside a notebook.
+- `docs/examples/spatio_temporal.ipynb` described a `monotone_temporal_kernel=False` argument
+  its code did not pass, relying on the default instead. The code now passes it, since being
+  explicit is the point the surrounding prose is making.
+- **`README.md` documented a migration path that no longer exists.** It said `import
+  TheHawkesPackage` "still works but emits a `DeprecationWarning`" and that
+  `propagate_by_amount`, `propagate_by_k_events` and `propogate_by_amount` "remain as deprecated
+  aliases" — all five were removed in 0.4.0, so the shim raises `ImportError` and the methods are
+  gone. The section now records what 0.4.0 actually did, and names the aliases still standing
+  (`Events`, `Sim_num`, `L1`, `L2`, and `FundamentalDomain`'s `n_images`) with their removal
+  version.
+
+### Removed
+
+- **The aliases 0.4.0 deprecated, on the date 0.4.0 named.** `Events` → `events`, `Sim_num` →
+  `n_simulated`, `L1`/`L2` → `width`/`height` as both keywords and attributes, and the `n_images`
+  argument of `FundamentalDomain`. Reading a removed name raises `AttributeError` and passing a
+  removed keyword raises `TypeError`.
+
+  **One case Python cannot refuse for you:** `process.Events = history` now binds a plain
+  attribute rather than seeding the realisation. That setter was the whole reason the alias was a
+  descriptor rather than a read-only property in 0.4.0, and with the descriptor gone there is no
+  warning left to catch the assignment — the symptom is a seeded run that ignored its history.
+  Assign to `process.events`. `docs/migration.md` states it under 0.5.0.
+
+  `FundamentalDomain`'s third parameter is **keyword-only** as a consequence, so
+  `FundamentalDomain(vertices, pairings, 4)` now raises on the argument count. The `n_images`
+  *attribute* survives, as 0.4.0 said it would: it is the default word length `orbit` reads.
+- **`hawkes_package._deprecation`**, which lost its last caller to the removals above. An unused
+  deprecation helper reads as supported machinery, which is worse than none — the same reasoning
+  0.4.0 applied to `DeprecatedAlias` and `deprecated_module_getattr`, now applying to the module
+  itself. The package carries no deprecations at all, and `tests/test_deprecations.py` asserts
+  that rather than describing it. The next deprecation recreates the module, which is cheap.
+
 ### Planned
 
-- Remove the aliases 0.4.0 deprecated — `Events`, `Sim_num`, `L1`, `L2`, and the `n_images`
-  argument of `FundamentalDomain` — in 0.5.0. `REMOVED_IN` in `_deprecation.py` is the date.
 - Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
   simulation. This is now the whole of the quadratic term: 0.4.0's buffer made the event record
   grow linearly, and measuring showed the record was never where the time went.

@@ -64,6 +64,9 @@ nb_execution_raise_on_error = True
 nb_execution_cache_path = str(Path(__file__).parent / "_build" / ".jupyter_cache")
 
 myst_enable_extensions = ["dollarmath", "amsmath", "colon_fence", "deflist"]
+# Slug anchors for headings down to level 3, so a page can link into a section of
+# another one. `theory.md` is long enough that linking to its top is not useful.
+myst_heading_anchors = 3
 
 # -- HTML -------------------------------------------------------------------
 

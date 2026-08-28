@@ -132,6 +132,152 @@ and a Kolmogorov–Smirnov test against $\mathrm{Exp}(1)$ catches a wrong kernel
 a wrong bound and a missing baseline at once — none of which a shape or
 monotonicity assertion would notice. The package tests this on every build.
 
+## Inference
+
+Everything above describes how to *draw* a realisation. Inference is the other
+direction: given events, what were the parameters. `hawkes_package.inference`
+answers that in blocks, as data arrives.
+
+### The likelihood is available in closed form, up to one integral
+
+A Hawkes process observed in full has no latent state. The intensity at any
+moment is a deterministic function of the events already recorded, so the
+log-likelihood of a realisation on $[0, T]$ is
+
+$$
+\ell(\theta) = \sum_{t_i \le T} \log \lambda_\theta(t_i^- \mid H)
+             - \int_0^T \lambda_\theta(s)\,\mathrm{d}s,
+$$
+
+and in the spatio-temporal case the same with $\log\lambda_\theta(t_i^-, x_i)$
+in the sum and $\int_0^T\!\!\int_D \lambda_\theta$ in the integral. The first
+term rewards a high intensity where events happened; the second penalises a high
+intensity everywhere else. Both are needed and the second is the one that goes
+wrong quietly — a compensator computed too small subtracts too little from the
+penalty, so the fitted background and excitation both drift upward while
+everything looks converged.
+
+Two details of that formula are load-bearing.
+
+The sum uses $\lambda(t_i^-)$, the intensity *just before* each event. This
+package's intensity hooks already filter $t_j < t$ strictly, which is why the
+whole observed array can be assigned at once and both terms come out right. It
+is also why **tied event times are refused**: two events at one instant would
+each vanish from the other's conditional intensity, and one $\log\lambda$ term
+would go missing with nothing raised.
+
+The window $T$ is data, not a formality. Observing on $[0, T]$ and stopping at
+the $n$-th event are different experiments, and they differ by
+$-\int_{t_n}^{T}\lambda$ — the information that *nothing happened* after the
+last event. That is why `History.end` has no default.
+
+### The compensator, two ways
+
+For the exponential kernel it is closed-form, as in *Verifying a simulator*
+above, and Ozaki's recursion turns the log-sum into a single pass as well.
+Writing $B(a) = \sum_{t_i \le a} e^{-\beta(a - t_i)}$, an event at $t$ has
+$\lambda(t^-) = \mu + \alpha B(t^-)$ and $B$ advances by one multiplication per
+step, so a full evaluation is $O(n)$ and an incremental one is $O(\text{new
+events})$.
+
+For any other kernel it is quadrature. $\lambda$ jumps at every event and is
+smooth in between, so the panels are cut at the event times and an order-8
+Gauss–Legendre rule is applied inside each — spectrally accurate for an analytic
+kernel. A kernel with an *interior* kink puts one inside a panel, at a fixed lag
+after every event, and there the convergence drops to second order with an error
+that has a consistent sign. Comparing order $P$ against order $2P$ is what
+detects that: measured on this project's own kernels, an undeclared triangular
+kink comes in at $6.7\times10^{-3}$ and a gamma kernel of fractional shape — an
+algebraic branch point rather than a kink — at $1.8\times10^{-4}$ or below.
+
+### A bootstrap filter is the wrong algorithm
+
+The obvious approach, a particle filter over the parameter, fails — and fails
+silently. For a fully observed process the parameter is **static**: there is no
+transition to propagate through. With no transition noise the cloud can never
+regain diversity, resampling only ever deletes particles, and after a few
+hundred observations the posterior is a single point carrying weight one. Its
+variance is zero, so every credible interval it reports is empty, and its
+location is wherever the resampling noise left it.
+
+The right algorithm is an SMC sampler over the **data-tempered** sequence
+$\pi_k(\theta) \propto p(\theta)\exp\ell_k(\theta)$, where $\ell_k$ is the
+log-likelihood of the first $k$ blocks — Chopin's IBIS. Each block's increment
+is added to every particle's log weight, and because the parameter is static
+those increments telescope: adding block $k$'s increment *is* reweighting from
+$\pi_{k-1}$ to $\pi_k$, exactly.
+
+Diversity is restored by **resample–move** (Gilks and Berzuini). When the
+effective sample size falls below half the cloud, the particles are resampled
+and each takes a few Metropolis–Hastings steps targeting the current posterior.
+The move is invariant for $\pi_k$, so it changes the particles without changing
+what they represent.
+
+Three notes on the mechanics, each of which is a way to get a plausible answer
+from a broken sampler:
+
+- The move happens on the **unconstrained** scale, $\theta = a + e^z$ and its
+  relatives, because a Gaussian proposal on a rate that must stay positive is
+  rejected at the boundary and stops moving. That transform is not
+  measure-preserving, so the target carries $\log|\mathrm{d}\theta/\mathrm{d}z|$;
+  omitting it tilts the posterior towards small values by a factor of $\theta$
+  per positive coordinate.
+- The proposal covariance is taken from the **weighted, pre-resampling** cloud,
+  scaled by Roberts and Rosenthal's $2.38^2/d$. After resampling the duplicates
+  have collapsed it towards whatever survived.
+- Whether the move *worked* is measured, not assumed. The acceptance rate cannot
+  tell: a proposal scaled to $10^{-12}$ proposes the point it starts from and is
+  accepted essentially always. What distinguishes the two is the distance the
+  cloud travelled, in units of its own width — about $0.5$ for a healthy move.
+
+### Drifting parameters, and what the approximation costs
+
+Once $\theta$ is allowed to change over time it becomes a latent state, and the
+same loop is a genuine filter: propagate, then reweight. Two transitions ship, a
+plain random walk and Liu and West's shrinkage kernel
+
+$$
+a = \frac{3\delta - 1}{2\delta}, \qquad h^2 = 1 - a^2, \qquad
+z' \sim N\!\left(a z_i + (1-a)\bar z,\; h^2 V\right),
+$$
+
+which leaves $E[z'] = \bar z$ and $\mathrm{Var}[z'] = V$ exactly rather than
+inflating the cloud at every block. That exactness has a price worth stating: a
+jitter proportional to a variance which has already contracted cannot re-expand
+the cloud, so Liu–West follows a *drift* well and a *jump* badly. An absolute
+random walk is the other trade — it adds variance whether or not the data
+supports it, and can therefore recover.
+
+**The block likelihood is then an approximation, and it does not announce
+itself.** The increment for block $k$ is computed with $\theta_k$ applied to the
+whole intensity, including the excitation contributed by events generated under
+earlier parameters. That is a locally-stationary approximation, good when the
+drift is slow compared with the kernel's memory and poor when it is not; in
+neither case does anything raise, and the symptom is a tracking posterior more
+confident than it has earned. Under a static parameter the same expression is
+exact, which is the reason the distinction is drawn at all.
+
+Drift and rejuvenation together are refused at construction. An MCMC move
+invariant for $\pi_k$ is meaningless when the model says $\pi_k$ changes at every
+block, and it is exactly the configuration one arrives at by tuning until the
+output looks plausible.
+
+### Verifying an estimator
+
+The same time-rescaling theorem that verifies the simulator verifies the fit.
+Mapping the observed events through the compensator *at the fitted parameter*
+should give a unit-rate Poisson process, so a Kolmogorov–Smirnov test of the
+transformed gaps against $\mathrm{Exp}(1)$ catches a wrong kernel, a missing
+background and an under-counted compensator at once — none of which a plot of
+the posterior would notice, because a posterior can be tight, stable and wrong.
+
+One caveat, and it generalises: the residuals must be computed with a
+compensator that does **not** share the estimator's bug. A fit made with a
+compensator 20% too small inflates the intensity by about 25%, and residuals
+computed with the same broken compensator come back looking perfect, because the
+two errors cancel exactly. A diagnostic that shares a bug with the thing it
+checks is not a diagnostic.
+
 ## Spatio-temporal processes
 
 Events carry a location $x$ in a spatial domain, and the intensity becomes
@@ -332,3 +478,26 @@ construction and warns when the last ring of images is still contributing.
   Transactions on Information Theory 27(1), 23–31.
 - Daley, D. J. and Vere-Jones, D. (2003). *An Introduction to the Theory of
   Point Processes.* Springer.
+- Ozaki, T. (1979). *Maximum likelihood estimation of Hawkes' self-exciting
+  point processes.* Annals of the Institute of Statistical Mathematics 31(1),
+  145–155.
+- Brown, E. N., Barbieri, R., Ventura, V., Kass, R. E. and Frank, L. M. (2002).
+  *The time-rescaling theorem and its application to neural spike train data
+  analysis.* Neural Computation 14(2), 325–346.
+- Chopin, N. (2002). *A sequential particle filter method for static models.*
+  Biometrika 89(3), 539–551.
+- Gilks, W. R. and Berzuini, C. (2001). *Following a moving target — Monte Carlo
+  inference for dynamic Bayesian models.* Journal of the Royal Statistical
+  Society B 63(1), 127–146.
+- Del Moral, P., Doucet, A. and Jasra, A. (2006). *Sequential Monte Carlo
+  samplers.* Journal of the Royal Statistical Society B 68(3), 411–436.
+- Liu, J. and West, M. (2001). *Combined parameter and state estimation in
+  simulation-based filtering.* In *Sequential Monte Carlo Methods in Practice*,
+  Springer, 197–223.
+- Douc, R. and Cappé, O. (2005). *Comparison of resampling schemes for particle
+  filtering.* Proceedings of the 4th International Symposium on Image and Signal
+  Processing and Analysis, 64–69.
+- Roberts, G. O. and Rosenthal, J. S. (2001). *Optimal scaling for various
+  Metropolis–Hastings algorithms.* Statistical Science 16(4), 351–367.
+- Brémaud, P. and Massoulié, L. (1996). *Stability of nonlinear Hawkes
+  processes.* Annals of Probability 24(3), 1563–1588.

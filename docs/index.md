@@ -19,7 +19,10 @@ nonlinearity.
 
 This package simulates them for a range of kernel shapes — including non-monotone
 "bell-shaped" kernels, where the naive thinning bound is invalid — and extends
-the construction to a spatial domain with periodic boundaries.
+the construction to a spatial domain with periodic boundaries. Since 0.5.0 it
+also **fits** them: `hawkes_package.inference` estimates parameters from observed
+events by sequential Monte Carlo, in blocks as the data arrives, using a
+likelihood computed from the simulator's own intensity hooks.
 
 ```{code-block} python
 import numpy as np
@@ -54,6 +57,13 @@ Simulate a process and plot its intensity in ten lines.
 Ogata's thinning, stability conditions, and the spatio-temporal intensity.
 :::
 
+:::{grid-item-card} Inference
+:link: inference
+:link-type: doc
+
+Fit a process to data, read the diagnostics, and forecast from the posterior.
+:::
+
 :::{grid-item-card} Migration
 :link: migration
 :link-type: doc
@@ -72,6 +82,15 @@ What 0.4.0 renamed and removed, and what it asks of a custom domain.
 | {class}`~hawkes_package.bell_shape.BellShapeHawkes` | Kernels with a single interior maximum: excitation ramps up before decaying. |
 | {class}`~hawkes_package.spatio_temporal.process.SpatioTemporalHawkesProcess` | Events carry a location on a closed surface, or on your own domain. |
 
+## Fitting
+
+| Class | Use when |
+|---|---|
+| {class}`~hawkes_package.inference.smc.SMCSampler` | Estimate parameters from observed events, in blocks as they arrive. |
+| {class}`~hawkes_package.inference.likelihood.ExponentialLogLikelihood` | The exponential kernel, whose likelihood is closed-form and `O(n)`. |
+| {class}`~hawkes_package.inference.likelihood.TemporalLogLikelihood` | Any other temporal kernel, through the hook the simulator thins against. |
+| {class}`~hawkes_package.inference.likelihood.SpatioTemporalLogLikelihood` | Events with locations, on any {class}`~hawkes_package.SpatialDomain`. |
+
 ```{toctree}
 :hidden:
 :caption: Getting started
@@ -79,6 +98,7 @@ What 0.4.0 renamed and removed, and what it asks of a custom domain.
 installation
 quickstart
 theory
+inference
 ```
 
 ```{toctree}
@@ -87,6 +107,8 @@ theory
 
 examples/temporal_processes
 examples/spatio_temporal
+examples/surfaces
+examples/online_inference
 ```
 
 ```{toctree}
