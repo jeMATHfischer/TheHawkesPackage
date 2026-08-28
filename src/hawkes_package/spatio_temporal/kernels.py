@@ -16,7 +16,7 @@ import numpy as np
 from .._numerics import as_float, as_point
 from .domains import SpatialDomain
 
-__all__ = ["PairwiseKernel", "check_image_sum", "make_periodic"]
+__all__ = ["PairwiseKernel", "check_image_sum", "image_distance_fn", "make_periodic"]
 
 
 class PairwiseKernel:
@@ -94,6 +94,58 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
     >>> round(kernel(0.3, -1.2), 6)
     0.105399
     """
+    distances = image_distance_fn(domain, n_images)
+    if getattr(distances, "sums_over_an_orbit", False):
+        check_image_sum(kernel_fn, domain, n_images)
+
+    def periodised(x: Any, y: Any) -> float:
+        # Built-in `sum`, not a `+=` loop: since CPython 3.12 it sums floats
+        # with Neumaier compensation, and the image sum is exactly the shape
+        # that benefits -- a few dozen terms spanning several orders of
+        # magnitude, the far images being the small ones. Two of the four
+        # branches below already summed this way; using it for all of them
+        # leaves `Circle` bit-identical and moves `Torus2D` -- 49 terms rather
+        # than 7 -- by one unit in the last place, which `CHANGELOG.md` and
+        # `docs/migration.md` record.
+        return float(sum(as_float(kernel_fn(distance)) for distance in distances(x, y)))
+
+    return PairwiseKernel(periodised)
+
+
+def image_distance_fn(domain: SpatialDomain, n_images: int = 3) -> Callable[[Any, Any], np.ndarray]:
+    r"""Return the map from a pair of points to the distances a periodised kernel sums.
+
+    Factored out of :func:`make_periodic` because two callers need to agree on
+    it exactly. The simulator reaches the image sum by *evaluating* the
+    periodised kernel; :mod:`hawkes_package.inference._geometry` reaches it by
+    caching the distances once and evaluating a parameterised kernel on them
+    thousands of times. If those two ever computed a different set of images,
+    the cached likelihood would be fitting a different process from the one the
+    simulator draws -- and the difference would show up as a plausible but wrong
+    posterior rather than as an error.
+
+    The returned callable carries ``sums_over_an_orbit`` when its images come
+    from :meth:`~hawkes_package.SpatialDomain.orbit`, which is the branch whose
+    truncation :func:`check_image_sum` has something to say about.
+
+    Parameters
+    ----------
+    domain : SpatialDomain
+        :class:`~hawkes_package.Circle` and :class:`~hawkes_package.Torus2D`
+        carry hand-written lattices; anything else declaring a deck group
+        through :meth:`~hawkes_package.SpatialDomain.orbit` is handled by that.
+        A domain with neither gives the single geodesic distance, which is the
+        unperiodised kernel.
+    n_images : int
+        Images per direction.
+
+    Returns
+    -------
+    callable
+        Takes two domain points and returns a 1-D array of distances.
+
+    .. versionadded:: 0.5.0
+    """
     # Imported here rather than at module scope: domains.py is imported by
     # process.py, which also imports this module.
     from .domains import Circle, Torus2D
@@ -101,36 +153,41 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
     if isinstance(domain, Circle):
         period = domain.volume
 
-        def circle_kernel(x: Any, y: Any) -> float:
+        def circle_distances(x: Any, y: Any) -> np.ndarray:
             # Reduce to the canonical offset first. Summing images about a raw
             # difference leaves the nearest image outside the window once
             # |x - y| exceeds n_images * period, so the kernel would decay to
             # zero instead of staying periodic.
             offset = (as_point(x, 1)[0] - as_point(y, 1)[0] + period / 2) % period - period / 2
-            total = 0.0
-            for n in range(-n_images, n_images + 1):
-                total += as_float(kernel_fn(abs(offset - n * period)))
-            return total
+            return np.array(
+                [abs(offset - n * period) for n in range(-n_images, n_images + 1)],
+                dtype=float,
+            )
 
-        return PairwiseKernel(circle_kernel)
+        return circle_distances
 
     if isinstance(domain, Torus2D):
         length_1, length_2 = domain.width, domain.height
-
         periods = np.array([length_1, length_2])
+        offsets = [
+            np.array([n1 * length_1, n2 * length_2])
+            for n1 in range(-n_images, n_images + 1)
+            for n2 in range(-n_images, n_images + 1)
+        ]
 
-        def torus_kernel(x: Any, y: Any) -> float:
+        def torus_distances(x: Any, y: Any) -> np.ndarray:
             # Canonical offset per axis, for the same reason as on the circle.
             delta = as_point(x, 2) - as_point(y, 2)
             delta = (delta + periods / 2) % periods - periods / 2
-            total = 0.0
-            for n1 in range(-n_images, n_images + 1):
-                for n2 in range(-n_images, n_images + 1):
-                    offset = np.array([n1 * length_1, n2 * length_2])
-                    total += as_float(kernel_fn(float(np.linalg.norm(delta - offset))))
-            return total
+            # A norm per offset rather than one batched `norm(..., axis=1)`
+            # call: the batched form reduces along a different code path and
+            # can differ in the last bit, which is enough to flip a thinning
+            # acceptance and change a realisation that was published.
+            return np.array(
+                [float(np.linalg.norm(delta - offset)) for offset in offsets], dtype=float
+            )
 
-        return PairwiseKernel(torus_kernel)
+        return torus_distances
 
     # Any other domain that declares a deck group -- `FundamentalDomain` does --
     # gets the same image sum, driven by `orbit` instead of a hand-written
@@ -139,7 +196,7 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
     ndim = np.asarray(domain.bounds, dtype=float).shape[0]
     if domain.orbit(np.asarray(domain.interior_point, dtype=float), n_images) is not None:
 
-        def orbit_kernel(x: Any, y: Any) -> float:
+        def orbit_distances(x: Any, y: Any) -> np.ndarray:
             # Canonical representatives first, for the same reason as on the
             # circle: measured from unreduced lifts the nearest image can fall
             # outside the window, and the kernel would decay to zero instead of
@@ -147,20 +204,20 @@ def make_periodic(kernel_fn: KernelFn, domain: SpatialDomain, n_images: int = 3)
             here = as_point(domain.wrap(x), ndim)
             images = domain.orbit(domain.wrap(y), n_images)
             if images is None:  # pragma: no cover - the branch above proves otherwise
-                return as_float(kernel_fn(domain.distance(x, y)))
+                return np.array([domain.distance(x, y)], dtype=float)
             # `lift_distance`, not a chart norm: the sum runs over images in the
             # universal cover, and only where the covering map is a local
             # isometry -- every flat domain, no curved one -- is the chart norm
             # the distance between them.
-            return float(sum(as_float(kernel_fn(domain.lift_distance(here, im))) for im in images))
+            return np.array([domain.lift_distance(here, im) for im in images], dtype=float)
 
-        check_image_sum(kernel_fn, domain, n_images)
-        return PairwiseKernel(orbit_kernel)
+        orbit_distances.sums_over_an_orbit = True  # type: ignore[attr-defined]
+        return orbit_distances
 
-    def generic_kernel(x: Any, y: Any) -> float:
-        return as_float(kernel_fn(domain.distance(x, y)))
+    def geodesic_distance(x: Any, y: Any) -> np.ndarray:
+        return np.array([domain.distance(x, y)], dtype=float)
 
-    return PairwiseKernel(generic_kernel)
+    return geodesic_distance
 
 
 def check_image_sum(

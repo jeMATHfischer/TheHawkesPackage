@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "the-hawkes-package"
 dynamic = ["version"]
-description = "Simulation of temporal and spatio-temporal Hawkes processes via Ogata thinning."
+description = "Simulation and Bayesian inference for temporal and spatio-temporal Hawkes processes."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -21,6 +21,10 @@ keywords = [
   "stochastic-simulation",
   "mcmc",
   "metropolis-hastings",
+  "bayesian-inference",
+  "sequential-monte-carlo",
+  "particle-filter",
+  "parameter-estimation",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -47,6 +51,12 @@ test = [
   "pytest>=7.4",
   "pytest-cov>=4.1",
   "pytest-randomly>=3.15",
+  # Test-only, and deliberately not a runtime dependency: `HawkesEstimator`
+  # implements scikit-learn's estimator protocol without importing it. This is
+  # here so `tests/inference/test_sklearn_interop.py` can check that claim
+  # against the real library instead of against our reading of it. Every test in
+  # that file is guarded by `importorskip`, so the suite passes without it.
+  "scikit-learn>=1.4",
 ]
 docs = [
   "sphinx>=7.3",
@@ -135,6 +145,10 @@ convention = "numpy"
 # exists to pin.
 "tests/**" = ["D", "ARG", "B018", "NPY002", "N"]
 "docs/conf.py" = ["D", "INP001"]
+# N803: scikit-learn's estimator protocol fixes the argument name `X`, and
+# `clone` reconstructs an estimator by passing every parameter by keyword -- so
+# renaming it to satisfy pep8-naming would break cloning rather than tidy it.
+"src/hawkes_package/inference/estimator.py" = ["N803"]
 # Notebooks are narrative: throwaway kernel helpers do not need docstrings, and
 # demonstration loops legitimately ignore their index.
 "*.ipynb" = ["D", "ARG", "B007", "RET504", "E402", "N816"]
@@ -159,6 +173,18 @@ pretty = true
 
 [[tool.mypy.overrides]]
 module = ["scipy.*"]
+ignore_missing_imports = true
+
+# scikit-learn ships no `py.typed`, so mypy reports `import-untyped` for it
+# whether or not it is installed. `src` names it in exactly one place -- the
+# lazy import inside `HawkesEstimator.__sklearn_tags__` -- and this makes
+# `BaseEstimator` `Any` for those three lines, which call into an untyped
+# library and could not have been checked anyway. It is emphatically *not* what
+# would be needed to inherit from it: `disallow_subclassing_any` is a separate
+# part of `strict` and still refuses that, which is the whole reason the
+# estimator reimplements the protocol instead.
+[[tool.mypy.overrides]]
+module = ["sklearn.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
