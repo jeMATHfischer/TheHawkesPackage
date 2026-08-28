@@ -60,20 +60,35 @@ not after.
 
 Do not define an intensity accessor separately from the hook the simulator thins
 against — that is exactly how `ExponentialHawkes` came to plot a curve a
-constant `mu` below its own intensity.
+constant `mu` below its own intensity. The same rule binds
+`hawkes_package.inference`: its likelihood is computed from those hooks, so a
+second, faster expression for the intensity would be a second *model*, and the
+difference would surface as a plausible-but-wrong posterior rather than as an
+error. Where speed demands a rearrangement — `SpatioTemporalLogLikelihood`'s
+cached backend — it must state its precondition, check it, and raise rather than
+degrade, and a test must pin it against the hooks.
+
+## Statistical thresholds
+
+Any assertion with a threshold in it gets swept over seeds 0–20 before the
+threshold is pinned, and the measured worst case goes in a comment next to it.
+This is not bookkeeping: the sweep for the SMC-versus-Metropolis agreement test
+is what found that the adaptive proposal could shrink to 2e-159 and freeze,
+reporting an acceptance rate of 1.000 while returning 40 000 copies of one
+sample.
 
 ## Deprecations
 
-Route everything through `hawkes_package._deprecation`. A renamed method is one
-line:
+**There are none right now.** `hawkes_package._deprecation` held the machinery
+until 0.5.0 removed the last name that used it, and the module went with them: an
+unused deprecation helper reads as supported machinery, which is worse than none.
 
-```python
-propagate_by_amount = DeprecatedAlias("simulate")
-```
-
-Renamed module-level names go through `deprecated_module_getattr`. Add the
-old/new pair to `RENAMES` in `tests/test_deprecations.py` — `docs/migration.md`
-is written from that list, so the documentation cannot drift from behaviour.
+So adding a deprecation means recreating it. Whatever shape it takes, two things
+are not optional. It must warn *and still work* — a descriptor needs `__set__`
+as well as `__get__` if the old spelling was ever assignable, or the assignment
+binds a plain attribute over it and nothing raises. And the old/new pair goes in
+the removal tables in `tests/test_deprecations.py`, which `docs/migration.md` is
+written from, so the documentation cannot drift from behaviour.
 
 ## Pull requests
 

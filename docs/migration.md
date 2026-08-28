@@ -2,6 +2,93 @@
 
 One section per release that requires action. Newest first.
 
+## Migrating to 0.5.0
+
+Mostly additive -- a whole inference subpackage, `simulate_until`, and every
+closed surface already reachable in 0.4.0. Two things require action: the names
+0.4.0 deprecated are now **gone**, and one periodised kernel moves in its last
+bit.
+
+### Removed, as 0.4.0 said they would be
+
+| Gone | Deprecated in | Use |
+|---|---|---|
+| `Events` | 0.4.0 | `events` |
+| `Sim_num` | 0.4.0 | `n_simulated` |
+| `L1`, `L2` -- as keywords and as attributes | 0.4.0 | `width`, `height` |
+| `FundamentalDomain(..., n_images=)` | 0.4.0 | nothing; the deck group certifies its own truncation |
+| `hawkes_package._deprecation` | -- | nothing; it lost its last caller |
+
+Reading a removed name now raises `AttributeError`, and passing a removed keyword
+raises `TypeError`. **Assignment is the one case Python cannot refuse for you:**
+
+```python
+process.Events = history  # binds a plain attribute; the simulator never sees it
+process.events = history  # what actually seeds the realisation
+```
+
+That was the reason the alias kept a setter through 0.4.0 rather than becoming
+read-only. There is no warning left to catch it, so the failure shows up as a
+realisation that ignored the history -- check `process.events` if a seeded run
+looks wrong.
+
+`FundamentalDomain`'s third parameter is now **keyword-only**, so
+`FundamentalDomain(vertices, pairings, 4)` raises on the argument count rather
+than binding 4 to something else. The `n_images` *attribute* survives, as
+0.4.0 said it would: it is the default word length `orbit` reads, and
+`orbit(y, n_images=...)` still overrides it per call.
+
+:::{note}
+The two removal tables are kept in lockstep with the test suite:
+`REMOVED_IN_0_5_0` and `REMOVED_SIDES` in `tests/test_deprecations.py` drive
+tests that assert each old spelling is absent and each replacement present.
+:::
+
+### A periodised kernel on `Torus2D` moves by one unit in the last place
+
+`make_periodic` now sums its image contributions with Python's built-in `sum`,
+which since CPython 3.12 sums floats with Neumaier compensation. Two of its four
+branches — the `orbit` branch that every `FundamentalDomain` takes, and the
+fallback — already did; the hand-written `Circle` and `Torus2D` lattices
+accumulated with `+=`. Making all four the same was necessary in order to factor
+the image set out into
+{func}`~hawkes_package.spatio_temporal.kernels.image_distance_fn`, so that the
+simulator and the new cached likelihood cannot disagree about which images they
+sum over.
+
+Measured across 200 random point pairs per domain:
+
+| Domain | Terms in the sum | Change |
+|---|---|---|
+| `Circle`, any radius | 7 | **bit-identical** |
+| `Torus2D`, any size | 49 | 1.1e-16, about one unit in the last place |
+| `FundamentalDomain` | 25 and up | **bit-identical** (already compensated) |
+| A domain with no deck group | 1 | **bit-identical** |
+
+One unit in the last place is enough to flip a thinning acceptance, so **a
+seeded spatio-temporal simulation that passes a `make_periodic` kernel on a
+`Torus2D` produces a different realisation than it did in 0.4.0.** It is the
+same process, sampled slightly more accurately; and exact reproducibility was
+never guaranteed on the spatio-temporal path, which branches on floating-point
+comparisons whose last bits already move with the SciPy and BLAS build.
+
+Nothing else changes. `Circle`, every `FundamentalDomain`, every unperiodised
+kernel and all three temporal simulators are bit-identical to 0.4.0.
+
+### `HawkesProcess` gained an abstract method
+
+`_propagate_until` joins `_propagate` as a hook a concrete process must supply.
+`TemporalHawkesProcess` and `SpatioTemporalHawkesProcess` both implement it, so a
+class deriving from either is unaffected. A class deriving from `HawkesProcess`
+**directly** — which the two-hook contract does not ask for — will now fail to
+instantiate with a `TypeError` naming the missing method, rather than failing
+later.
+
+### Everything else is new
+
+`hawkes_package.inference` and `simulate_until` are additions; no existing call
+changes meaning. See [Fitting a process to data](inference.md).
+
 ## Migrating to 0.4.0
 
 The breaking release. Everything dated 0.4.0 for removal is gone, and the frozen
@@ -36,7 +123,7 @@ Its `spatial` also changes meaning: the legacy class passed a **signed offset**,
 the domain-aware one passes a **non-negative distance**. A kernel that was even
 in its argument — as the legacy example's was — needs no change.
 
-### Renamed, and still working until 0.5.0
+### Renamed
 
 | Old | New | On |
 |---|---|---|
@@ -44,18 +131,9 @@ in its argument — as the legacy example's was — needs no change.
 | `Sim_num` | `n_simulated` | every process |
 | `L1`, `L2` | `width`, `height` | `Torus2D`, `FundamentalDomain.rectangle`, `.klein_bottle` |
 
-Each old spelling warns and forwards. Assignment forwards too:
-
-```python
-process.Events = history  # warns, and still seeds the realisation
-process.events = history  # the same thing, silently
-```
-
-:::{note}
-This table is kept in lockstep with the test suite: `RENAMES` and `SIDE_RENAMES`
-in `tests/test_deprecations.py` drive tests that assert each old spelling still
-warns, still reads, and still writes.
-:::
+In 0.4.0 each old spelling warned and forwarded, reads and assignments alike.
+**They were removed in 0.5.0** -- see that section above if you are coming from
+0.4.0 rather than to it.
 
 ### `events` is a view, not a fresh array
 
@@ -160,15 +238,11 @@ One consequence: `n_images` no longer has anything to tune.
 |---|---|---|
 | `FundamentalDomain(..., n_images=)` | the deck group truncates by displacement radius and certifies it per call | 0.5.0 |
 
-Passing it warns and still works. `FundamentalDomain.orbit(y, n_images=...)` is
-unaffected: an image sum wants images, not the nearest one, so it keeps its own
-knob.
-
-:::{note}
-This table is kept in lockstep with the test suite: `RETIREMENTS` in
-`tests/test_deprecations.py` drives a test that asserts the warning still fires
-and the argument still works.
-:::
+In 0.4.0 passing it warned and still worked; **0.5.0 removed it**, and the
+parameter that follows it is keyword-only as a result.
+`FundamentalDomain.orbit(y, n_images=...)` is unaffected throughout: an image sum
+wants images, not the nearest one, so it keeps its own knob, and the `n_images`
+attribute survives as its default.
 
 #### New optional hooks on `SpatialDomain`
 
@@ -320,9 +394,9 @@ spellings remain as aliases that warn and are removed in 0.4.0.
 | `Spatio_Temporal_Hawkes_Process` | `LegacySpatioTemporalHawkesProcess` | 0.4.0 |
 
 :::{note}
-This table is kept in lockstep with the test suite: `RENAMES` in
-`tests/test_deprecations.py` drives tests that assert each old name still warns
-and still forwards, so the documentation cannot drift from the behaviour.
+Every name in this table was **removed in 0.4.0**; the "Removed in" column is
+when, not a future date. `REMOVED_IN_0_4_0` in `tests/test_deprecations.py` now
+drives tests that assert each one is absent.
 :::
 
 ### The ambiguous class name

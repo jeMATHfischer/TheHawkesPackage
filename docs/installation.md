@@ -34,8 +34,8 @@ package — see [contributing](contributing.md).
 The `TheHawkesPackage` import shim was **removed in 0.4.0**, after two releases
 of warning: `import TheHawkesPackage` is now an `ImportError`, and the import
 name is `hawkes_package`. 0.4.0 also renamed `Events` to `events` and `Sim_num`
-to `n_simulated`, which still work and warn, and dropped the frozen legacy
-spatio-temporal class.
+to `n_simulated` -- aliased at the time, and **removed in 0.5.0** -- and dropped
+the frozen legacy spatio-temporal class.
 
 Several behaviours changed in 0.2.0 in ways that alter previously produced
 numbers without raising — read [migration](migration.md) before re-running old

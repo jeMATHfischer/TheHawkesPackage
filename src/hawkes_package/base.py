@@ -18,8 +18,6 @@ from typing import Any
 
 import numpy as np
 
-from ._deprecation import DeprecatedAttribute
-
 __all__ = ["HawkesProcess", "TemporalHawkesProcess"]
 
 #: Anything :func:`numpy.random.default_rng` accepts.
@@ -185,15 +183,20 @@ class HawkesProcess(ABC):
         process did not simulate.
 
         .. versionchanged:: 0.4.0
-           Renamed from ``Events``, which still works and warns until 0.5.0. It
-           is now a view onto a growing buffer rather than a fresh array per
-           event — see :class:`_EventBuffer` for why that is the same thing to
-           a reader.
+           Renamed from ``Events``, and a view onto a growing buffer rather than
+           a fresh array per event — see :class:`_EventBuffer` for why that is
+           the same thing to a reader.
+
+        .. versionchanged:: 0.5.0
+           The ``Events`` alias is gone.
     n_simulated : int
         Number of events accepted so far across all :meth:`simulate` calls.
 
         .. versionchanged:: 0.4.0
-           Renamed from ``Sim_num``, which still works and warns until 0.5.0.
+           Renamed from ``Sim_num``.
+
+        .. versionchanged:: 0.5.0
+           The ``Sim_num`` alias is gone.
     rng : numpy.random.Generator
         The stream every draw is taken from.
     """
@@ -211,11 +214,6 @@ class HawkesProcess(ABC):
     @events.setter
     def events(self, value: Any) -> None:
         self._events.replace(value)
-
-    # Renamed in 0.4.0, and aliased rather than dropped because every notebook
-    # cell ever written against this package touches them.
-    Events = DeprecatedAttribute("events")
-    Sim_num = DeprecatedAttribute("n_simulated")
 
     @abstractmethod
     def _propagate(self, k: int) -> None:

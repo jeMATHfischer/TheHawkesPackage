@@ -41,37 +41,11 @@ from typing import Any
 
 import numpy as np
 
-from .._deprecation import DeprecatedAttribute, warn_removed, warn_renamed
 from .._numerics import as_point
 from . import _gluing, _integration
 from ._model import EuclideanPlane, HyperbolicPlane, ModelSpace, SphericalPlane, isometry_between
 
 __all__ = ["Circle", "FundamentalDomain", "SpatialDomain", "Sphere", "Torus2D"]
-
-
-#: Pre-0.4.0 spellings of the two side lengths, and what they are called now.
-_RENAMED_SIDES = {"L1": "width", "L2": "height"}
-
-
-def _sides(width: float, height: float, deprecated: dict[str, float]) -> tuple[float, float]:
-    """Resolve the two side lengths, accepting the pre-0.4.0 ``L1``/``L2`` spellings.
-
-    Taken as ``**kwargs`` rather than as two more parameters so the signature a
-    caller reads is the current one. The unknown-keyword branch matters: without
-    it a typo would be swallowed and the default silently used, which is how a
-    torus comes to be the wrong size with nothing said.
-
-    .. versionadded:: 0.4.0
-    """
-    unknown = set(deprecated) - set(_RENAMED_SIDES)
-    if unknown:
-        raise TypeError(f"unexpected keyword argument(s) {sorted(unknown)}")
-    sides = {"width": width, "height": height}
-    for old_name, new_name in _RENAMED_SIDES.items():
-        if old_name in deprecated:
-            warn_renamed(f"the {old_name} argument", f"{new_name}", removed_in="0.5.0")
-            sides[new_name] = deprecated[old_name]
-    return sides["width"], sides["height"]
 
 
 class SpatialDomain(ABC):
@@ -292,21 +266,19 @@ class Torus2D(SpatialDomain):
 
     .. versionchanged:: 0.4.0
        ``L1`` and ``L2`` are now ``width`` and ``height``, as arguments and as
-       attributes. Both old spellings still work and warn until 0.5.0.
+       attributes.
+
+    .. versionchanged:: 0.5.0
+       The ``L1`` and ``L2`` spellings are gone. An unknown keyword now raises
+       Python's own ``TypeError`` rather than one this class composed.
     """
 
     periodic = True
 
-    def __init__(
-        self,
-        width: float = 2 * np.pi,
-        height: float = 2 * np.pi,
-        **deprecated: float,
-    ) -> None:
-        self.width, self.height = _sides(width, height, deprecated)
-
-    L1 = DeprecatedAttribute("width")
-    L2 = DeprecatedAttribute("height")
+    def __init__(self, width: float = 2 * np.pi, height: float = 2 * np.pi) -> None:
+        # Assigned as given, which is what the removed `_sides` resolver did --
+        # the removal takes out the deprecation path and nothing else.
+        self.width, self.height = width, height
 
     def _wrap_1d(self, x: float, period: float) -> float:
         """Fold a single coordinate into (-period/2, period/2]."""
@@ -548,14 +520,6 @@ class FundamentalDomain(SpatialDomain):
         must be an isometry of `model` and must act freely. They need not be the
         individual side pairings — they need only *generate* the group, as the
         hexagonal torus's two translations generate its three side pairings.
-    n_images : int, optional
-        Deprecated. Word length the deck group used to be truncated at for
-        :meth:`distance`. Truncation is now by displacement radius and
-        certified per call, so the value is used only by :meth:`orbit`.
-
-        .. deprecated:: 0.4.0
-           Removed in 0.5.0. Pass nothing; :meth:`orbit` still takes its own
-           ``n_images``.
     model : ModelSpace, optional
         The geometry the polygon lives in. Defaults to the Euclidean plane.
     interior : array_like, optional
@@ -620,7 +584,6 @@ class FundamentalDomain(SpatialDomain):
         self,
         vertices: Any,
         pairings: Any,
-        n_images: int | None = None,
         *,
         model: ModelSpace | None = None,
         interior: Any = None,
@@ -662,15 +625,11 @@ class FundamentalDomain(SpatialDomain):
             raise ValueError("at least one side pairing is required")
         self.pairings = pairing_list
 
-        if n_images is not None:
-            warn_removed(
-                "the n_images argument of FundamentalDomain",
-                "the deck group is now truncated by displacement radius and the truncation is "
-                "certified on every call, so there is nothing to tune; FundamentalDomain.orbit "
-                "still takes its own n_images",
-                removed_in="0.5.0",
-            )
-        self.n_images = 3 if n_images is None else int(n_images)
+        # Kept as the default word length `orbit` reads, which is the only
+        # thing it was ever used for once `distance` began certifying its own
+        # truncation by displacement radius. `orbit(y, n_images=...)` overrides
+        # it per call and is not deprecated.
+        self.n_images = 3
 
         self._pairing = _gluing.infer_pairing(
             self.model, corners, pairing_list, self._outward, self._centre, self._tol
@@ -812,7 +771,6 @@ class FundamentalDomain(SpatialDomain):
         cls,
         width: float = 2 * np.pi,
         height: float = 2 * np.pi,
-        **deprecated: float,
     ) -> FundamentalDomain:
         """Build the centred rectangle of these sides, opposite sides paired.
 
@@ -821,10 +779,11 @@ class FundamentalDomain(SpatialDomain):
         implementation.
 
         .. versionchanged:: 0.4.0
-           ``L1`` and ``L2`` are now ``width`` and ``height``; the old spellings
-           warn and work until 0.5.0.
+           ``L1`` and ``L2`` are now ``width`` and ``height``.
+
+        .. versionchanged:: 0.5.0
+           The ``L1`` and ``L2`` spellings are gone.
         """
-        width, height = _sides(width, height, deprecated)
         corners = _rectangle_corners(width, height)
         return cls(corners, [_translation(width, 0.0), _translation(0.0, height)])
 
@@ -853,7 +812,6 @@ class FundamentalDomain(SpatialDomain):
         cls,
         width: float = 2 * np.pi,
         height: float = 2 * np.pi,
-        **deprecated: float,
     ) -> FundamentalDomain:
         r"""Build the flat Klein bottle: a rectangle, one side pair glued with a flip.
 
@@ -874,7 +832,6 @@ class FundamentalDomain(SpatialDomain):
         >>> bottle.topology.orientable, bottle.topology.name
         (False, 'Klein bottle')
         """
-        width, height = _sides(width, height, deprecated)
         corners = _rectangle_corners(width, height)
         glide = np.array([[-1.0, 0.0, 0.0], [0.0, 1.0, height], [0.0, 0.0, 1.0]])
         return cls(corners, [_translation(width, 0.0), glide])

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import hawkes_package as hp
+import hawkes_package.inference as inf
 import hawkes_package.spatio_temporal as st
 
 DISTRIBUTION = "the-hawkes-package"
@@ -23,7 +24,6 @@ MODULES = [
     "hawkes_package.exponential",
     "hawkes_package.mcmc",
     "hawkes_package.monotone",
-    "hawkes_package._deprecation",
     "hawkes_package.spatio_temporal",
     "hawkes_package.spatio_temporal.domains",
     "hawkes_package.spatio_temporal._model",
@@ -31,6 +31,22 @@ MODULES = [
     "hawkes_package.spatio_temporal._integration",
     "hawkes_package.spatio_temporal.kernels",
     "hawkes_package.spatio_temporal.process",
+    # The inference subpackage's public modules. `_compensator` and `_geometry`
+    # are omitted for the same reason `spatio_temporal._integration` is: they
+    # are private numerics reached only through the module above them.
+    "hawkes_package.inference",
+    "hawkes_package.inference.diagnostics",
+    "hawkes_package.inference.estimator",
+    "hawkes_package.inference.evolution",
+    "hawkes_package.inference.families",
+    "hawkes_package.inference.forecast",
+    "hawkes_package.inference.likelihood",
+    "hawkes_package.inference.mcmc",
+    "hawkes_package.inference.models",
+    "hawkes_package.inference.parameters",
+    "hawkes_package.inference.priors",
+    "hawkes_package.inference.resample",
+    "hawkes_package.inference.smc",
 ]
 
 
@@ -44,10 +60,18 @@ def test_every_exported_name_resolves(name):
     assert hasattr(hp, name), f"{name} is in __all__ but missing from the module"
 
 
-@pytest.mark.parametrize(("mod", "label"), [(hp, "hawkes_package"), (st, "spatio_temporal")])
+@pytest.mark.parametrize(
+    ("mod", "label"),
+    [(hp, "hawkes_package"), (st, "spatio_temporal"), (inf, "inference")],
+)
 def test_all_is_sorted_and_unique(mod, label):
     assert mod.__all__ == sorted(mod.__all__), f"{label}.__all__ is not sorted"
     assert len(mod.__all__) == len(set(mod.__all__)), f"{label}.__all__ has duplicates"
+
+
+@pytest.mark.parametrize("name", inf.__all__)
+def test_every_exported_inference_name_resolves(name):
+    assert hasattr(inf, name), f"{name} is in inference.__all__ but missing from the module"
 
 
 def test_star_import_matches_all():
