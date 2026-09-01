@@ -73,7 +73,7 @@ dev = [
   "the-hawkes-package[test,docs]",
   "ruff>=0.6",
   "mypy>=1.11",
-  "pre-commit>=3.7",
+  "pre-commit>=4.6.2",
   "build>=1.2",
   "twine>=6.1",
   "nbstripout>=0.7",
