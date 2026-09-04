@@ -47,6 +47,15 @@ MODULES = [
     "hawkes_package.inference.priors",
     "hawkes_package.inference.resample",
     "hawkes_package.inference.smc",
+    # The viz subpackage. Every one of these must import with numpy and scipy
+    # alone -- the rendering backend is an optional extra, and `_plotly` is
+    # listed on purpose: it is the module whose importability the lazy boundary
+    # is *about*. `tests/viz/test_public_surface.py` checks in a subprocess that
+    # importing the package does not drag plotly in.
+    "hawkes_package.viz",
+    "hawkes_package.viz._embedding",
+    "hawkes_package.viz._field",
+    "hawkes_package.viz._plotly",
 ]
 
 
