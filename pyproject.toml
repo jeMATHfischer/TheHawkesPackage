@@ -42,7 +42,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "numpy>=1.22",
+  "numpy>=2.2.6",
   "scipy>=1.8",
 ]
 
