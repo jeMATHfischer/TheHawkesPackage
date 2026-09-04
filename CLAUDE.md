@@ -301,17 +301,16 @@ literal filename `release.yml`.
 
 ## Current state and roadmap
 
-Released: **0.4.0** — every closed surface through `FundamentalDomain` and the
-three constant-curvature model spaces, plus the breaking sweep.
-
-Unreleased, for **0.5.0**: `hawkes_package.inference`,
-`HawkesProcess.simulate_until`, `HawkesEstimator`, and the removal of every name
-0.4.0 dated for this release. The plan the inference work was built from is
+Released: **0.5.0** — `hawkes_package.inference`,
+`HawkesProcess.simulate_until`, `HawkesEstimator`, `hawkes_package.viz`, and the
+removal of every name 0.4.0 dated for that release. 0.4.0 before it reached every
+closed surface through `FundamentalDomain` and the three constant-curvature model
+spaces. The plan the inference work was built from is
 `docs/plans/bayesian_module.md`; where the plan and the code differ, the code
 records the measurement that decided it.
 
-Nothing dated 0.5.0 is outstanding. What follows is the roadmap **past** it —
-each item is also under `### Planned` in `CHANGELOG.md`, which is the source:
+Nothing is outstanding. What follows is the roadmap **past** 0.5.0 — each item
+is also under `### Planned` in `CHANGELOG.md`, which is the source:
 
 - **The quadratic term is the intensity, not the record.** 0.4.0 replaced
   `np.append` with a doubling buffer — 7× faster at 5 000 events, 17× at 50 000,

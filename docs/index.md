@@ -76,7 +76,7 @@ projective plane.
 :link: migration
 :link-type: doc
 
-What 0.4.0 renamed and removed, and what it asks of a custom domain.
+What 0.5.0 removed, what 0.4.0 renamed, and what they ask of a custom domain.
 :::
 
 ::::

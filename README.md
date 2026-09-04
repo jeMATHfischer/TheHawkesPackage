@@ -24,7 +24,8 @@ by sequential Monte Carlo.
 pip install the-hawkes-package
 ```
 
-Requires Python 3.10+, NumPy and SciPy.
+Requires Python 3.10+, NumPy and SciPy. To draw the intensity as an animated 3-D surface, add the
+optional renderer: `pip install "the-hawkes-package[viz]"`.
 
 ## Quickstart
 
@@ -170,6 +171,27 @@ point estimate.
 `History.end` is keyword-required and has no default: "observed on `[0, T]`" and "stopped at the
 n-th event" are different experiments, and defaulting it would switch between them silently.
 
+## Visualization
+
+`hawkes_package.viz` draws the surface a spatio-temporal process lives on, colours it by
+`λ(t, x | H_t)`, and animates it over time into one self-contained interactive page — play
+button, frame slider, orbitable camera.
+
+```python
+from hawkes_package.viz import animate_intensity
+
+frames = animate_intensity(process, np.linspace(0, horizon, 40), "surface.html")
+print(frames.summary())
+```
+
+Four surfaces: the sphere and the projective plane are drawn **exactly**, the flat torus and the
+Klein bottle as immersions — neither admits an isometric embedding in three-space, so the
+distances on screen are not the geodesic distances driving the intensity, and each figure's
+caption says so. Hyperbolic surfaces are refused rather than drawn misleadingly.
+
+The renderer is an optional extra; the field itself is computed with numpy alone, through the same
+intensity hooks the simulator thins against.
+
 ## Reproducibility
 
 Every process takes `rng=`, accepting `None`, an `int` seed, or an existing `numpy.random.Generator`:
@@ -203,10 +225,11 @@ including the changes that alter previously produced numbers.
 
 <https://jeMATHfischer.github.io/TheHawkesPackage/>
 
-Four executed notebooks, run on every documentation build:
+Five executed notebooks, run on every documentation build:
 [temporal processes](https://jeMATHfischer.github.io/TheHawkesPackage/examples/temporal_processes.html),
 [spatio-temporal](https://jeMATHfischer.github.io/TheHawkesPackage/examples/spatio_temporal.html),
-[compact surfaces](https://jeMATHfischer.github.io/TheHawkesPackage/examples/surfaces.html) and
+[compact surfaces](https://jeMATHfischer.github.io/TheHawkesPackage/examples/surfaces.html),
+[intensity surfaces](https://jeMATHfischer.github.io/TheHawkesPackage/examples/intensity_surfaces.html) and
 [fitting to data](https://jeMATHfischer.github.io/TheHawkesPackage/examples/online_inference.html).
 
 ## License

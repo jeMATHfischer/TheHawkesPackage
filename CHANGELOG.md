@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
+  simulation. This is now the whole of the quadratic term: 0.4.0's buffer made the event record
+  grow linearly, and measuring showed the record was never where the time went.
+- Hyperbolic surfaces past twelve sides — genus 4, seven crosscaps — are refused at
+  construction, and reaching them needs a different search rather than a bigger budget. A
+  certified distance enumerates a deck-group window whose size grows like `exp(R)`, and the
+  radius scales with the polygon; the answer stays tiny (193 elements for genus 3) while the
+  search that certifies it does not. Searching outward from the *pair of points* instead of
+  from the polygon's centre would size the work to the answer.
+- Double precision is a second ceiling behind that one: a deck element at displacement 18 has
+  hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
+  sheet and its asymptotic cone.
+
+## [0.5.0] — 2026-09-04
+
 ### Added
 
 - **`hawkes_package.viz`**, an optional subpackage that renders the spatio-temporal intensity as
@@ -121,9 +138,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot be sliced into folds when every fold's likelihood depends on the events before it.
 - `hawkes_package.inference.block_boundaries` is now exported from the subpackage — it is how a
   `partial_fit` loop reproduces `fit`'s blocking.
-- `README.md` covers `HawkesEstimator`, `simulate_until`'s `start=` argument, and links the four
-  executed notebooks. Its intro said the package "extends the construction to a spatial domain
-  with periodic boundaries", which has undersold it since 0.4.0 — it reaches every closed surface.
+- `README.md` covers `HawkesEstimator`, `simulate_until`'s `start=` argument, the `[viz]` extra
+  and the surfaces it draws, and links all five executed notebooks. Its intro said the package
+  "extends the construction to a spatial domain with periodic boundaries", which has undersold it
+  since 0.4.0 — it reaches every closed surface.
 - **`docs/examples/surfaces.ipynb`**, a fourth executed notebook, on the one part of the package
   that had no runnable example: `FundamentalDomain`. It walks the six constructors and the
   surfaces they present, shows a point's images under the gluing and the resulting quotient
@@ -220,21 +238,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.4.0 applied to `DeprecatedAlias` and `deprecated_module_getattr`, now applying to the module
   itself. The package carries no deprecations at all, and `tests/test_deprecations.py` asserts
   that rather than describing it. The next deprecation recreates the module, which is cheap.
-
-### Planned
-
-- Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
-  simulation. This is now the whole of the quadratic term: 0.4.0's buffer made the event record
-  grow linearly, and measuring showed the record was never where the time went.
-- Hyperbolic surfaces past twelve sides — genus 4, seven crosscaps — are refused at
-  construction, and reaching them needs a different search rather than a bigger budget. A
-  certified distance enumerates a deck-group window whose size grows like `exp(R)`, and the
-  radius scales with the polygon; the answer stays tiny (193 elements for genus 3) while the
-  search that certifies it does not. Searching outward from the *pair of points* instead of
-  from the polygon's centre would size the work to the answer.
-- Double precision is a second ceiling behind that one: a deck element at displacement 18 has
-  hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
-  sheet and its asymptotic cone.
 
 ## [0.4.0] — 2026-08-27
 
@@ -582,7 +585,8 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 
 Initial internal version. Never published.
 
-[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.2.0
