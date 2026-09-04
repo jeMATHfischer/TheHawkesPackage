@@ -57,6 +57,13 @@ test = [
   # against the real library instead of against our reading of it. Every test in
   # that file is guarded by `importorskip`, so the suite passes without it.
   "scikit-learn>=1.4",
+  # Also test-only here, and the user-facing spelling is the `viz` extra below.
+  # It is in `test` rather than left to the coverage job alone so that all ten
+  # matrix jobs run the *same* set of tests: a marker-gated test dependency
+  # makes jobs diverge, and this repo has already lost half a matrix to a
+  # difference that only showed on some of them. plotly is a pure-Python wheel
+  # supporting 3.8+, so unlike a compiled backend it costs the matrix nothing.
+  "plotly>=5.18",
 ]
 docs = [
   "sphinx>=7.3",
@@ -68,6 +75,30 @@ docs = [
   "matplotlib>=3.7",
   # myst-nb executes the example notebooks and needs a kernel to do it.
   "ipykernel>=6.29",
+  # `docs/examples/intensity_surfaces.ipynb` renders live figures, so the docs
+  # build needs the same backend the `viz` extra below installs -- for a
+  # different reason, which is why it is pinned twice rather than composed:
+  # `docs` needs it to *execute* an example, `viz` is what a user installs to
+  # render one. Without it the Docs job fails at execution on the ImportError
+  # `viz._plotly` raises by design.
+  "plotly>=5.18",
+]
+viz = [
+  # The rendering backend for `hawkes_package.viz`, and deliberately not a
+  # runtime dependency: `intensity_frames` builds the field from the simulator's
+  # own hooks with nothing but numpy, and only writing the HTML page needs this.
+  # `viz._plotly` is the single module that names it, inside a function body, so
+  # `import hawkes_package.viz` works without it and says what to install when a
+  # render is attempted.
+  #
+  # SageMath was the first choice -- `parametric_plot3d(color=(cf, colormap))`
+  # and `animate(...).interactive()` are exactly this feature, prebuilt -- and
+  # was abandoned for a packaging reason, not a technical one: every
+  # `passagemath-plot` release pins `memory_allocator<0.2`, whose Windows wheels
+  # stop at cp310, while passagemath itself requires 3.11 or newer. The two
+  # constraints cannot both be met on Windows at any Python version, and
+  # `cysignals` has never shipped a Windows wheel at all.
+  "plotly>=5.18",
 ]
 dev = [
   "the-hawkes-package[test,docs]",
@@ -185,6 +216,16 @@ ignore_missing_imports = true
 # estimator reimplements the protocol instead.
 [[tool.mypy.overrides]]
 module = ["sklearn.*"]
+ignore_missing_imports = true
+
+# plotly ships no `py.typed` either. `src` names it in exactly one place -- the
+# lazy import inside `viz._plotly._backend` -- and everything that crosses that
+# boundary is already annotated `Any`, because a figure object has no type we
+# could usefully state. Without this the lint job's answer would depend on
+# whether the optional `[viz]` extra happened to be installed, which is the one
+# thing a lint job must never do.
+[[tool.mypy.overrides]]
+module = ["plotly.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
