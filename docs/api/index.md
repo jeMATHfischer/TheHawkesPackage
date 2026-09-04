@@ -246,3 +246,32 @@ require it.
    predictive_counts
    predictive_interval
 ```
+
+## Visualization
+
+An optional extra; see {doc}`../visualization`. `intensity_frames` needs nothing
+beyond numpy, and only `animate_intensity` reaches for the rendering backend.
+
+```{eval-rst}
+.. currentmodule:: hawkes_package.viz
+
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   animate_intensity
+   build_figure
+   intensity_frames
+   embed
+   event_opacities
+```
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+   :template: autosummary/class.rst
+   :nosignatures:
+
+   IntensityFrames
+   SurfaceEmbedding
+```

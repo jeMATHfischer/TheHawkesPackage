@@ -64,6 +64,14 @@ Ogata's thinning, stability conditions, and the spatio-temporal intensity.
 Fit a process to data, read the diagnostics, and forecast from the posterior.
 :::
 
+:::{grid-item-card} Visualization
+:link: visualization
+:link-type: doc
+
+Render the intensity as an animated 3-D surface: sphere, torus, Klein bottle or
+projective plane.
+:::
+
 :::{grid-item-card} Migration
 :link: migration
 :link-type: doc
@@ -99,6 +107,7 @@ installation
 quickstart
 theory
 inference
+visualization
 ```
 
 ```{toctree}
@@ -108,6 +117,7 @@ inference
 examples/temporal_processes
 examples/spatio_temporal
 examples/surfaces
+examples/intensity_surfaces
 examples/online_inference
 ```
 

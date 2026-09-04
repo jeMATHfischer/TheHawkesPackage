@@ -34,6 +34,13 @@ path and nothing else; inference has its own chain in `inference/mcmc.py`, named
 it cannot read as a drop-in. Adding anything in the out-of-scope list is new
 territory, not a gap to fill in by analogy with what is already here.
 
+**Visualization** (`hawkes_package.viz`, 0.5.0) is a third area, and was a
+deliberate scope addition rather than a roadmap item — it is not on the `###
+Planned` list. It draws four of the closed surfaces, colours them by the
+intensity and animates them to one HTML page. It is bound by the same rule as
+inference: the field is evaluated through the simulator's hooks, never from a
+second expression. Its backend is optional and lives behind one lazy import.
+
 **Three names for one project**: the distribution is `the-hawkes-package`, the
 import name is `hawkes_package`, and `TheHawkesPackage` was a deprecated import
 shim, removed in 0.4.0. Import `hawkes_package`.
@@ -105,6 +112,9 @@ between the value and its per-event future supremum.
 | `inference/models.py` | `ProcessModel` — theta to a process, and where it is defined |
 | `inference/_geometry.py` | the theta-independent distance tensors |
 | `inference/_compensator.py` | panelled Gauss–Legendre for `∫ λ` |
+| `viz/_embedding.py` | chart → R³, one immersion per surface, derived from its own pairings |
+| `viz/_field.py` | the hoisted λ frames, the colour range, the event fade |
+| `viz/_plotly.py` | the only module that names a plotting library, inside a function body |
 
 **Geometry and quadrature.** `SpatialDomain` requires `distance`, `wrap`,
 `sample_uniform`, `volume` and `bounds`; it optionally supports `contains`,
@@ -222,8 +232,11 @@ This is the section that matters. None of the following raises when violated.
   (`minimize_scalar` in `_numerics.py`), which is why `ks_exponential` hand-rolls
   the Kolmogorov series rather than importing `scipy.stats`. Tests may use scipy
   freely, and check the hand-rolled versions against it. Do not reach for pandas, numba or jax;
-  matplotlib is a docs extra, not a runtime dependency. NumPy 2 compatibility is an
-  active concern.
+  matplotlib is a docs extra, not a runtime dependency, and **plotly is a `[viz]`
+  extra** on the same footing: `viz/_plotly.py` imports it inside `_backend()` and
+  nothing else in `src` names it, so `import hawkes_package.viz` works without it
+  and a render says what to install. `tests/viz/test_public_surface.py` checks that
+  in a subprocess. NumPy 2 compatibility is an active concern.
 - `ValueError` for bad construction input, `RuntimeError` for a simulation that
   cannot proceed (non-positive bound, explosion, sampler that cannot find support),
   `UserWarning` for silently-wrong-numerics risk. Messages state the offending value
