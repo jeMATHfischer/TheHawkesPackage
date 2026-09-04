@@ -86,8 +86,16 @@ later.
 
 ### Everything else is new
 
-`hawkes_package.inference` and `simulate_until` are additions; no existing call
-changes meaning. See [Fitting a process to data](inference.md).
+`hawkes_package.inference`, `HawkesEstimator`, `simulate_until` and
+`hawkes_package.viz` are additions; no existing call changes meaning. See
+[Fitting a process to data](inference.md) and
+[Visualization](visualization.md).
+
+`viz` is the one that asks anything of you, and only if you want a picture: its
+renderer is an optional extra, `pip install "the-hawkes-package[viz]"`. The
+package's runtime dependencies are still numpy and scipy alone, and
+`import hawkes_package.viz` works without the extra -- it says what to install
+when you try to render.
 
 ## Migrating to 0.4.0
 

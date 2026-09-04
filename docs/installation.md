@@ -17,6 +17,20 @@ Python 3.10 or newer, with NumPy ≥ 1.22 and SciPy ≥ 1.8. Both are pulled in
 automatically. The package is pure Python and ships type information
 (PEP 561), so downstream `mypy` picks it up with no extra stubs.
 
+## Drawing the intensity
+
+Rendering a 3-D intensity surface needs one optional extra:
+
+```bash
+pip install "the-hawkes-package[viz]"
+```
+
+That is the *only* thing outside numpy and scipy this package will ever install,
+and it is deliberately optional: `hawkes_package.viz.intensity_frames` computes
+the field with numpy alone, and only writing the interactive page needs the
+renderer. `import hawkes_package.viz` works without the extra and says what to
+install when you try to render. See [visualization](visualization.md).
+
 ## From source
 
 ```bash
@@ -25,7 +39,8 @@ cd TheHawkesPackage
 python -m pip install -e ".[dev]"
 ```
 
-The `dev` extra adds the test, docs, lint and type-checking tools. The project
+The `dev` extra adds the test, docs, lint and type-checking tools; add
+`".[dev,viz]"` if you are working on the renderer. The project
 uses a `src/` layout, so an install is required before the tests can import the
 package — see [contributing](contributing.md).
 
