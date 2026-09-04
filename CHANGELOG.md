@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`hawkes_package.viz`**, an optional subpackage that renders the spatio-temporal intensity as
+  a 3-D surface coloured by `λ(t, x | H_t)` and animated over time, written out as one
+  self-contained interactive HTML page with a play button and a frame slider. Four surfaces:
+  `Sphere`, `FundamentalDomain.projective_plane()`, `Torus2D` / `FundamentalDomain.rectangle()`,
+  and `FundamentalDomain.klein_bottle()`.
+
+  **Visualization was not on the `### Planned` roadmap**, so this is a deliberate scope
+  addition rather than a deferred item coming due. It earns its place because the package now
+  reaches every closed surface and had no way to *look* at one: `intensity_over_interval` merges
+  the realised event times into its own time axis and sorts them, so it cannot produce
+  fixed-cadence frames at all, and the existing examples plot 2-D scatters of event locations
+  with the field itself never drawn above one dimension.
+
+  It adds **no runtime dependency**. The backend is plotly behind a new `[viz]` extra;
+  `hawkes_package.viz._plotly` is the only module that names it and imports it inside a function
+  body, so every `viz` module imports with numpy and scipy alone — which `tests/test_api_surface.py`
+  asserts and `tests/viz/test_public_surface.py` re-checks in a subprocess.
+
+  Three things worth knowing before reading a picture off it.
+
+  *The colour scale is global across every frame*, and the realised range is returned on the
+  result and written into the caption. A per-frame rescale would make a quiet frame look as hot
+  as a burst, which destroys the one thing an animation of a self-exciting process is for. The
+  ceiling is measured from the frames rather than derived from `_upper_bound`, which is the space
+  *integral* of a dominating field and so a spatial average — for a sharp kernel on a large
+  domain it sits below the peak and would clip the very bursts being drawn.
+
+  *The intensity is evaluated through the simulator's own hooks*, with the time-independent
+  factors hoisted out of the frame loop. That turns `n_grid × n_frames × n_events` distance
+  evaluations into `n_grid × n_events` — 22 minutes down to 33 seconds for a 64×64 grid over 40
+  frames on the projective plane, whose `distance` costs 327 µs a call. The hoist is
+  `_full_intensity` rearranged and nothing else: it is **bit-exact** against `process.intensity`,
+  which is asserted with `==` rather than a tolerance, and it re-checks a sample of finished
+  values against the hook at build time and raises rather than degrading. The spatial factor is
+  built through `process._spatial_at`, so pairwise kernels — everything `make_periodic` returns —
+  are hoisted by the same code and not excluded.
+
+  *Two of the four pictures distort distance, and say so.* The sphere is drawn as itself and the
+  projective plane as its double cover, both exact — the covering map is a local isometry, and
+  the antipodal symmetry of the colouring is the identification made visible. The flat torus and
+  the Klein bottle are drawn as a donut and a figure-8 immersion, because neither admits an
+  isometric embedding in three-space and the Klein bottle admits no embedding at all. The Klein
+  bottle's immersion is derived from the domain's *own* side pairings rather than from a textbook
+  one: `embed` reads the glide reflection `(x, y) -> (-x, y + h)` off the pairing matrices and
+  lines the figure-8's base circle up with the translated axis, and the gluing closes to 7e-16.
+  Getting that axis backwards would still render, still look like a Klein bottle, and tear the
+  field across one seam — so `tests/viz/test_embedding.py` carries a negative control that fails
+  if the axes are swapped. Hyperbolic surfaces are refused at construction rather than
+  approximated.
+
+  See `docs/visualization.md` for the reference and
+  `docs/examples/intensity_surfaces.ipynb` for all four surfaces drawn and animated -- the
+  latter executes on every docs build, so the documented API cannot rot silently.
+
 - **Bayesian inference.** `hawkes_package.inference` fits the parameters of any process this
   package simulates, from observed events, in blocks as they arrive. The algorithm is an SMC
   sampler over the data-tempered posterior sequence (Chopin's IBIS) with resample–move
