@@ -321,6 +321,20 @@ plugs in, and what it must not break; it says nothing about how. **A package tha
 gets picked up is rewritten as a `docs/plans/` design document first**, the way
 `bayesian_module.md` preceded 0.5.0.
 
+They are staged into releases by `docs/plans/extensions-programme.md`, which also
+recommends an answer to each of their 44 open questions: **0.6.0** multivariate,
+**0.7.0** bounded domains and diagnostics, **0.8.0** marks and a varying
+background, **0.9.0** performance and kernels, **1.0.0** the periodic background,
+the MLE baseline and reproducibility. Those versions are sequencing intent rather
+than commitment — `all-compact-surfaces.md` planned four releases and all four
+landed inside 0.4.0 — with two fixed points: 0.6.0 cannot absorb a second package,
+because its `d = 1` bit-identity proof is the evidence that the Ogata loop did not
+shift, and 0.9.0 is the only stage that moves previously produced numbers, so it
+is the only one owing `docs/migration.md` a section. The diagnostics package
+depends on nothing and can be pulled forward at any time.
+
+Stage 1 has graduated to a design document, `docs/plans/multivariate.md`.
+
 Their build order is `1 → 3 → 7 → 2 → 5 → 9` as the note authored it, with the
 four items it left unsequenced placed after by its own tiers — so the files are
 `01-multivariate`, `02-bounded-domains`, `03-diagnostics`, `04-marks`,
