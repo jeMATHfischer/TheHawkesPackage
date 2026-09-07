@@ -29,8 +29,11 @@ kept beside the docs and not published; the summaries here are the roadmap.
 1. **Multivariate and mutually-exciting processes** — a finite set of event types with a full
    excitation matrix, and a spectral radius replacing the scalar stationarity check. The check
    itself is cheap, because `ProcessModel.branching` is already an injected callable that
-   nothing downstream inspects; the cost is that `_EventBuffer` and `History` both store one
-   row of times and have to carry a type index.
+   nothing downstream inspects, and the event buffer already stores an arbitrary number of
+   rows. The cost is in `History`, whose `from_events` currently reads any two-dimensional
+   record as a spatio-temporal one — so a type row would be read as a coordinate, and nothing
+   would raise. Additive: the existing classes and their scalar guards are untouched, so no
+   previously produced number moves.
 2. **Bounded, non-periodic domains** with an explicit edge-correction policy. Masking already
    works — `restrict` reweights the quadrature by `contains` and `volume_element`, so a
    rectangle or polygon drops in — but every domain today is a closed surface, and nothing
