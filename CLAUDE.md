@@ -309,8 +309,32 @@ spaces. The plan the inference work was built from is
 `docs/plans/bayesian_module.md`; where the plan and the code differ, the code
 records the measurement that decided it.
 
-Nothing is outstanding. What follows is the roadmap **past** 0.5.0 — each item
-is also under `### Planned` in `CHANGELOG.md`, which is the source:
+Nothing from 0.5.0 is outstanding. The roadmap **past** it has two parts, and all
+of it is under `### Planned` in `CHANGELOG.md`, which is the source.
+
+The first part is the three code-level items below — narrow, measured, and about
+the code that exists. The second is ten point-process **capabilities** the package
+does not have, split out of a maintainer note and scoped one file each under
+`docs/extensions/`, which is gitignored and excluded from the Sphinx build exactly
+as `docs/plans/` is. A file there says what a capability is, where in `src/` it
+plugs in, and what it must not break; it says nothing about how. **A package that
+gets picked up is rewritten as a `docs/plans/` design document first**, the way
+`bayesian_module.md` preceded 0.5.0.
+
+Their build order is `1 → 3 → 7 → 2 → 5 → 9` as the note authored it, with the
+four items it left unsequenced placed after by its own tiers — so the files are
+`01-multivariate`, `02-bounded-domains`, `03-diagnostics`, `04-marks`,
+`05-varying-background`, `06-performance`, `07-kernel-library`,
+`08-periodic-background`, `09-mle-baseline`, `10-reproducibility`, and
+`docs/extensions/index.md` is the register. Reading them against the code moved
+four sizes and no priorities: 05 is nearly free (the simulator already takes a
+callable base rate and the likelihood already integrates it numerically), 08 is
+blocked by a signature rather than by mathematics, 09's cost is widening SciPy
+past its one call site rather than any code, and 06 is half done in the place
+nobody looks — the `O(n)` exponential recursion already exists in
+`ExponentialLogLikelihood`, and it is the *simulators* that rebuild the full sum.
+
+The three code-level items:
 
 - **The quadratic term is the intensity, not the record.** 0.4.0 replaced
   `np.append` with a doubling buffer — 7× faster at 5 000 events, 17× at 50 000,

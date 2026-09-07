@@ -22,6 +22,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
   sheet and its asymptotic cone.
 
+Beyond those three, ten point-process capabilities the package does not have, listed in the
+order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
+kept beside the docs and not published; the summaries here are the roadmap.
+
+1. **Multivariate and mutually-exciting processes** — a finite set of event types with a full
+   excitation matrix, and a spectral radius replacing the scalar stationarity check. The check
+   itself is cheap, because `ProcessModel.branching` is already an injected callable that
+   nothing downstream inspects; the cost is that `_EventBuffer` and `History` both store one
+   row of times and have to carry a type index.
+2. **Bounded, non-periodic domains** with an explicit edge-correction policy. Masking already
+   works — `restrict` reweights the quadrature by `contains` and `volume_element`, so a
+   rectangle or polygon drops in — but every domain today is a closed surface, and nothing
+   accounts for kernel mass falling outside a boundary.
+3. **A validation and diagnostics harness**: spatio-temporal residuals, rolling-origin
+   backtesting, proper scoring rules and naive baselines. The residuals must be computed with a
+   compensator that does not share the estimator's, because a fit made with one 20% too small
+   inflates the intensity by 25% and the two errors cancel exactly.
+4. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
+   productivity vector broadcasts down one axis of the likelihood's existing `(n, n)` factor
+   matrix; the work is the mark distribution, and a thinning bound that stays valid when an
+   exponential productivity meets an unbounded mark.
+5. **A spatially varying background** — the biggest modelling restriction in the package. The
+   simulator already accepts a callable base rate and the likelihood already integrates the
+   background numerically over the quadrature nodes, so this is a new `BaseFamily` beside
+   `ConstantBase` rather than a plumbing change.
+6. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
+   index, and vectorisation across SMC particles, where an explicit per-particle loop in
+   rejuvenation is already commented as the dominant cost of a fit. Truncation is an
+   approximation, so the bound and the acceptance test must be computed from the same
+   truncated quantity or the thinning is wrong without raising.
+7. **A wider kernel library** — power-law and compact-support spatial kernels, since the
+   Gaussian tail is too light for most data, and a non-separable option. New families are
+   additive against the existing `KernelFamily` protocols; a non-separable kernel already
+   simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
+   to exploit, so fitting one needs a new backend.
+8. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+   signature rather than by mathematics: the background is a function of position only, and
+   adding time to it also moves the thinning bound, which must then use the supremum over the
+   remaining interval rather than the current value.
+9. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+   against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
+   and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
+   SciPy past the single call site it is deliberately held to.
+10. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+    test that simulates from known parameters, refits and checks the credible intervals. Seeding
+    is already done. Coverage is a statistical threshold like any other — a collapsed particle
+    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
+
 ## [0.5.0] — 2026-09-04
 
 ### Added
