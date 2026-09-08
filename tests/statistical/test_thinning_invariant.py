@@ -23,12 +23,25 @@ from _pytest.mark.structures import ParameterSet
 import hawkes_package as hp
 
 
-def instrument(proc, lam_name):
+def total(value):
+    """Reduce a vector intensity to the scalar its single bound dominates."""
+    return float(np.sum(value))
+
+
+def instrument(proc, lam_name, *, reduce=None):
     """Record every ``(M, lambda)`` pair the acceptance test actually compares.
 
     ``_upper_bound`` calls the intensity hook internally on some classes, so a
     depth counter suppresses those nested calls; only the loop's own evaluation
     is recorded.
+
+    `reduce` maps the hook's return value to the scalar the bound dominates. It
+    is ``None`` for a univariate class, whose hook already returns that scalar,
+    and :func:`total` for a multivariate one, whose hook returns the per-type
+    intensities against whose *sum* the one bound is drawn. Recording a single
+    component instead would check a weaker inequality than the loop relies on,
+    and would pass on a bound too small by a factor approaching the number of
+    types.
     """
     orig_bound = proc._upper_bound
     orig_lam = getattr(proc, lam_name)
@@ -48,12 +61,30 @@ def instrument(proc, lam_name):
         # Record only the loop's own evaluation: not the nested call made while
         # computing the bound, and not a bound-mode evaluation.
         if state["depth"] == 0 and not kwargs.get("bound") and state["m"] is not None:
-            state["pairs"].append((state["m"], value))
+            state["pairs"].append((state["m"], value if reduce is None else reduce(value)))
         return value
 
     proc._upper_bound = bound
     setattr(proc, lam_name, lam)
     return state
+
+
+def as_vector_hook(proc, lam_name):
+    """Make `proc`'s intensity hook return a length-1 vector instead of a scalar.
+
+    No multivariate class exists yet, so this is how the reducing path above is
+    exercised: the same process, the same seed, the same numbers -- only the
+    hook's *shape* changes. A size-1 array multiplies, compares and tests truthy
+    exactly as the scalar did, so the loop consumes an identical stream of draws
+    and the recorded pairs must come out identical too. That equality is the
+    whole point: it pins `reduce` as inert on the path it does not apply to.
+    """
+    orig = getattr(proc, lam_name)
+
+    def vector(t, **kwargs):
+        return np.array([orig(t, **kwargs)], dtype=float)
+
+    setattr(proc, lam_name, vector)
 
 
 def _check(state, *, label):
@@ -306,11 +337,40 @@ def test_spatio_temporal_thinning_invariant(build, name, stop):
 
 
 @pytest.mark.statistical
-def test_instrumentation_detects_a_broken_bound(exp_kernel):
+@pytest.mark.parametrize("name", TEMPORAL)
+def test_reducing_a_vector_intensity_records_the_same_pairs(build, name):
+    """`reduce` must not disturb what the harness records.
+
+    The multivariate loop draws one bound against the *total* of a vector
+    intensity, so the harness has to reduce before comparing. This pins that the
+    reduction is the only difference between the two paths: same seed, same
+    draws, same pairs, exactly. Without it a reducing harness could quietly
+    record something other than what the loop compared, and every multivariate
+    invariant test below would be checking the wrong inequality.
+    """
+    plain, drive_plain = stopping_rule(build, name, 11, 60, "count")
+    plain_state = instrument(plain, "_conditional_intensity")
+    drive_plain()
+
+    reduced, drive_reduced = stopping_rule(build, name, 11, 60, "count")
+    as_vector_hook(reduced, "_conditional_intensity")
+    reduced_state = instrument(reduced, "_conditional_intensity", reduce=total)
+    drive_reduced()
+
+    assert len(plain_state["pairs"]) > 0
+    np.testing.assert_array_equal(plain_state["pairs"], reduced_state["pairs"])
+    np.testing.assert_array_equal(plain.events, reduced.events)
+    _check(reduced_state, label=f"{name}(reduced)")
+
+
+@pytest.mark.statistical
+@pytest.mark.parametrize("reduce", [None, total], ids=["scalar", "reduced"])
+def test_instrumentation_detects_a_broken_bound(exp_kernel, reduce):
     """Guard the guard: a deliberately too-tight bound must be caught.
 
     Without this, a bug in `instrument` could make every invariant test pass
-    vacuously.
+    vacuously -- and that has to stay true on the reducing path, which is the
+    one the multivariate cases are checked through.
     """
     proc = hp.MonotoneKernelHawkes(exp_kernel, rng=3)
     proc.simulate(20)
@@ -321,7 +381,9 @@ def test_instrumentation_detects_a_broken_bound(exp_kernel):
         return float(proc.nonlinearity(np.sum(proc.temporal(t - past))))
 
     proc._upper_bound = broken_bound
-    state = instrument(proc, "_conditional_intensity")
+    if reduce is not None:
+        as_vector_hook(proc, "_conditional_intensity")
+    state = instrument(proc, "_conditional_intensity", reduce=reduce)
     proc.simulate(50)
     with pytest.raises(AssertionError, match=r"violated|every candidate was accepted"):
         _check(state, label="deliberately-broken")
