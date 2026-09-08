@@ -25,10 +25,16 @@ Euclidean distance on a `Torus2D`.
 
 **Scope boundaries.** Simulation, plus — since 0.5.0 — **inference**, which lives
 entirely in `hawkes_package.inference` and is built on the same intensity hooks the
-simulator thins against. Still out of scope: multivariate or mutually-exciting
-processes, and discrete marks — space is the only mark. Partially observed data is
-out too, and for a reason rather than by omission: it creates a genuine latent
-state and needs a different algorithm, not a different setting of this one.
+simulator thins against. Since 0.6.0 both cover **multivariate, mutually-exciting**
+processes: `MultivariateHawkes` and `MultivariateExponentialHawkes` simulate them,
+`multivariate_model` fits them, and `MultivariateExponentialLogLikelihood` is the
+`O(n·d)` closed form. One kernel shape and a non-negative `(d, d)` matrix of
+scales — so cross-excitations share a decay rate, and **inhibition is excluded by
+the bound argument** (`sup(a·f) = a·sup(f)` only for `a >= 0`), not by preference.
+Still out of scope: continuous marks — space and type are the only marks.
+Partially observed data is out too, and for a reason rather than by omission: it
+creates a genuine latent state and needs a different algorithm, not a different
+setting of this one.
 `hawkes_package.mcmc` remains the spatial location sampler on the Ogata correctness
 path and nothing else; inference has its own chain in `inference/mcmc.py`, named so
 it cannot read as a drop-in. Adding anything in the out-of-scope list is new

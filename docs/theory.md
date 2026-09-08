@@ -94,6 +94,8 @@ finite time — when the expected number of offspring per event is below one.
 | `ExponentialHawkes([μ, α, β])` | $\alpha/\beta < 1$ |
 | `MonotoneKernelHawkes(κ, φ)` | depends on the kernel mass $\int \kappa$ and on how fast $\varphi$ grows |
 | `BellShapeHawkes(κ, φ)` | as above |
+| `MultivariateExponentialHawkes(μ, A, β)` | $\rho(A/\beta) < 1$ |
+| `MultivariateHawkes(μ, A, κ, φ)` | $\rho\!\left(A \int \kappa\right) < 1$, times the Lipschitz constant of $\varphi$ |
 
 For the exponential case the branching ratio is exactly $\alpha/\beta$, and the
 constructor rejects $\alpha/\beta \ge 1$ outright. The long-run event rate is
@@ -102,6 +104,43 @@ then
 $$
 \text{rate} = \frac{\mu}{1 - \alpha/\beta}.
 $$
+
+### Several types at once
+
+For a **multivariate** process the scalar ratio becomes the spectral radius of
+the branching matrix $G_{ij} = A_{ij} \int \kappa$, whose entry $(i, j)$ counts
+the type-$i$ offspring a type-$j$ event produces directly. Below one the process
+is stationary, and at one type $\rho(G)$ is exactly $\alpha/\beta$. The long-run
+rate is then a vector,
+
+$$
+\Lambda = (I - G)^{-1} \mu,
+$$
+
+which is what decides how often each type appears. The cheap majorant
+$\rho(G) \le \max_i \sum_j G_{ij}$ is worth knowing, but it is not what the
+constructor uses: it would refuse stationary processes near the boundary.
+
+The **thinning bound** asks one more thing of $A$ than stationarity does: every
+entry must be non-negative. One bound covers the total intensity
+$\Lambda(t) = \sum_i \lambda_i(t)$, and the domination argument runs per
+component and then sums — the event set does not grow before the next accepted
+event, each term obeys
+
+$$
+A_{ij}\,\kappa(s - t_k) \le A_{ij} \sup_{u \ge t_0 - t_k} \kappa(u),
+$$
+
+and finitely many dominating scalars sum to a dominating scalar. That middle
+step needs $\sup(af) = a\sup(f)$, which holds only for $a \ge 0$. So inhibitory
+cross-excitation is refused at construction rather than approximated: it is a
+different bound argument, not a different value.
+
+The type costs no extra variate. The cumulative component intensities partition
+$(0, M]$ into one slice per type plus the rejection remainder, so the same
+uniform that decides acceptance also decides which type fired — which is why a
+one-type multivariate process reproduces the univariate classes event for event
+on the same seed.
 
 The nonlinear classes have no such closed form, so nothing is checked up front.
 An explosive choice — $\varphi = \exp$ with a unit-mass kernel, say — makes the

@@ -17,6 +17,22 @@
    BellShapeHawkes
 ```
 
+## Multivariate processes
+
+Several event types exciting one another, through one shared kernel shape and
+a non-negative matrix of scales.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+   :template: autosummary/class.rst
+   :nosignatures:
+
+   MultivariateHawkes
+   MultivariateExponentialHawkes
+   MultivariateTemporalHawkesProcess
+```
+
 ## Spatio-temporal processes
 
 ```{eval-rst}
@@ -119,6 +135,9 @@ parameter vector to a process, and the set of parameters that map is defined on.
    ProcessModel
    Parameter
    ParameterSpec
+   ExcitationMatrix
+   MultivariateBase
+   UnitExponentialKernel
 ```
 
 ```{eval-rst}
@@ -129,6 +148,7 @@ parameter vector to a process, and the set of parameters that map is defined on.
    exponential_model
    monotone_model
    bell_shape_model
+   multivariate_model
    spatio_temporal_model
 ```
 
@@ -139,6 +159,13 @@ parameter vector to a process, and the set of parameters that map is defined on.
 and is `O(n²P)`; `SpatioTemporalLogLikelihood` carries two backends that compute
 the same number, and always records which one ran.
 
+For a multivariate model the pair repeats: `MultivariateLogLikelihood` goes
+through the hooks, `MultivariateExponentialLogLikelihood` is the `O(n·d)`
+closed form. Both sum the intensity of the type each event **carries** while
+integrating the total across types -- using the total in both places inflates
+the log-sum by 265 nats over 400 events, which is why `TemporalLogLikelihood`
+refuses a multivariate model rather than reading its scalar hook.
+
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -147,6 +174,8 @@ the same number, and always records which one ran.
 
    ExponentialLogLikelihood
    TemporalLogLikelihood
+   MultivariateLogLikelihood
+   MultivariateExponentialLogLikelihood
    SpatioTemporalLogLikelihood
    LikelihoodState
 ```

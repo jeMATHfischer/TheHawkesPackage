@@ -50,7 +50,26 @@ otherwise — an unstable process would not terminate.
 | `ExponentialHawkes` | Linear intensity, exponential kernel. The classic case. |
 | `MonotoneKernelHawkes` | Any monotone-decreasing kernel, with a monotone-increasing nonlinearity `φ`. |
 | `BellShapeHawkes` | Kernels with a single interior maximum, where the excitation ramps up before decaying. |
+| `MultivariateHawkes` | Several event types exciting one another, with any monotone or bell-shaped kernel. |
+| `MultivariateExponentialHawkes` | The same with a shared exponential kernel — the classic mutually-exciting case. |
 | `SpatioTemporalHawkesProcess` | Events carry a location on a surface: `Circle`, `Sphere`, `Torus2D` or any `FundamentalDomain`. |
+
+A multivariate process takes a background rate per type and a non-negative `(d, d)` excitation
+matrix, `A[i, j]` scaling the excitation type *j* exerts on type *i*, against **one shared kernel
+shape**. Its record is `(2, n)` — times in row 0, the type in row 1 — and `process.types` reads
+the second row back as integers. Stationarity is the spectral radius of `A ∫κ` rather than a
+scalar ratio, and reduces to `α/β` at one type. Negative matrix entries are refused: the thinning
+bound takes a supremum term by term and `sup(a·f) = a·sup(f)` only for `a ≥ 0`, so inhibitory
+cross-excitation is a different bound argument rather than a different value.
+
+```python
+process = hp.MultivariateExponentialHawkes(
+    mu=[0.6, 0.3], excitation=[[0.5, 0.2], [0.4, 0.6]], beta=2.0, rng=0
+)
+process.simulate(500)
+process.events.shape          # (2, 500)
+process.types                 # 0 or 1 per event
+```
 
 `simulate(k)` stops after `k` events; `simulate_until(T)` stops at a horizon, and is what a
 forecast needs — a fixed-count simulation cannot express "no events at all in the window". Its
