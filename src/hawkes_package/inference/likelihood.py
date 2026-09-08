@@ -60,6 +60,7 @@ __all__ = [
     "History",
     "LikelihoodState",
     "LogLikelihood",
+    "MultivariateLogLikelihood",
     "SpatioTemporalLogLikelihood",
     "TemporalLogLikelihood",
 ]
@@ -641,6 +642,185 @@ class TemporalLogLikelihood:
         for k, right in enumerate(query):
             edges = _compensator.breakpoints(left, float(right), history.times, self.extra_lags)
             running += _compensator.integrate(intensity, *_compensator.panels(edges, self.order))
+            out[k] = running
+            left = float(right)
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Multivariate temporal
+# ---------------------------------------------------------------------------
+
+
+class MultivariateLogLikelihood:
+    r"""The log-likelihood of a multivariate Hawkes process, from its own hooks.
+
+    The same formula as :class:`TemporalLogLikelihood` with one change, and the
+    change is the whole point:
+
+    .. math::
+
+        \ell(\theta) = \sum_{t_i \le T} \log \lambda_{c_i}(t_i^-)
+                       - \int_{start}^{T} \sum_i \lambda_i(s)\,\mathrm{d}s.
+
+    The **sum** runs over the intensity of the type each event actually carries;
+    the **integral** runs over the total across types, because that is the rate
+    at which events of any type arrive. Using the total in both places is the
+    mistake this class exists to make impossible, and it is why
+    :class:`TemporalLogLikelihood` refuses a multivariate model rather than
+    accepting one and reading its scalar hook: the compensator would be right,
+    the log-sum wrong by :math:`\log(\Lambda / \lambda_{c_i})` per event -- a
+    strictly positive amount at every event -- and the excitation would come
+    back systematically large on a fit that looked converged.
+
+    Parameters
+    ----------
+    model : ProcessModel
+        A model whose components are
+        :class:`~hawkes_package.inference.models.MultivariateComponents`.
+    order : int
+        Gauss-Legendre order per panel in the compensator.
+    extra_lags : sequence of float
+        Extra breakpoints per event, for a kernel with a kink away from zero.
+    check : bool
+        Compare order ``P`` against ``2P`` once and warn if they disagree.
+
+    .. versionadded:: 0.6.0
+    """
+
+    def __init__(
+        self,
+        model: ProcessModel,
+        *,
+        order: int = _compensator.DEFAULT_ORDER,
+        extra_lags: Sequence[float] = (),
+        check: bool = True,
+    ) -> None:
+        if not isinstance(model.components, MultivariateComponents):
+            raise ValueError(
+                f"{type(self).__name__} is for multivariate models; this one is "
+                f"{model.family!r}. Use TemporalLogLikelihood or "
+                "SpatioTemporalLogLikelihood."
+            )
+        self.model = model
+        self.n_types = model.components.n_types
+        self.order = int(order)
+        self.extra_lags = tuple(float(lag) for lag in extra_lags)
+        self.check = bool(check)
+        self._checked = False
+
+    def initial_state(self, start: float) -> LikelihoodState:
+        """Return the empty state at `start`."""
+        return LikelihoodState(upto=float(start), n_events=0, log_lik=0.0, carry=())
+
+    def _require_types(self, history: History) -> np.ndarray:
+        """Return the history's types, refusing one that cannot carry them.
+
+        Fitting a multivariate model to an untyped history would put every event
+        in component 0, which is a different model and not one anybody asked
+        for. A type-count mismatch is the same failure with a smaller radius:
+        it drops or invents a component's background and its column of the
+        excitation matrix.
+        """
+        if history.types is None:
+            raise ValueError(
+                "a multivariate model needs a history carrying event types; build "
+                "one with History.from_multivariate_events"
+            )
+        if history.n_types != self.n_types:
+            raise ValueError(
+                f"the history has n_types={history.n_types} but the model has "
+                f"{self.n_types}. A mismatch silently drops or invents a component."
+            )
+        return np.asarray(history.types, dtype=np.intp)
+
+    def _process(self, theta: Any, history: History, upto: float) -> Any:
+        """Build the process at `theta` and condition it on the history so far."""
+        process = self.model(theta)
+        _bind_history(process, history.upto(upto))
+        return process
+
+    def extend(
+        self,
+        state: LikelihoodState,
+        theta: Any,
+        history: History,
+        upto: float,
+    ) -> tuple[LikelihoodState, float]:
+        """Account for the block ``(state.upto, upto]``."""
+        types = self._require_types(history)
+        end = _check_extension(state, history, upto)
+        if end == state.upto:
+            return state, 0.0
+
+        process = self._process(theta, history, end)
+        # The hooks themselves, not a second expression for the same intensity.
+        components = process._component_intensities
+        total = process._conditional_intensity
+
+        selected = (history.times > state.upto) & (history.times <= end)
+        fresh = history.times[selected]
+        kinds = types[selected]
+
+        log_sum = 0.0
+        for t, kind in zip(fresh, kinds, strict=True):
+            value = float(components(float(t))[kind])
+            if not value > 0.0:
+                # A zero intensity for the type that fired is a likelihood of
+                # zero, not an error. -inf propagates to a weight of zero.
+                return (
+                    LikelihoodState(end, state.n_events + fresh.size, -math.inf, ()),
+                    -math.inf,
+                )
+            log_sum += math.log(value)
+
+        edges = _compensator.breakpoints(state.upto, end, history.times, self.extra_lags)
+        if self.check and not self._checked:
+            self._checked = True
+            _compensator.check_resolution(total, edges, order=self.order)
+        integral = _compensator.integrate(total, *_compensator.panels(edges, self.order))
+
+        increment = log_sum - integral
+        return (
+            LikelihoodState(
+                upto=end,
+                n_events=state.n_events + int(fresh.size),
+                log_lik=state.log_lik + increment,
+                carry=(),
+            ),
+            increment,
+        )
+
+    def total(self, theta: Any, history: History, upto: float | None = None) -> float:
+        """Return the whole log-likelihood on ``(start, upto]``, defaulting to the window."""
+        end = history.end if upto is None else float(upto)
+        return self.extend(self.initial_state(history.start), theta, history, end)[0].log_lik
+
+    def compensator(self, theta: Any, history: History, times: Any) -> np.ndarray:
+        r"""Evaluate :math:`\Lambda(t) - \Lambda(start)` at each of `times`.
+
+        The compensator of the **pooled** process -- every type's events
+        together -- which is what the time-rescaling residuals of the whole
+        realisation need. Per-component residuals integrate a single
+        :math:`\lambda_i` instead, and belong with the diagnostic that asks for
+        them rather than here.
+        """
+        self._require_types(history)
+        query = np.asarray(times, dtype=float).ravel()
+        if query.size == 0:
+            return np.empty(0, dtype=float)
+        if np.any(np.diff(query) < 0):
+            raise ValueError("times must be sorted for the compensator")
+
+        process = self._process(theta, history, float(query[-1]))
+        total = process._conditional_intensity
+
+        out = np.empty(query.size, dtype=float)
+        running = 0.0
+        left = history.start
+        for k, right in enumerate(query):
+            edges = _compensator.breakpoints(left, float(right), history.times, self.extra_lags)
+            running += _compensator.integrate(total, *_compensator.panels(edges, self.order))
             out[k] = running
             left = float(right)
         return out
