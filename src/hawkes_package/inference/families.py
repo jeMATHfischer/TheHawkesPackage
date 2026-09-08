@@ -47,6 +47,7 @@ __all__ = [
     "NonlinearityFamily",
     "SoftPlusNonlinearity",
     "SpatialKernelFamily",
+    "UnitExponentialKernel",
 ]
 
 
@@ -198,6 +199,52 @@ class ExponentialKernel:
         """``alpha / beta``, the branching ratio of the linear process."""
         values, flat = _batch(theta, 2)
         return _unbatch(values[:, 0] / values[:, 1], flat)
+
+
+@dataclass(frozen=True)
+class UnitExponentialKernel:
+    r"""The kernel :math:`\kappa(s) = e^{-\beta s}`, with no amplitude of its own.
+
+    :class:`ExponentialKernel` carries ``alpha``, which is right when the kernel
+    is the whole excitation. In a multivariate model it is not: the excitation
+    matrix already scales every ordered pair, so ``A[i, j] * alpha`` would be the
+    quantity that matters and only the *product* would be identifiable.
+    Multiplying every matrix entry by ``c`` and dividing ``alpha`` by ``c`` gives
+    the same process, so the posterior would wander along that ridge forever
+    while the effective sample size, the acceptance rate and the move size all
+    looked healthy -- and the reported matrix would be arbitrary.
+
+    So the amplitude lives in exactly one place. This family carries the shape
+    only, and mass ``1 / beta`` means ``A / beta`` is the branching matrix
+    directly. It is the family
+    :class:`~hawkes_package.multivariate.MultivariateExponentialHawkes` is
+    parameterised by.
+
+    .. versionadded:: 0.6.0
+    """
+
+    monotone: bool = True
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(beta,)``, positive."""
+        return ParameterSpec((Parameter("beta"),))
+
+    def build(self, theta: Any) -> Callable[[Any], Any]:
+        """Return the kernel as a vectorized callable on non-negative lags."""
+        values, _ = _batch(theta, 1)
+        beta = float(values[0, 0])
+        return lambda s: np.exp(-beta * np.asarray(s, dtype=float))
+
+    def peak(self, theta: Any) -> PeakLocation:
+        """Return the maximum, at lag ``0`` with value ``1``."""
+        _batch(theta, 1)
+        return PeakLocation(lag=0.0, value=1.0)
+
+    def mass(self, theta: Any) -> np.ndarray:
+        """``1 / beta``."""
+        values, flat = _batch(theta, 1)
+        return _unbatch(1.0 / values[:, 0], flat)
 
 
 @dataclass(frozen=True)

@@ -53,7 +53,7 @@ from ..base import HawkesProcess, TemporalHawkesProcess
 from ..spatio_temporal.process import SpatioTemporalHawkesProcess
 from . import _compensator
 from ._geometry import DEFAULT_MAX_BYTES, GeometryCache, build_geometry, extend_geometry
-from .models import ProcessModel, SpatialComponents
+from .models import MultivariateComponents, ProcessModel, SpatialComponents
 
 __all__ = [
     "ExponentialLogLikelihood",
@@ -531,6 +531,19 @@ class TemporalLogLikelihood:
             raise ValueError(
                 f"{type(self).__name__} is for temporal models; this one is "
                 f"{model.ndim}-dimensional in space. Use SpatioTemporalLogLikelihood."
+            )
+        # A multivariate model is `ndim == 0` too, so the check above lets it
+        # through -- and then `_conditional_intensity` returns the *total*
+        # intensity, where the log-sum needs the intensity of the component each
+        # event actually belongs to. The compensator would be right and the
+        # log-sum wrong, so the fit comes back converged on a posterior that is
+        # simply not the posterior of this data.
+        if isinstance(model.components, MultivariateComponents):
+            raise ValueError(
+                f"{type(self).__name__} cannot fit a multivariate model: its "
+                "intensity hook returns the total across types, but the "
+                "log-likelihood needs the intensity of the type each event "
+                "carries. Use MultivariateLogLikelihood."
             )
         self.model = model
         self.order = int(order)

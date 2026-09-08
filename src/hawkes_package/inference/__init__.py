@@ -85,6 +85,7 @@ from .families import (
     LinearNonlinearity,
     MultivariateBase,
     SoftPlusNonlinearity,
+    UnitExponentialKernel,
 )
 from .forecast import posterior_predictive, predictive_counts, predictive_interval
 from .likelihood import (
@@ -97,10 +98,12 @@ from .likelihood import (
 )
 from .mcmc import ChainResult, batch_posterior, metropolis_chain
 from .models import (
+    MultivariateComponents,
     ProcessModel,
     bell_shape_model,
     exponential_model,
     monotone_model,
+    multivariate_model,
     spatio_temporal_model,
 )
 from .parameters import Parameter, ParameterSpec
@@ -147,6 +150,7 @@ __all__ = [
     "LogNormal",
     "Marginal",
     "MultivariateBase",
+    "MultivariateComponents",
     "Normal",
     "Parameter",
     "ParameterSpec",
@@ -162,6 +166,7 @@ __all__ = [
     "StepRecord",
     "TemporalLogLikelihood",
     "Uniform",
+    "UnitExponentialKernel",
     "batch_posterior",
     "bell_shape_model",
     "block_boundaries",
@@ -172,6 +177,7 @@ __all__ = [
     "metropolis_chain",
     "monotone_model",
     "multinomial",
+    "multivariate_model",
     "posterior_predictive",
     "posterior_report",
     "predictive_counts",
