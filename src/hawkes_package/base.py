@@ -54,13 +54,21 @@ class _EventBuffer:
     rows : int or None
         Number of rows in the record, or ``None`` for a flat one.
 
+    layout : str, optional
+        What the rows after row 0 hold, used only to phrase the error
+        :meth:`replace` raises. A multivariate record's rows are not all
+        coordinates, so the default wording would misdescribe it.
+
+        .. versionadded:: 0.6.0
+
     .. versionadded:: 0.4.0
     """
 
-    __slots__ = ("_count", "_data", "_rows")
+    __slots__ = ("_count", "_data", "_layout", "_rows")
 
-    def __init__(self, rows: int | None = None) -> None:
+    def __init__(self, rows: int | None = None, *, layout: str = "of coordinates") -> None:
         self._rows = rows
+        self._layout = layout
         self._count = 0
         self._data = np.empty(self._shaped(0), dtype=float)
 
@@ -124,7 +132,7 @@ class _EventBuffer:
         if self._rows is not None and record.shape[0] != self._rows:
             raise ValueError(
                 f"the event record must have {self._rows} rows -- one of times above "
-                f"{self._rows - 1} of coordinates -- got shape {record.shape}"
+                f"{self._rows - 1} {self._layout} -- got shape {record.shape}"
             )
         self._data = record
         self._count = record.shape[-1]
@@ -201,10 +209,16 @@ class HawkesProcess(ABC):
         The stream every draw is taken from.
     """
 
-    def __init__(self, *, rng: SeedLike = None, rows: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        rng: SeedLike = None,
+        rows: int | None = None,
+        layout: str = "of coordinates",
+    ) -> None:
         self.rng = np.random.default_rng(rng)
         self.n_simulated = 0
-        self._events = _EventBuffer(rows)
+        self._events = _EventBuffer(rows, layout=layout)
 
     @property
     def events(self) -> np.ndarray:
@@ -498,7 +512,7 @@ class MultivariateTemporalHawkesProcess(TemporalHawkesProcess):
         count = int(n_types)
         if count != n_types or count < 1:
             raise ValueError(f"n_types must be a positive whole number, got {n_types!r}")
-        super().__init__(rng=rng, rows=2)
+        super().__init__(rng=rng, rows=2, layout="holding the event type")
         self.n_types = count
 
     @abstractmethod
