@@ -71,6 +71,15 @@ None of these fills its bounding box, and none but the flat ones carries the
 flat chart measure — which is what the `contains` and `volume_element` hooks on
 the base class are for.
 
+{class}`Rectangle` and {class}`Polygon` are the odd ones out: they are **not**
+closed surfaces but bounded regions with a real edge, and they set
+`has_boundary`. On those the process renormalises each event's spatial kernel by
+its own in-domain mass, because an event near the edge otherwise produces fewer
+offspring than the model says — omitting that over-estimates the excitation by
+64% on a 4×3 rectangle. `Rectangle(4, 3)` and `FundamentalDomain.rectangle(4, 3)`
+share a bounding box and nothing else: the second glues its sides up and is a
+torus.
+
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -80,6 +89,8 @@ the base class are for.
    SpatialDomain
    Circle
    Torus2D
+   Rectangle
+   Polygon
    Sphere
    FundamentalDomain
 ```
