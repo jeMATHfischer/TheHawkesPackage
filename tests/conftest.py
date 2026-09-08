@@ -9,7 +9,7 @@ hidden dependency on the global stream survives.
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, FundamentalDomain, Rectangle, Sphere, Torus2D
+from hawkes_package import Circle, FundamentalDomain, Polygon, Rectangle, Sphere, Torus2D
 
 SEED = 20260825
 
@@ -72,6 +72,7 @@ def bump_spatial():
         FundamentalDomain.crosscaps(3),
         Rectangle(4.0, 3.0),
         Rectangle(2.0),
+        Polygon([[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]),
     ],
     ids=[
         "circle",
@@ -89,6 +90,7 @@ def bump_spatial():
         "fd-crosscaps3",
         "rect-4x3",
         "rect-1d",
+        "triangle",
     ],
 )
 def domain(request):
@@ -105,9 +107,12 @@ def domain(request):
       also has a chart whose bounding box is not its boundary's.
     * The hyperbolic pair have a bounding box that reaches *outside* their model
       space, and a geodesic diameter several times the width of their chart.
-    * The rectangles are the only ones with a **boundary**, so the kernel mass
-      over the domain depends on where an event sits. Nothing else here is
-      anything but a closed surface.
+    * The rectangles and the triangle are the only ones with a **boundary**, so
+      the kernel mass over the domain depends on where an event sits. Nothing
+      else here is anything but a closed surface.
+    * The triangle is the only one that is both bounded *and* a proper subset of
+      its box, and its boundary is diagonal -- which a tensor rule resolves only
+      to a panel width, so it carries its own `nodes_per_axis`.
     """
     return request.param
 
