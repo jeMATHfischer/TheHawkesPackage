@@ -38,29 +38,35 @@ from ..base import HawkesProcess, SeedLike
 from ..bell_shape import BellShapeHawkes
 from ..exponential import ExponentialHawkes
 from ..monotone import MonotoneKernelHawkes
+from ..multivariate import MultivariateHawkes
 from ..spatio_temporal.domains import Circle, SpatialDomain
 from ..spatio_temporal.kernels import make_periodic
 from ..spatio_temporal.process import SpatioTemporalHawkesProcess
 from .families import (
     BaseFamily,
     ConstantBase,
+    ExcitationMatrix,
     ExponentialKernel,
     GammaKernel,
     GaussianSpatial,
     KernelFamily,
     LinearNonlinearity,
+    MultivariateBase,
     NonlinearityFamily,
     SpatialKernelFamily,
+    UnitExponentialKernel,
 )
 from .parameters import ParameterSpec
 
 __all__ = [
+    "MultivariateComponents",
     "ProcessModel",
     "SpatialComponents",
     "TemporalComponents",
     "bell_shape_model",
     "exponential_model",
     "monotone_model",
+    "multivariate_model",
     "spatio_temporal_model",
 ]
 
@@ -71,6 +77,29 @@ class TemporalComponents:
 
     kernel: KernelFamily
     nonlinearity: NonlinearityFamily | None
+
+
+@dataclass(frozen=True)
+class MultivariateComponents:
+    """The families a multivariate temporal model is assembled from.
+
+    A separate type from :class:`TemporalComponents` rather than a widening of
+    it, and deliberately: every likelihood implementation discriminates on what
+    it finds here, and a model that merely *looked* temporal would be accepted
+    by :class:`~hawkes_package.inference.likelihood.TemporalLogLikelihood`,
+    which would then read the total intensity where the accepted component's is
+    wanted. That failure is silent -- see that class's constructor.
+    """
+
+    kernel: KernelFamily
+    nonlinearity: NonlinearityFamily | None
+    background: MultivariateBase
+    excitation: ExcitationMatrix
+
+    @property
+    def n_types(self) -> int:
+        """Number of event types."""
+        return self.excitation.n_types
 
 
 @dataclass(frozen=True)
@@ -116,8 +145,9 @@ class ProcessModel:
         it to decide whether their closed form applies.
     ndim : int
         Spatial dimension, ``0`` for a purely temporal model.
-    components : TemporalComponents or SpatialComponents
-        The families the model was assembled from.
+    components : TemporalComponents, MultivariateComponents or SpatialComponents
+        The families the model was assembled from. Which of the three it is
+        is what the likelihood implementations discriminate on.
 
     .. versionadded:: 0.5.0
     """
@@ -125,7 +155,7 @@ class ProcessModel:
     spec: ParameterSpec
     family: str
     ndim: int
-    components: TemporalComponents | SpatialComponents
+    components: TemporalComponents | MultivariateComponents | SpatialComponents
     builder: Callable[[np.ndarray, SeedLike], HawkesProcess]
     branching: Callable[[np.ndarray], np.ndarray]
     extra_support: Callable[[np.ndarray], np.ndarray] = field(default=_all_true)
@@ -494,4 +524,108 @@ def spatio_temporal_model(
         builder=build,
         branching=branching,
         extra_support=resolvable,
+    )
+
+
+def multivariate_model(
+    n_types: int,
+    kernel: KernelFamily | None = None,
+    nonlinearity: NonlinearityFamily | None = None,
+) -> ProcessModel:
+    """Build a :class:`~hawkes_package.multivariate.MultivariateHawkes` over `n_types` types.
+
+    The coordinates are ``(mu_0..mu_{d-1}, a_0_0..a_{d-1}_{d-1}, <kernel>)`` --
+    ``d**2 + d`` plus the shared kernel's own, which for the default exponential
+    is two. One kernel for every ordered pair, so cross-excitations cannot decay
+    at different rates; that restriction is what keeps the count quadratic
+    rather than quadratic-in-kernels.
+
+    The stationarity condition is the **spectral radius** of the branching
+    matrix ``A * kernel_mass``, which reduces to ``alpha / beta`` at one type.
+    Nothing downstream needed changing to accommodate it:
+    :meth:`ProcessModel.support` and
+    :func:`~hawkes_package.inference.priors.stationarity` both take the ratio
+    through the injected callable and never inspect how it was computed.
+
+    Parameters
+    ----------
+    n_types : int
+        Number of event types, at least one.
+    kernel : KernelFamily
+        The shared excitation shape. Must be monotone decreasing, for the same
+        reason :func:`monotone_model` requires it. Defaults to
+        :class:`~hawkes_package.inference.families.ExponentialKernel`.
+    nonlinearity : NonlinearityFamily
+        Defaults to
+        :class:`~hawkes_package.inference.families.LinearNonlinearity`.
+
+    Raises
+    ------
+    ValueError
+        If `kernel` is not marked monotone.
+
+    Examples
+    --------
+    >>> model = multivariate_model(2)
+    >>> model.spec.names
+    ('mu_0', 'mu_1', 'a_0_0', 'a_0_1', 'a_1_0', 'a_1_1', 'beta')
+    >>> model.support(np.array([[0.4, 0.2, 0.3, 0.1, 0.5, 0.2, 2.0]])).tolist()
+    [True]
+
+    .. versionadded:: 0.6.0
+    """
+    excitation: KernelFamily = UnitExponentialKernel() if kernel is None else kernel
+    response: NonlinearityFamily = LinearNonlinearity() if nonlinearity is None else nonlinearity
+    if not excitation.monotone:
+        raise ValueError(
+            f"{type(excitation).__name__} is not monotone decreasing, and "
+            "MultivariateHawkes bounds each component by the kernel's value at the "
+            "current time unless told otherwise -- which a rising kernel exceeds."
+        )
+
+    background = MultivariateBase(n_types)
+    matrix = ExcitationMatrix(n_types)
+    count = matrix.n_types
+    spec = background.spec.concat(matrix.spec).concat(excitation.spec)
+
+    mu_slice = slice(0, count)
+    a_slice = slice(count, count + matrix.size)
+    kernel_slice = slice(count + matrix.size, None)
+
+    # The nonlinearity contributes its *shape* only. Its own `mu` is pinned to
+    # zero and is not a coordinate of this model, because the background here is
+    # the vector `MultivariateBase` supplies -- leaving both in would add a
+    # scalar background on top of a per-type one and fit a sum that no single
+    # value of either can identify. `LinearNonlinearity` at mu = 0 is `x -> x`,
+    # so the linear case is the identity and passing None is the same function.
+    phi_at_zero = np.zeros(len(response.spec))
+    linear = isinstance(response, LinearNonlinearity)
+
+    def build(theta: np.ndarray, rng: SeedLike) -> HawkesProcess:
+        return MultivariateHawkes(
+            theta[mu_slice],
+            theta[a_slice].reshape(count, count),
+            excitation.build(theta[kernel_slice]),
+            nonlinearity=None if linear else response.build(phi_at_zero),
+            rng=rng,
+        )
+
+    def branching(theta: np.ndarray) -> np.ndarray:
+        mass = np.atleast_1d(np.asarray(excitation.mass(theta[:, kernel_slice]), dtype=float))
+        return np.asarray(
+            response.lipschitz * matrix.spectral_radius(theta[:, a_slice], mass), dtype=float
+        )
+
+    return ProcessModel(
+        spec=spec,
+        family="multivariate",
+        ndim=0,
+        components=MultivariateComponents(
+            kernel=excitation,
+            nonlinearity=response,
+            background=background,
+            excitation=matrix,
+        ),
+        builder=build,
+        branching=branching,
     )
