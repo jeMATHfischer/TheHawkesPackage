@@ -102,6 +102,34 @@ to simulate on your own geometry. A domain need not fill its bounding box: overr
 `volume_element` over the part of `bounds` that `contains` admits. For a domain that does fill its
 box — the default — that reduces to `volume == prod(bounds widths)`.
 
+### Bounded domains
+
+`Rectangle` and `Polygon` are the domains with a real **boundary** — everything else here is a
+closed surface, periodic or a quotient. That distinction is not cosmetic: on a bounded region an
+event near the edge spreads offspring into space that is partly outside, so it produces fewer of
+them, and a fit that ignores this blames a weaker kernel. Measured on a 4x3 rectangle, omitting
+the correction over-estimates the excitation by **64%**.
+
+```python
+process = hp.SpatioTemporalHawkesProcess(
+    base=lambda x: 0.5,
+    spatial=lambda d: max(0.0, 1 - d / np.pi),
+    temporal=lambda dt: 0.9 * np.exp(-2 * dt),
+    domain=hp.Rectangle(4.0, 3.0),  # or hp.Polygon([[0, 0], [4, 0], [0, 3]])
+    monotone_temporal_kernel=True,
+    edge_correction="auto",  # the default
+)
+```
+
+`edge_correction` divides each event's spatial kernel by its own in-domain mass, so every event
+excites the same total amount wherever it sits — which also makes the stationarity condition
+exact rather than merely conservative. `"auto"` corrects exactly where the domain sets
+`has_boundary`, so no closed surface is touched; `"none"` leaves the intensity as written, which
+is what you want when the boundary is physical rather than an observation window.
+
+Note that `Rectangle(4, 3)` and `FundamentalDomain.rectangle(4, 3)` share a bounding box and
+nothing else: the second glues opposite sides together and is a **torus**, with no boundary at all.
+
 `Circle`, `Torus2D` and `Sphere` are written out by hand. `FundamentalDomain` is the general
 construction the first two are instances of — a convex geodesic polygon plus the side-pairing
 isometries that identify its boundary — and between them they reach **every closed surface**:

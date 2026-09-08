@@ -138,6 +138,18 @@ argument only ever required the bound and the acceptance test to share one node 
 with strictly positive weights, never that the nodes fill a box. `_confined_density`
 returning 0 off-domain is what confines the location sampler to such a domain.
 
+**`has_boundary` is a third flag, and not the negation of `periodic`.** Since 0.7.0
+`Rectangle` and `Polygon` have a real edge, and `SpatioTemporalHawkesProcess`
+renormalises each event's spatial kernel by its own in-domain mass there — an event
+near the boundary otherwise produces fewer offspring than the model says, and
+omitting the correction over-estimates the excitation by 64% on a 4×3 rectangle.
+`Sphere` and `FundamentalDomain` are already `periodic = False` and have no edge, so
+keying it off `periodic` would rescale them for nothing. The divisor is a *per-event
+constant* computed on the quadrature the bound and the acceptance test already share,
+which is why `M >= λ` survives it. The likelihood reads the policy off
+`SpatialComponents` rather than deciding for itself: if the simulator corrected and
+the likelihood did not, every fit would be biased by exactly the correction.
+
 **`periodic` is a correctness switch, not an optimisation.** When it is true the
 sampler folds proposals through `wrap` (`transform=domain.wrap`), which is
 reversible only where the deck group acts by *translations*. `FundamentalDomain`

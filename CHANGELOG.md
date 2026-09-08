@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded, non-periodic domains.** `Rectangle` and `Polygon` are the first domains here with a
+  real boundary; everything else is a closed surface, periodic or a quotient. `Polygon` is convex,
+  masks the quadrature by half-planes fixed at construction, and carries its own `nodes_per_axis`
+  because a diagonal edge cuts every quadrature panel and the area error falls only like `1/n` --
+  3.4% at the flat default, 0.85% at the 128 it asks for, and the area error is exactly the factor
+  the simulated event rate is wrong by.
+- **An explicit edge-correction policy**, through `edge_correction=` on
+  `SpatioTemporalHawkesProcess` and `spatio_temporal_model`. On a bounded domain an event near the
+  edge spreads offspring into space that is partly outside, so it produces fewer of them, and a fit
+  that ignores this attributes the missing offspring to a weaker kernel. `'renormalise'` divides
+  each event's spatial kernel by its own in-domain mass so every event excites the same total
+  amount wherever it sits; `'none'` leaves the intensity as written; `'auto'` -- the default --
+  corrects exactly where the domain sets the new `SpatialDomain.has_boundary`.
+
+  Measured on a 4x3 rectangle at 40 events, over seeds 0-20: the corrected profile recovers the
+  excitation with mean 0.900 against a truth of 0.900, while omitting the correction gives mean
+  1.474 -- a **64% over-estimate** -- and exceeds the corrected estimate on 21 of 21 seeds.
+
+  The correction is safe for the thinning bound because the divisor is a *per-event constant*: it
+  depends on the event's location and the fixed quadrature, not on position or time, so it divides
+  the intensity and its supremum by the same positive number. It is computed on the same quadrature
+  the bound and the acceptance test already share, and the likelihood reads the policy off the
+  model rather than deciding for itself -- if the simulator corrected and the likelihood did not,
+  every fit would be biased by exactly the correction with nothing raising.
+
+  It also makes the stationarity condition exact rather than conservative: the branching ratio
+  assumes the spatial kernel has unit mass, which renormalisation is what makes true.
+- `SpatialDomain.has_boundary`, defaulting to `False`. **Not** the negation of `periodic`: `Sphere`
+  and `FundamentalDomain` are already non-periodic and have no edge, so keying the correction off
+  `periodic` would rescale their intensity for nothing. Every domain that predates 0.7.0 takes the
+  identical path.
+
 - **Multivariate, mutually-exciting processes**, in both the simulator and the inference
   subpackage. `MultivariateHawkes` and `MultivariateExponentialHawkes` simulate a finite set of
   event types against one shared kernel shape and a non-negative `(d, d)` excitation matrix;
@@ -43,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `_EventBuffer`'s error message told a two-row record that its second row should be a coordinate.
   Multivariate records put the event type there.
+- The cached spatio-temporal backend's spread warning told the reader to raise `n_quad`. That is
+  right on a domain that fills its bounding box, where the spread *is* quadrature error, and
+  useless on one with an edge, where it is real geometry -- 40.1% on a 4x3 rectangle -- and no node
+  count reduces it. It now names the cause it has and points at `edge_correction`.
 
 ### Planned
 
@@ -59,45 +95,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
   sheet and its asymptotic cone.
 
-Beyond those three, ten point-process capabilities the package does not have, listed in the
-order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
+Beyond those three, the point-process capabilities the package does not have yet, listed in
+the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **Bounded, non-periodic domains** with an explicit edge-correction policy. Masking already
-   works — `restrict` reweights the quadrature by `contains` and `volume_element`, so a
-   rectangle or polygon drops in — but every domain today is a closed surface, and nothing
-   accounts for kernel mass falling outside a boundary.
-2. **A validation and diagnostics harness**: spatio-temporal residuals, rolling-origin
+1. **A validation and diagnostics harness**: spatio-temporal residuals, rolling-origin
    backtesting, proper scoring rules and naive baselines. The residuals must be computed with a
    compensator that does not share the estimator's, because a fit made with one 20% too small
    inflates the intensity by 25% and the two errors cancel exactly.
-3. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
+2. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
    productivity vector broadcasts down one axis of the likelihood's existing `(n, n)` factor
    matrix; the work is the mark distribution, and a thinning bound that stays valid when an
    exponential productivity meets an unbounded mark.
-4. **A spatially varying background** — the biggest modelling restriction in the package. The
+3. **A spatially varying background** — the biggest modelling restriction in the package. The
    simulator already accepts a callable base rate and the likelihood already integrates the
    background numerically over the quadrature nodes, so this is a new `BaseFamily` beside
    `ConstantBase` rather than a plumbing change.
-5. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
+4. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
    index, and vectorisation across SMC particles, where an explicit per-particle loop in
    rejuvenation is already commented as the dominant cost of a fit. Truncation is an
    approximation, so the bound and the acceptance test must be computed from the same
    truncated quantity or the thinning is wrong without raising.
-6. **A wider kernel library** — power-law and compact-support spatial kernels, since the
+5. **A wider kernel library** — power-law and compact-support spatial kernels, since the
    Gaussian tail is too light for most data, and a non-separable option. New families are
    additive against the existing `KernelFamily` protocols; a non-separable kernel already
    simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
    to exploit, so fitting one needs a new backend.
-7. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+6. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
    signature rather than by mathematics: the background is a function of position only, and
    adding time to it also moves the thinning bound, which must then use the supremum over the
    remaining interval rather than the current value.
-8. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+7. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
    against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
    and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
    SciPy past the single call site it is deliberately held to.
-9. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+8. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
    test that simulates from known parameters, refits and checks the credible intervals. Seeding
    is already done. Coverage is a statistical threshold like any other — a collapsed particle
    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
