@@ -167,3 +167,145 @@ def test_the_increment_is_what_the_state_gained(model, history):
         state, increment = likelihood.extend(state, THETA, history, float(upto))
         running += increment
         assert state.log_lik == pytest.approx(running, rel=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# The O(n d) closed form
+# ---------------------------------------------------------------------------
+
+
+def exact(model):
+    from hawkes_package.inference import MultivariateExponentialLogLikelihood
+
+    return MultivariateExponentialLogLikelihood(model)
+
+
+@pytest.mark.parametrize("n_types", [1, 2, 3])
+def test_the_recursion_agrees_with_the_general_path(n_types):
+    """Two independent routes to one number, over a sweep of parameters.
+
+    The general path integrates the total intensity by quadrature; this one
+    writes the integral down. So where they differ, the closed form is the
+    accurate one and the gap measures the quadrature -- which is why the
+    threshold is set from the measurement rather than from what the recursion
+    deserves. Worst relative difference over twenty parameter vectors: 4.6e-6 at
+    one type, 5.6e-9 at two, 4.8e-11 at three. The one-type case is the hardest
+    integrand of the three, not the loosest arithmetic: a single component
+    carrying all the excitation spikes more sharply between events.
+    """
+    model = multivariate_model(n_types)
+    d = n_types
+    truth = np.concatenate([np.full(d, 0.4), np.full(d * d, 0.9 / d), [2.0]])
+
+    process = model(truth, rng=1)
+    process.simulate(300)
+    history = History.from_multivariate_events(
+        process.events, n_types=d, end=float(process.events[0, -1])
+    )
+
+    general, closed = MultivariateLogLikelihood(model), exact(model)
+    rng = np.random.default_rng(0)
+    checked = 0
+    for _ in range(20):
+        theta = truth * rng.uniform(0.7, 1.3, size=truth.size)
+        if not bool(model.support(theta)):
+            continue
+        checked += 1
+        assert closed.total(theta, history) == pytest.approx(
+            general.total(theta, history), rel=1e-5
+        )
+    assert checked >= 10, "the sweep should stay inside the support most of the time"
+
+
+@pytest.mark.parametrize(
+    "theta", [np.array([1.0, 0.5, 2.0]), np.array([0.8, 0.3, 1.5]), np.array([1.5, 0.9, 3.0])]
+)
+def test_one_type_equals_the_univariate_closed_form_exactly(theta):
+    """Measured at exactly zero relative difference, log-likelihood and compensator.
+
+    The scalar recursion and the matrix one do the same arithmetic in the same
+    order at ``d = 1``, so this is an equality rather than a tolerance.
+    """
+    from hawkes_package.inference import ExponentialLogLikelihood
+
+    reference = hp.ExponentialHawkes(np.array([1.0, 0.5, 2.0]), rng=5)
+    reference.simulate(300)
+    end = float(reference.events[-1])
+    univariate = History.from_events(reference.events, end=end)
+    multivariate = History.from_events(reference.events, end=end, types=np.zeros(300), n_types=1)
+
+    scalar = ExponentialLogLikelihood(exponential_model())
+    matrix = exact(multivariate_model(1))
+    assert matrix.total(theta, multivariate) == scalar.total(theta, univariate)
+
+    query = np.linspace(0.0, end, 200)
+    np.testing.assert_array_equal(
+        matrix.compensator(theta, multivariate, query),
+        scalar.compensator(theta, univariate, query),
+    )
+
+
+def test_the_carry_is_one_float_per_type(model, history):
+    """``O(n d)``, not ``O(n d**2)`` -- the carry is indexed by source only.
+
+    That is what the single shared decay rate buys. Per-pair rates would need
+    one entry per ordered pair and the recursion would cost ``d**2`` per step.
+    """
+    likelihood = exact(model)
+    state = likelihood.initial_state(history.start)
+    assert len(state.carry) == 2
+
+    state, _ = likelihood.extend(state, THETA, history, history.end)
+    assert len(state.carry) == 2
+    assert all(value >= 0.0 for value in state.carry)
+
+
+@pytest.mark.parametrize("blocks", [1, 2, 3, 7])
+def test_the_recursion_extends_in_blocks(model, history, blocks):
+    """Blocking must be exact here: the recursion carries its own state."""
+    likelihood = exact(model)
+    state = likelihood.initial_state(history.start)
+    for upto in np.linspace(history.start, history.end, blocks + 1)[1:]:
+        state, _ = likelihood.extend(state, THETA, history, float(upto))
+    assert state.log_lik == pytest.approx(likelihood.total(THETA, history), rel=1e-12)
+    assert state.n_events == history.n_events
+
+
+def test_the_recursion_compensator_matches_the_general_one(model, history):
+    likelihood, general = exact(model), MultivariateLogLikelihood(model)
+    query = np.linspace(history.start, history.end, 60)
+    np.testing.assert_allclose(
+        likelihood.compensator(THETA, history, query),
+        general.compensator(THETA, history, query),
+        rtol=1e-5,
+    )
+
+
+@pytest.mark.parametrize(
+    ("factory", "match"),
+    [
+        (exponential_model, "implements the closed form for multivariate_model"),
+        (lambda: multivariate_model(2), None),
+    ],
+)
+def test_the_closed_form_refuses_a_model_it_does_not_implement(factory, match):
+    from hawkes_package.inference import MultivariateExponentialLogLikelihood
+
+    model = factory()
+    if match is None:
+        assert MultivariateExponentialLogLikelihood(model) is not None
+        return
+    with pytest.raises(ValueError, match=match):
+        MultivariateExponentialLogLikelihood(model)
+
+
+def test_the_closed_form_refuses_a_saturating_nonlinearity():
+    """It is the *linear* closed form; softplus is not that model."""
+    from hawkes_package.inference import (
+        MultivariateExponentialLogLikelihood,
+        SoftPlusNonlinearity,
+    )
+
+    model = multivariate_model(2, nonlinearity=SoftPlusNonlinearity())
+    with pytest.raises(ValueError, match=r"is the \*linear\* closed form"):
+        MultivariateExponentialLogLikelihood(model)
