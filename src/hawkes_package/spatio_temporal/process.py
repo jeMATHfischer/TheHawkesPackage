@@ -33,7 +33,7 @@ __all__ = ["SpatioTemporalHawkesProcess"]
 
 
 class SpatioTemporalHawkesProcess(HawkesProcess):
-    """Spatio-temporal Hawkes process on an arbitrary :class:`SpatialDomain`.
+    r"""Spatio-temporal Hawkes process on an arbitrary :class:`SpatialDomain`.
 
     Parameters
     ----------
@@ -63,6 +63,40 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
 
         .. versionadded:: 0.2.0
+
+    edge_correction : {'auto', 'renormalise', 'none'}
+        What to do about excitation that falls off the edge of a bounded domain.
+
+        On a closed surface the spatial kernel's mass over the domain is the
+        same wherever an event lands, so an event's realised productivity does
+        not depend on its position. On a domain with a boundary it does: an
+        event near the edge spreads offspring into a region that is partly
+        outside, so it produces fewer of them, and a fit that ignores this
+        attributes the missing offspring to a weaker kernel.
+
+        ``'renormalise'`` divides each event's spatial kernel by its own
+        in-domain mass :math:`S_i = \int_D \kappa_s(d(y, x_i))\,dy`, so every
+        event excites the same total amount wherever it sits. It also makes the
+        stationarity condition *exact* rather than merely conservative: the
+        branching ratio in :mod:`hawkes_package.inference` is
+        ``mass(kappa_t) * mass(kappa_s)`` with the spatial mass taken over the
+        whole model space, and renormalisation is what makes the realised mass
+        equal to it.
+
+        ``'none'`` leaves the intensity as written, with a position-dependent
+        realised productivity. Correct, and what you want if the boundary is
+        physical rather than an observation window.
+
+        ``'auto'`` -- the default -- renormalises exactly when the domain sets
+        :attr:`~hawkes_package.SpatialDomain.has_boundary`. Every domain that
+        predates 0.7.0 does not, so nothing existing changes.
+
+        :math:`S_i` is computed on the **same quadrature the bound and the
+        acceptance test share**, which is what keeps ``M >= lambda`` exact: it is
+        a per-event constant, so it divides both sides by the same positive
+        number.
+
+        .. versionadded:: 0.7.0
 
     Attributes
     ----------
@@ -102,12 +136,28 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         n_quad: int | None = None,
         proposal_std: Any = None,
         n_iter: int = 2000,
+        edge_correction: str = "auto",
     ) -> None:
         self.base = base
         self.spatial = spatial
         self.temporal = temporal
         self.domain = domain if domain is not None else Circle()
         self.monotone_temporal_kernel = monotone_temporal_kernel
+
+        if edge_correction not in {"auto", "renormalise", "none"}:
+            raise ValueError(
+                f"edge_correction must be 'auto', 'renormalise' or 'none', got {edge_correction!r}"
+            )
+        self.edge_correction = edge_correction
+        # "auto" means "correct exactly where there is an edge to correct for",
+        # which is what `has_boundary` declares. Every domain that predates
+        # 0.7.0 reports False, so this resolves to `False` for all of them and
+        # no previously produced number moves.
+        self._renormalise = edge_correction == "renormalise" or (
+            edge_correction == "auto" and bool(self.domain.has_boundary)
+        )
+        self._edge_times: np.ndarray = np.empty(0, dtype=float)
+        self._edge_values: np.ndarray = np.empty(0, dtype=float)
 
         ndim = self.domain.bounds.shape[0]
         self._ndim = ndim
@@ -186,7 +236,64 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
             # since kappa_t is non-negative and decays. Clipping *is* the
             # supremum, so an inhibitory spatial kernel stays correctly bounded.
             values = np.maximum(values, 0.0)
+        if self._renormalise and values.size:
+            # A per-event *constant*, which is the whole reason this is safe:
+            # it does not depend on `x` or on `t`, so it divides the intensity
+            # and its supremum by the same positive number and the domination
+            # argument carries unchanged. Applied after the clip above, so the
+            # bound stays a bound.
+            values = values / self._edge_scales(values.size)
         return values
+
+    def _in_domain_mass(self, y: Any) -> float:
+        """Integral of the spatial kernel centred on `y`, over the domain.
+
+        Computed on **the same quadrature the bound and the acceptance test
+        share**. That is not an efficiency: using a finer rule here and the
+        shared one there would divide the two sides of ``M >= lambda`` by
+        different numbers, and the invariant would fail by whatever the two
+        rules disagreed about.
+        """
+        mass = self._quadrature.integrate(lambda x: self._spatial_at(x, y))
+        if not mass > 0.0:
+            raise RuntimeError(
+                f"the spatial kernel integrates to {mass!r} over the domain around "
+                f"{np.asarray(y).tolist()}, so it cannot be renormalised. Either the "
+                f"kernel's support is narrower than a quadrature panel -- raise n_quad "
+                f"above {self.n_quad} -- or it is signed and integrates to nothing "
+                "there, in which case pass edge_correction='none' and interpret the "
+                "excitation as position-dependent."
+            )
+        return float(mass)
+
+    def _edge_scales(self, count: int) -> np.ndarray:
+        """In-domain kernel mass for each of the first `count` recorded events.
+
+        Cached, and that matters: :meth:`_full_intensity` runs once per
+        quadrature node, so computing this inside it would make a single space
+        integral ``O(m**2 n)`` -- at 1024 nodes, a million kernel evaluations per
+        node. The mass depends only on the event's location and the fixed rule,
+        so it is computed once per event and reused.
+
+        Keyed on the event *times* rather than on a count, because
+        ``process.events = history`` replaces the whole record: a cache keyed on
+        length would silently survive being handed a different realisation of
+        the same size and scale every event by another one's mass.
+        """
+        times = self.events[0]
+        cached = self._edge_values.size
+        if cached > times.size or not np.array_equal(self._edge_times[:cached], times[:cached]):
+            self._edge_values = np.empty(0, dtype=float)
+            self._edge_times = np.empty(0, dtype=float)
+            cached = 0
+
+        if cached < count:
+            fresh = self.events[1:, cached:count].T
+            self._edge_values = np.concatenate(
+                [self._edge_values, [self._in_domain_mass(point) for point in fresh]]
+            )
+            self._edge_times = np.asarray(times[: self._edge_values.size], dtype=float).copy()
+        return np.asarray(self._edge_values[:count], dtype=float)
 
     def _full_intensity(self, x: Any, t: float, bound: bool = False) -> float:
         # The single place a coordinate is normalised: `base` and `spatial` are
