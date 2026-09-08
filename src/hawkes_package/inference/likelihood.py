@@ -53,6 +53,7 @@ from ..base import HawkesProcess, TemporalHawkesProcess
 from ..spatio_temporal.process import SpatioTemporalHawkesProcess
 from . import _compensator
 from ._geometry import DEFAULT_MAX_BYTES, GeometryCache, build_geometry, extend_geometry
+from .families import LinearNonlinearity, UnitExponentialKernel
 from .models import MultivariateComponents, ProcessModel, SpatialComponents
 
 __all__ = [
@@ -60,6 +61,7 @@ __all__ = [
     "History",
     "LikelihoodState",
     "LogLikelihood",
+    "MultivariateExponentialLogLikelihood",
     "MultivariateLogLikelihood",
     "SpatioTemporalLogLikelihood",
     "TemporalLogLikelihood",
@@ -974,6 +976,210 @@ class ExponentialLogLikelihood:
             carry *= decay
             left = target
             out[k] = total
+        return out
+
+
+class MultivariateExponentialLogLikelihood:
+    r"""The exact log-likelihood of the linear multivariate exponential model.
+
+    Ozaki's recursion generalises to a matrix at a cost of ``d`` floats rather
+    than ``d**2``, and that is a direct consequence of the one shared decay
+    rate. Writing :math:`B_j(a) = \sum_{t_k \le a,\, c_k = j} e^{-\beta(a-t_k)}`,
+    every component reads the *same* ``d`` numbers:
+
+    .. math::
+
+        \lambda_i(t^-) = \mu_i + \sum_j A_{ij} B_j(t^-),
+
+    and every :math:`B_j` advances by the same single multiplication per step.
+    So one full evaluation is :math:`O(n d)` -- not :math:`O(n d^2)`, because
+    the carry is indexed by *source* type only -- against :math:`O(n^2 P)` for
+    the general path. Per-pair decay rates would break this: the carry would
+    need one entry per ordered pair and the recursion would cost :math:`d^2`.
+
+    The compensator collapses further. The total intensity is
+
+    .. math::
+
+        \Lambda(s) = \sum_i \mu_i + \sum_j \Big(\sum_i A_{ij}\Big) B_j(s),
+
+    so only the **column sums** of the matrix enter it, and the integral is one
+    weighted decay term per source type.
+
+    Parameters
+    ----------
+    model : ProcessModel
+        Must come from
+        :func:`~hawkes_package.inference.models.multivariate_model` with the
+        default :class:`~hawkes_package.inference.families.UnitExponentialKernel`.
+        The closed form is specific to :math:`e^{-\beta s}` with an additive
+        background, and applying it to any other kernel would return a
+        plausible number for the wrong model.
+
+    .. versionadded:: 0.6.0
+    """
+
+    def __init__(self, model: ProcessModel) -> None:
+        components = model.components
+        if model.family != "multivariate" or not isinstance(components, MultivariateComponents):
+            raise ValueError(
+                f"{type(self).__name__} implements the closed form for "
+                f"multivariate_model(); this model is {model.family!r}. Use "
+                "MultivariateLogLikelihood, which works through the intensity hook."
+            )
+        if not isinstance(components.kernel, UnitExponentialKernel):
+            raise ValueError(
+                f"{type(self).__name__} implements the closed form for the shared "
+                f"kernel exp(-beta s); this model's kernel is "
+                f"{type(components.kernel).__name__}. Use MultivariateLogLikelihood."
+            )
+        if not isinstance(components.nonlinearity, LinearNonlinearity):
+            raise ValueError(
+                f"{type(self).__name__} is the *linear* closed form; this model uses "
+                f"{type(components.nonlinearity).__name__}. Use MultivariateLogLikelihood."
+            )
+        self.model = model
+        self.n_types = components.n_types
+
+    def initial_state(self, start: float) -> LikelihoodState:
+        """Return the empty state at `start`, carrying ``B(start) = 0`` per type."""
+        return LikelihoodState(
+            upto=float(start),
+            n_events=0,
+            log_lik=0.0,
+            carry=tuple(0.0 for _ in range(self.n_types)),
+        )
+
+    def _unpack(self, theta: Any) -> tuple[np.ndarray, np.ndarray, float]:
+        """Split `theta` into the background vector, the matrix and the decay."""
+        values = np.asarray(theta, dtype=float).reshape(-1)
+        d = self.n_types
+        mu = values[:d]
+        matrix = values[d : d + d * d].reshape(d, d)
+        return mu, matrix, float(values[d + d * d])
+
+    def _require_types(self, history: History) -> np.ndarray:
+        """Return the history's types, refusing one that cannot carry them."""
+        if history.types is None:
+            raise ValueError(
+                "a multivariate model needs a history carrying event types; build "
+                "one with History.from_multivariate_events"
+            )
+        if history.n_types != self.n_types:
+            raise ValueError(
+                f"the history has n_types={history.n_types} but the model has "
+                f"{self.n_types}. A mismatch silently drops or invents a component."
+            )
+        return np.asarray(history.types, dtype=np.intp)
+
+    def extend(
+        self,
+        state: LikelihoodState,
+        theta: Any,
+        history: History,
+        upto: float,
+    ) -> tuple[LikelihoodState, float]:
+        """Account for the block ``(state.upto, upto]`` in one pass over its events."""
+        types = self._require_types(history)
+        end = _check_extension(state, history, upto)
+        if end == state.upto:
+            return state, 0.0
+
+        mu, matrix, beta = self._unpack(theta)
+        mu_total = float(np.sum(mu))
+        # Only the column sums reach the compensator: the total intensity sums
+        # over the target index, and the carry is indexed by source.
+        ratios = np.asarray(matrix.sum(axis=0) / beta, dtype=float)
+
+        carry = np.array(state.carry, dtype=float)
+        left = state.upto
+        log_sum = 0.0
+        integral = 0.0
+
+        selected = (history.times > state.upto) & (history.times <= end)
+        fresh = history.times[selected]
+        kinds = types[selected]
+
+        for raw, kind in zip(fresh, kinds, strict=True):
+            t = float(raw)
+            decay = math.exp(-beta * (t - left))
+            # Over (left, t] no event lies strictly inside, so the only term is
+            # the decay of what was already excited.
+            integral += mu_total * (t - left) + float(np.sum(ratios * carry)) * (1.0 - decay)
+            carry *= decay
+            # B has decayed to t but does not yet count the event at t, which is
+            # exactly the left limit the log-sum needs -- and it is read at the
+            # row of the type that actually fired, not summed across rows.
+            value = float(mu[kind] + np.sum(matrix[kind] * carry))
+            if not value > 0.0:
+                return (
+                    LikelihoodState(end, state.n_events + fresh.size, -math.inf, ()),
+                    -math.inf,
+                )
+            log_sum += math.log(value)
+            carry[kind] += 1.0
+            left = t
+
+        decay = math.exp(-beta * (end - left))
+        integral += mu_total * (end - left) + float(np.sum(ratios * carry)) * (1.0 - decay)
+        carry *= decay
+
+        increment = log_sum - integral
+        return (
+            LikelihoodState(
+                upto=end,
+                n_events=state.n_events + int(fresh.size),
+                log_lik=state.log_lik + increment,
+                carry=tuple(float(v) for v in carry),
+            ),
+            increment,
+        )
+
+    def total(self, theta: Any, history: History, upto: float | None = None) -> float:
+        """Return the whole log-likelihood on ``(start, upto]``, defaulting to the window."""
+        end = history.end if upto is None else float(upto)
+        return self.extend(self.initial_state(history.start), theta, history, end)[0].log_lik
+
+    def compensator(self, theta: Any, history: History, times: Any) -> np.ndarray:
+        r"""Evaluate :math:`\Lambda(t) - \Lambda(start)` at each of `times`.
+
+        The compensator of the pooled process, in one merged pass over the
+        events and the query times -- :math:`O((n + k)d)` rather than the
+        :math:`O(nkd)` the closed form written out per query time would cost.
+        """
+        types = self._require_types(history)
+        query = np.asarray(times, dtype=float).ravel()
+        if query.size == 0:
+            return np.empty(0, dtype=float)
+        if np.any(np.diff(query) < 0):
+            raise ValueError("times must be sorted for the compensator")
+
+        mu, matrix, beta = self._unpack(theta)
+        mu_total = float(np.sum(mu))
+        ratios = np.asarray(matrix.sum(axis=0) / beta, dtype=float)
+
+        events = history.times
+        out = np.empty(query.size, dtype=float)
+        carry = np.zeros(self.n_types, dtype=float)
+        left = history.start
+        running = 0.0
+        index = 0
+
+        for k, raw in enumerate(query):
+            target = float(raw)
+            while index < events.size and events[index] <= target:
+                t = float(events[index])
+                decay = math.exp(-beta * (t - left))
+                running += mu_total * (t - left) + float(np.sum(ratios * carry)) * (1.0 - decay)
+                carry *= decay
+                carry[types[index]] += 1.0
+                left = t
+                index += 1
+            decay = math.exp(-beta * (target - left))
+            running += mu_total * (target - left) + float(np.sum(ratios * carry)) * (1.0 - decay)
+            carry *= decay
+            left = target
+            out[k] = running
         return out
 
 
