@@ -67,8 +67,8 @@ process = hp.MultivariateExponentialHawkes(
     mu=[0.6, 0.3], excitation=[[0.5, 0.2], [0.4, 0.6]], beta=2.0, rng=0
 )
 process.simulate(500)
-process.events.shape          # (2, 500)
-process.types                 # 0 or 1 per event
+process.events.shape  # (2, 500)
+process.types  # 0 or 1 per event
 ```
 
 `simulate(k)` stops after `k` events; `simulate_until(T)` stops at a horizon, and is what a
