@@ -92,6 +92,20 @@ class History:
     end : float
         End of the observation window. **Keyword-required and undefaulted**;
         see the module docstring for what a default would cost.
+    types : array_like of shape (n,), optional
+        Event type per event, for a multivariate history. ``None`` for a
+        single-type one.
+
+        .. versionadded:: 0.6.0
+    n_types : int, optional
+        How many types the model has. **Required whenever `types` is given, and
+        never inferred from** ``types.max() + 1``: a type that happens to
+        produce no event in this window would then vanish from the model, its
+        background and its column of the excitation matrix silently dropped,
+        and the fit would come back converged on a smaller process than the one
+        asked for. Undefaulted for the same reason `end` is.
+
+        .. versionadded:: 0.6.0
 
     Raises
     ------
@@ -99,7 +113,8 @@ class History:
         If the times are not strictly increasing, are not finite, or leave the
         window. Ties in particular: two events at one instant each vanish from
         the other's conditional intensity, so the log-likelihood loses a term
-        with nothing said.
+        with nothing said. Also if exactly one of `types` and `n_types` is
+        given, or if a type falls outside ``[0, n_types)``.
 
     Examples
     --------
@@ -114,6 +129,8 @@ class History:
     points: np.ndarray | None
     start: float
     end: float
+    types: np.ndarray | None = None
+    n_types: int | None = None
 
     def __post_init__(self) -> None:
         """Normalise the arrays and refuse a history the likelihood cannot use."""
@@ -156,6 +173,43 @@ class History:
                 raise ValueError("event locations must all be finite")
             object.__setattr__(self, "points", points)
 
+        self._check_types(times.size)
+
+    def _check_types(self, n_events: int) -> None:
+        """Normalise and validate the type column, if there is one."""
+        if (self.types is None) != (self.n_types is None):
+            raise ValueError(
+                "types and n_types must be given together: types without n_types "
+                "cannot say how many types the model has, and n_types without "
+                "types says a multivariate model was meant but leaves every event "
+                "untyped."
+            )
+        if self.types is None:
+            return
+
+        count = int(self.n_types)  # type: ignore[arg-type]
+        if count != self.n_types or count < 1:
+            raise ValueError(f"n_types must be a positive whole number, got {self.n_types!r}")
+        object.__setattr__(self, "n_types", count)
+
+        raw = np.asarray(self.types).ravel()
+        if raw.size != n_events:
+            raise ValueError(
+                f"types must carry one entry per event: got {raw.size} for {n_events} event(s)"
+            )
+        as_float = np.asarray(raw, dtype=float)
+        if raw.size and not np.all(np.isfinite(as_float)):
+            raise ValueError("event types must all be finite")
+        types = as_float.astype(np.intp)
+        if raw.size and not np.all(types == as_float):
+            raise ValueError(f"event types must be whole numbers, got {raw!r}")
+        if raw.size and (types.min() < 0 or types.max() >= count):
+            raise ValueError(
+                f"event types must lie in [0, n_types) = [0, {count}), but they span "
+                f"[{int(types.min())}, {int(types.max())}]"
+            )
+        object.__setattr__(self, "types", types)
+
     @property
     def n_events(self) -> int:
         """Number of observed events."""
@@ -178,26 +232,84 @@ class History:
         *,
         start: float = 0.0,
         end: float,
+        types: Any = None,
+        n_types: int | None = None,
     ) -> History:
-        """Build a history from a process's event record.
+        """Build a history from a single-type process's event record.
+
+        .. warning::
+
+           A two-dimensional `events` is read as **spatio-temporal**: row 0 is
+           times and every remaining row is a coordinate. So a multivariate
+           record, whose last row is a type index, is silently misread here --
+           the types become coordinates, :attr:`ndim` counts one too many, and
+           the fit comes back converged on a process nobody described. Use
+           :meth:`from_multivariate_events` for those; it is a separate
+           constructor rather than a flag for exactly this reason.
 
         Parameters
         ----------
         events : array_like
             Shape ``(n,)`` for a temporal record, or ``(ndim + 1, n)`` with
             times in row 0 for a spatio-temporal one -- the two layouts
-            :attr:`~hawkes_package.base.HawkesProcess.events` uses.
+            :attr:`~hawkes_package.base.HawkesProcess.events` uses for a
+            single-type process.
         start : float
             Beginning of the observation window.
         end : float
             End of it. Required.
+        types : array_like of shape (n,), optional
+            Event types, when they are held separately from `events`.
+
+            .. versionadded:: 0.6.0
+        n_types : int, optional
+            Required whenever `types` is given.
+
+            .. versionadded:: 0.6.0
         """
         record = np.asarray(events, dtype=float)
         if record.ndim == 1:
-            return cls(record, None, start, end)
+            return cls(record, None, start, end, types, n_types)
         if record.ndim == 2:
-            return cls(record[0], record[1:], start, end)
+            return cls(record[0], record[1:], start, end, types, n_types)
         raise ValueError(f"events must be 1- or 2-dimensional, got shape {record.shape}")
+
+    @classmethod
+    def from_multivariate_events(
+        cls,
+        events: Any,
+        *,
+        n_types: int,
+        start: float = 0.0,
+        end: float,
+    ) -> History:
+        """Build a history from a multivariate process's event record.
+
+        Parameters
+        ----------
+        events : array_like of shape (2, n) or (ndim + 2, n)
+            Times in row 0, the type index in the **last** row, and any
+            coordinates in between -- the layouts
+            :class:`~hawkes_package.base.MultivariateTemporalHawkesProcess` and
+            its spatio-temporal counterpart record.
+        n_types : int
+            How many types the model has. Required, and not inferred from the
+            record: see :class:`History`.
+        start : float
+            Beginning of the observation window.
+        end : float
+            End of it. Required.
+
+        .. versionadded:: 0.6.0
+        """
+        record = np.asarray(events, dtype=float)
+        if record.ndim != 2 or record.shape[0] < 2:
+            raise ValueError(
+                f"a multivariate record needs times in row 0 and types in the last, "
+                f"so at least 2 rows; got shape {record.shape}"
+            )
+        points = record[1:-1] if record.shape[0] > 2 else None
+        return cls(record[0], points, start, end, record[-1], n_types)
 
     @classmethod
     def from_simulation(cls, process: HawkesProcess, *, start: float = 0.0) -> History:
@@ -237,13 +349,25 @@ class History:
             None if self.points is None else self.points[:, keep],
             self.start,
             cut,
+            None if self.types is None else self.types[keep],
+            self.n_types,
         )
 
     def as_process_events(self) -> np.ndarray:
-        """Return the history in the layout a process's event record uses."""
-        if self.points is None:
+        """Return the history in the layout a process's event record uses.
+
+        The type, when there is one, is the **last** row, matching
+        :class:`~hawkes_package.base.MultivariateTemporalHawkesProcess` and its
+        spatio-temporal counterpart. Row 0 is always the times.
+        """
+        rows = [self.times[None, :]]
+        if self.points is not None:
+            rows.append(self.points)
+        if self.types is not None:
+            rows.append(self.types.astype(float)[None, :])
+        if len(rows) == 1:
             return self.times
-        return np.vstack([self.times[None, :], self.points])
+        return np.vstack(rows)
 
 
 def _located(history: History) -> np.ndarray:
