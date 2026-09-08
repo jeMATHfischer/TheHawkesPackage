@@ -160,3 +160,147 @@ def test_a_process_simulates_on_it(flat_base, exp_kernel, bump_spatial):
     assert np.all(locations[0] <= 2.0)
     assert np.all(locations[1] >= -1.5)
     assert np.all(locations[1] <= 1.5)
+
+
+# ---------------------------------------------------------------------------
+# The general case
+# ---------------------------------------------------------------------------
+
+#: The 3-4-5 triangle: area 6 in a box of area 12, so the mask drops half the
+#: nodes, and its hypotenuse is diagonal.
+TRIANGLE = [[0.0, 0.0], [4.0, 0.0], [0.0, 3.0]]
+
+
+def test_the_polygon_area_is_the_shoelace_area():
+    assert hp.Polygon(TRIANGLE).volume == pytest.approx(6.0)
+    square = hp.Polygon([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]])
+    assert square.volume == pytest.approx(4.0)
+
+
+def test_the_winding_direction_does_not_matter():
+    """Either ordering describes the same polygon, so both must be accepted."""
+    forward = hp.Polygon(TRIANGLE)
+    backward = hp.Polygon(TRIANGLE[::-1])
+    assert forward.volume == pytest.approx(backward.volume)
+    probe = np.array([0.5, 0.5])
+    assert forward.contains(probe) == backward.contains(probe)
+
+
+def test_contains_agrees_with_a_monte_carlo_area():
+    """The predicate and the declared area have to be the same polygon.
+
+    `volume` from the shoelace formula and `contains` from the half-planes are
+    two independent statements about the same shape; if they disagreed, the
+    quadrature would measure one and the process would be told the other.
+    """
+    triangle = hp.Polygon(TRIANGLE)
+    rng = np.random.default_rng(0)
+    lower, upper = triangle.bounds[:, 0], triangle.bounds[:, 1]
+    draws = lower + rng.uniform(size=(20000, 2)) * (upper - lower)
+    inside = np.mean([triangle.contains(point) for point in draws])
+    box_area = float(np.prod(upper - lower))
+    assert inside * box_area == pytest.approx(triangle.volume, rel=0.02)
+
+
+def test_a_non_convex_polygon_is_refused():
+    """`contains` is a conjunction of half-planes, which needs convexity.
+
+    A re-entrant corner would make it admit points outside the polygon, and the
+    quadrature would then integrate over a shape nobody described.
+    """
+    with pytest.raises(ValueError, match="not convex"):
+        hp.Polygon([[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [1.0, 1.0], [0.0, 2.0]])
+
+
+@pytest.mark.parametrize(
+    ("vertices", "match"),
+    [
+        ([[0.0, 0.0], [1.0, 1.0]], "at least three"),
+        ([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]], "zero area"),
+        ([[0.0, 0.0], [1.0, 0.0], [np.nan, 1.0]], "finite"),
+    ],
+)
+def test_polygon_construction_is_validated(vertices, match):
+    with pytest.raises(ValueError, match=match):
+        hp.Polygon(vertices)
+
+
+def test_the_interior_point_is_inside_by_construction():
+    """Convexity puts a mean of the vertices inside, with nothing to check.
+
+    The base class returns the centre of the bounding box, which is a guarantee
+    only for a domain that fills its box. In practice the box centre lands
+    inside a convex polygon too -- it did on every one of 2024 random convex
+    polygons, and no counterexample was found -- but the centroid needs no such
+    search to believe, and this point is what probes whether the quadrature
+    resolves the spatial kernel.
+    """
+    rng = np.random.default_rng(1)
+    checked = 0
+    for _ in range(300):
+        corners = rng.uniform(0.0, 10.0, size=(int(rng.integers(3, 6)), 2))
+        centre = corners.mean(axis=0)
+        angles = np.arctan2(corners[:, 1] - centre[1], corners[:, 0] - centre[0])
+        try:
+            polygon = hp.Polygon(corners[np.argsort(angles)])
+        except ValueError:
+            continue  # collinear or non-convex after sorting
+        checked += 1
+        assert polygon.contains(polygon.interior_point)
+    assert checked > 100, "the sweep should build a useful number of polygons"
+
+
+def test_the_polygon_diameter_is_attained_at_two_vertices():
+    assert hp.Polygon(TRIANGLE).max_distance == pytest.approx(5.0)
+
+
+def test_wrap_returns_the_nearest_point_of_the_polygon():
+    triangle = hp.Polygon(TRIANGLE)
+    inside = np.array([0.5, 0.5])
+    np.testing.assert_allclose(triangle.wrap(inside), inside)
+
+    projected = triangle.wrap(np.array([5.0, 5.0]))
+    assert triangle.contains(projected)
+    np.testing.assert_allclose(triangle.wrap(projected), projected, atol=1e-12)
+
+
+@pytest.mark.statistical
+def test_polygon_sample_uniform_is_uniform():
+    """By area: the share of draws in a sub-triangle must match its share of area."""
+    triangle = hp.Polygon(TRIANGLE)
+    rng = np.random.default_rng(5)
+    points = np.array([triangle.sample_uniform(rng) for _ in range(4000)])
+    assert all(triangle.contains(point) for point in points)
+
+    # The half of the triangle with x below 2 has 3/4 of its area, since a
+    # triangle's area scales with the square of its linear size.
+    share = float(np.mean(points[:, 0] < 2.0))
+    assert share == pytest.approx(0.75, abs=0.03)
+
+
+def test_the_polygon_asks_for_more_quadrature_nodes():
+    """A diagonal boundary cuts every panel, so the area error falls like 1/n.
+
+    Measured on this triangle: 3.4% at the flat default of 32, 0.85% at 128 --
+    and the area error is exactly the factor the simulated event rate is wrong
+    by. 128 is the first value under the 1% the process warns at.
+    """
+    assert hp.Polygon(TRIANGLE).nodes_per_axis == 128
+    assert hp.Rectangle(4.0, 3.0).nodes_per_axis == 32, "an axis-aligned box needs no extra"
+
+
+def test_a_process_simulates_on_a_polygon():
+    process = hp.SpatioTemporalHawkesProcess(
+        base=lambda x: 0.5,
+        spatial=lambda d: max(0.0, 1.0 - d / np.pi),
+        temporal=lambda dt: 0.9 * np.exp(-2.0 * np.asarray(dt, dtype=float)),
+        domain=hp.Polygon(TRIANGLE),
+        monotone_temporal_kernel=True,
+        rng=0,
+    )
+    process.simulate(3)
+
+    assert process.events.shape == (3, 3)
+    assert process._renormalise is True, "a polygon has a boundary to correct for"
+    for point in process.events[1:].T:
+        assert process.domain.contains(point)
