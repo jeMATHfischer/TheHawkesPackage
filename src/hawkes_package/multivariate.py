@@ -19,7 +19,27 @@ import numpy as np
 from ._numerics import as_float, locate_peak
 from .base import MultivariateTemporalHawkesProcess, SeedLike
 
-__all__ = ["MultivariateHawkes"]
+__all__ = ["MultivariateExponentialHawkes", "MultivariateHawkes"]
+
+
+def spectral_radius(matrix: Any) -> float:
+    """Largest absolute eigenvalue of `matrix`.
+
+    The multivariate stationarity condition: with a branching matrix
+    ``G[i, j]`` counting the direct offspring of type *i* a type-*j* event
+    produces, the process is stationary exactly when this is below one. It
+    replaces the scalar ``alpha / beta`` of
+    :class:`~hawkes_package.exponential.ExponentialHawkes`, and reduces to it
+    at one type.
+
+    The row-sum bound ``rho(G) <= max_i sum_j G[i, j]`` is the cheap majorant,
+    exact for a non-negative matrix with equal row sums. It is not used here --
+    it would refuse stationary processes near the boundary -- but it is what a
+    guard should reach for when an eigensolve is not available or not certified.
+
+    .. versionadded:: 0.6.0
+    """
+    return float(np.max(np.abs(np.linalg.eigvals(np.asarray(matrix, dtype=float)))))
 
 
 def _square_non_negative(value: Any, *, name: str, size: int | None = None) -> np.ndarray:
@@ -209,3 +229,90 @@ class MultivariateHawkes(MultivariateTemporalHawkesProcess):
         # Reduced exactly as `_cumulative_intensities` reduces, so an empty
         # history gives M == lambda to the bit rather than to a tolerance.
         return float(np.cumsum(self._components(factors, kinds[keep]))[-1])
+
+
+class MultivariateExponentialHawkes(MultivariateHawkes):
+    r"""Linear multivariate Hawkes process with a shared exponential kernel.
+
+    The conditional intensity of type *i* is
+
+    .. math::
+
+        \lambda_i(t \mid H_t) = \mu_i + \sum_j A_{ij}
+            \sum_{t_k < t,\; c_k = j} e^{-\beta (t - t_k)},
+
+    the matrix analogue of
+    :class:`~hawkes_package.exponential.ExponentialHawkes`, which it reproduces
+    exactly at one type: ``MultivariateExponentialHawkes([mu], [[alpha]], beta)``
+    and ``ExponentialHawkes([mu, alpha, beta])`` consume the same stream and
+    produce the same events.
+
+    **One decay rate for every pair.** :math:`\beta` is a scalar, so
+    cross-excitation between different pairs of types cannot decay at different
+    speeds. That is the price of one kernel shape with a matrix of scales, and
+    it is what keeps the parameter count at :math:`d^2 + d + 1`.
+
+    Parameters
+    ----------
+    mu : array_like of shape (d,)
+        Background rate per type. Non-negative.
+    excitation : array_like of shape (d, d)
+        ``A[i, j]`` is the excitation type *j* exerts on type *i*. Non-negative.
+    beta : float
+        Shared decay rate. Positive.
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`~hawkes_package.base.HawkesProcess`.
+
+    Raises
+    ------
+    ValueError
+        If ``beta <= 0``, if `mu` or `excitation` carries a negative entry, if
+        `excitation` is not square or not the size of `mu`, or if the spectral
+        radius of ``excitation / beta`` is at or above one. The last is the
+        stationarity condition: the kernel has mass ``1 / beta``, so
+        ``excitation / beta`` is the branching matrix, and at or above one each
+        event spawns at least one offspring on average and the simulation would
+        not terminate.
+
+    Examples
+    --------
+    >>> process = MultivariateExponentialHawkes(
+    ...     mu=[0.4, 0.2], excitation=[[0.3, 0.1], [0.5, 0.2]], beta=1.5, rng=0
+    ... )
+    >>> process.simulate(100)
+    >>> process.events.shape
+    (2, 100)
+
+    .. versionadded:: 0.6.0
+    """
+
+    def __init__(
+        self,
+        mu: Any,
+        excitation: Any,
+        beta: float,
+        *,
+        rng: SeedLike = None,
+    ) -> None:
+        decay = float(beta)
+        if not decay > 0:
+            raise ValueError(f"beta must be positive, got {beta!r}")
+
+        def kernel(s: Any) -> np.ndarray:
+            return np.asarray(np.exp(-decay * np.asarray(s, dtype=float)), dtype=float)
+
+        super().__init__(mu, excitation, kernel, rng=rng)
+
+        # After super(), so `excitation` has already been checked square, sized
+        # against `mu` and non-negative -- an eigensolve on a ragged or NaN-laden
+        # matrix reports something useless or raises LinAlgError, and neither is
+        # the error this should give. The object is discarded on raise.
+        radius = spectral_radius(self.excitation / decay)
+        if radius >= 1:
+            raise ValueError(
+                f"Stability condition violated: the spectral radius of "
+                f"excitation/beta = {radius:.4f} >= 1. The process will not be "
+                "stationary. This is the matrix form of ExponentialHawkes's "
+                "alpha/beta condition and reduces to it at one type."
+            )
+        self.beta = decay

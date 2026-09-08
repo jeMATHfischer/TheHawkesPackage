@@ -40,7 +40,7 @@ from .bell_shape import BellShapeHawkes
 from .exponential import ExponentialHawkes
 from .mcmc import mcmc_sampler
 from .monotone import MonotoneKernelHawkes
-from .multivariate import MultivariateHawkes
+from .multivariate import MultivariateExponentialHawkes, MultivariateHawkes
 from .spatio_temporal import (
     Circle,
     FundamentalDomain,
@@ -60,6 +60,7 @@ __all__ = [
     "FundamentalDomain",
     "HawkesProcess",
     "MonotoneKernelHawkes",
+    "MultivariateExponentialHawkes",
     "MultivariateHawkes",
     "MultivariateTemporalHawkesProcess",
     "SpatialDomain",

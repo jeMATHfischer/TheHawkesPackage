@@ -207,3 +207,108 @@ def test_n_types_must_be_a_positive_whole_number(exp_kernel):
         Bare(0)
     with pytest.raises(ValueError, match="positive whole number"):
         Bare(1.5)
+
+
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_one_type_reproduces_the_exponential_class_exactly(seed):
+    """``MultivariateExponentialHawkes([mu], [[alpha]], beta)`` is `ExponentialHawkes`.
+
+    The assertion 0.6.0's "no previously produced number moves" rests on, made
+    against the class most users actually run.
+    """
+    mu, alpha, beta = 1.0, 0.5, 2.0
+    reference = hp.ExponentialHawkes(np.array([mu, alpha, beta]), rng=seed)
+    reference.simulate(25)
+
+    multivariate = hp.MultivariateExponentialHawkes(
+        mu=[mu], excitation=[[alpha]], beta=beta, rng=seed
+    )
+    multivariate.simulate(25)
+
+    np.testing.assert_array_equal(multivariate.events[0], reference.events)
+
+    last = float(reference.events[-1])
+    for t in np.linspace(0.0, last + 1.0, 200):
+        assert multivariate._conditional_intensity(float(t)) == (
+            reference._conditional_intensity(float(t))
+        )
+    for t in np.linspace(last, last + 1.0, 200):
+        assert multivariate._upper_bound(float(t)) == reference._upper_bound(float(t))
+
+
+def test_the_spectral_radius_reduces_to_the_scalar_condition():
+    """At one type the branching matrix is ``[[alpha / beta]]``."""
+    assert hp.multivariate.spectral_radius([[0.5 / 2.0]]) == pytest.approx(0.25, rel=1e-15)
+
+
+@pytest.mark.parametrize("seed", [0, 3])
+def test_a_process_just_inside_the_boundary_simulates(seed):
+    """Spectral radius 0.999 is stationary, and must not be refused or stall."""
+    beta = 2.0
+    # Row sums equal, so the spectral radius is exactly the common row sum.
+    excitation = np.array([[1.2, 0.798], [0.998, 1.0]]) / 1.0
+    radius = hp.multivariate.spectral_radius(excitation / beta)
+    assert 0.99 < radius < 1.0
+
+    process = hp.MultivariateExponentialHawkes(
+        mu=[0.2, 0.1], excitation=excitation, beta=beta, rng=seed
+    )
+    process.simulate(200)
+    assert process.events.shape == (2, 200)
+
+
+def test_a_process_at_the_boundary_is_refused():
+    with pytest.raises(ValueError, match=r"spectral radius.*>= 1"):
+        hp.MultivariateExponentialHawkes(
+            mu=[0.2, 0.1], excitation=[[1.4, 0.7], [0.7, 1.4]], beta=2.0
+        )
+
+
+def test_beta_must_be_positive():
+    with pytest.raises(ValueError, match="beta must be positive"):
+        hp.MultivariateExponentialHawkes(mu=[0.2], excitation=[[0.1]], beta=0.0)
+
+
+def test_an_exploding_process_raises_rather_than_hanging():
+    """The stall guard has to work through the multivariate loop too.
+
+    The spectral-radius guard is what users meet, but it only covers the linear
+    case: a nonlinearity can diverge at any matrix. So the loop keeps its own
+    check, and this is the multivariate half of
+    `test_exploding_process_raises_instead_of_hanging`, using the same explosive
+    ``phi = exp`` -- a merely supercritical linear process grows without ever
+    underflowing an inter-arrival time, and would run to whatever count it was
+    given instead of raising.
+    """
+    process = hp.MultivariateHawkes(
+        mu=[0.0, 0.0],
+        excitation=[[1.0, 1.0], [1.0, 1.0]],
+        temporal=lambda x: np.exp(-10 * np.asarray(x, dtype=float)),
+        nonlinearity=np.exp,
+        rng=7,
+    )
+    with pytest.raises(RuntimeError, match="exploding"):
+        process.simulate(500)
+    # The record and the counter must still agree after the failure, as they do
+    # univariately: the counter is incremented per accepted event, not per call.
+    assert process.n_simulated == process.events.shape[1]
+    assert np.all(process.events[0] > 0), "no phantom event may survive a failure"
+
+
+def test_one_type_explodes_exactly_where_the_monotone_class_does():
+    """The stall must fire at the same point, on the same stream."""
+
+    def kernel(x):
+        return np.exp(-10 * np.asarray(x, dtype=float))
+
+    reference = hp.MonotoneKernelHawkes(kernel, nonlinearity=np.exp, rng=7)
+    with pytest.raises(RuntimeError, match="exploding"):
+        reference.simulate(500)
+
+    multivariate = hp.MultivariateHawkes(
+        mu=[0.0], excitation=[[1.0]], temporal=kernel, nonlinearity=np.exp, rng=7
+    )
+    with pytest.raises(RuntimeError, match="exploding"):
+        multivariate.simulate(500)
+
+    np.testing.assert_array_equal(multivariate.events[0], reference.events)
