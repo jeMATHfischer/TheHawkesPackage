@@ -93,6 +93,7 @@ from .likelihood import (
     History,
     LikelihoodState,
     LogLikelihood,
+    MultivariateLogLikelihood,
     SpatioTemporalLogLikelihood,
     TemporalLogLikelihood,
 )
@@ -151,6 +152,7 @@ __all__ = [
     "Marginal",
     "MultivariateBase",
     "MultivariateComponents",
+    "MultivariateLogLikelihood",
     "Normal",
     "Parameter",
     "ParameterSpec",
