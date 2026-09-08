@@ -45,7 +45,14 @@ from .._numerics import as_point
 from . import _gluing, _integration
 from ._model import EuclideanPlane, HyperbolicPlane, ModelSpace, SphericalPlane, isometry_between
 
-__all__ = ["Circle", "FundamentalDomain", "SpatialDomain", "Sphere", "Torus2D"]
+__all__ = [
+    "Circle",
+    "FundamentalDomain",
+    "Rectangle",
+    "SpatialDomain",
+    "Sphere",
+    "Torus2D",
+]
 
 
 class SpatialDomain(ABC):
@@ -78,9 +85,28 @@ class SpatialDomain(ABC):
         on the quotient and therefore reversible, whereas folding with a
         clipping map would pile every draw onto the boundary. Defaults to
         ``False``, so a third-party domain is treated conservatively.
+    has_boundary : bool
+        Whether the domain has an edge that excitation can spill over. A closed
+        surface does not: the spatial kernel's mass over the domain is the same
+        wherever an event lands, so an event's realised productivity does not
+        depend on its position. A domain with a boundary breaks that, and
+        :class:`~hawkes_package.SpatioTemporalHawkesProcess` renormalises the
+        spatial kernel per event to compensate.
+
+        **This is not the negation of** :attr:`periodic`. ``Sphere`` and
+        ``FundamentalDomain`` are both ``periodic = False`` -- the first is not
+        a quotient at all, the second is glued by isometries that are not
+        translations -- and neither has a boundary. Keying the correction off
+        ``periodic`` would rescale their intensity for no reason.
+
+        Defaults to ``False``, so every domain that predates 0.7.0 takes the
+        identical path and no previously produced number moves.
+
+        .. versionadded:: 0.7.0
     """
 
     periodic: bool = False
+    has_boundary: bool = False
 
     @abstractmethod
     def distance(self, x: np.ndarray, y: np.ndarray) -> float:
@@ -332,6 +358,132 @@ class Torus2D(SpatialDomain):
             for n1 in range(-n_images, n_images + 1)
             for n2 in range(-n_images, n_images + 1)
         ]
+
+
+class Rectangle(SpatialDomain):
+    """A bounded rectangular region with a real boundary.
+
+    The first domain here that is **not** a closed surface. Every other one is
+    boundaryless -- periodic, like :class:`Circle` and :class:`Torus2D`, or a
+    quotient, like :class:`Sphere` and :class:`FundamentalDomain` -- so the
+    spatial kernel's mass over the domain is the same wherever an event lands.
+    Here it is not: an event near an edge spreads offspring into a region that
+    is partly outside the domain, so its realised productivity is lower than an
+    event in the middle.
+
+    That is what :attr:`~SpatialDomain.has_boundary` announces, and what
+    :class:`~hawkes_package.SpatioTemporalHawkesProcess` renormalises for. It is
+    not a property this class can fix on its own: the correction needs the
+    kernel and the quadrature rule, and a domain knows neither.
+
+    Not to be confused with :meth:`FundamentalDomain.rectangle`, which glues the
+    opposite sides together and is a **torus**. Same box, no boundary, different
+    process.
+
+    Parameters
+    ----------
+    width, height, ... : float
+        Side lengths, one per axis. Any number of axes; two is the usual case,
+        and one gives a bounded interval, the non-periodic counterpart of
+        :class:`Circle`.
+    origin : array_like, optional
+        The lower corner. Defaults to centring the box on the origin.
+
+    Examples
+    --------
+    >>> domain = Rectangle(4.0, 3.0)
+    >>> domain.volume
+    12.0
+    >>> domain.has_boundary
+    True
+    >>> bool(domain.contains(np.array([1.0, 1.0])))
+    True
+    >>> bool(domain.contains(np.array([9.0, 1.0])))
+    False
+
+    .. versionadded:: 0.7.0
+    """
+
+    periodic = False
+    has_boundary = True
+
+    def __init__(self, *sides: float, origin: Any = None) -> None:
+        lengths = np.asarray(sides, dtype=float).ravel()
+        if lengths.size == 0:
+            raise ValueError("a Rectangle needs at least one side length")
+        if not np.all(np.isfinite(lengths)) or np.any(lengths <= 0):
+            raise ValueError(f"every side length must be finite and positive, got {sides!r}")
+
+        if origin is None:
+            lower = -lengths / 2.0
+        else:
+            lower = np.asarray(origin, dtype=float).ravel()
+            if lower.size != lengths.size:
+                raise ValueError(
+                    f"origin must have one entry per side: got {lower.size} for "
+                    f"{lengths.size} side(s)"
+                )
+            if not np.all(np.isfinite(lower)):
+                raise ValueError(f"origin must be finite, got {origin!r}")
+
+        self.lengths = lengths
+        self.lower = lower
+        self.upper = lower + lengths
+        self._ndim = int(lengths.size)
+
+    def distance(self, x: np.ndarray, y: np.ndarray) -> float:
+        """Plain Euclidean distance -- nothing wraps."""
+        x, y = as_point(x, self._ndim), as_point(y, self._ndim)
+        return float(np.linalg.norm(x - y))
+
+    def wrap(self, x: np.ndarray) -> np.ndarray:
+        """Clip `x` into the box.
+
+        Clipping, not folding, which is why :attr:`~SpatialDomain.periodic` is
+        ``False``: a clipping map is not reversible, so folding an MCMC proposal
+        through it would pile every out-of-bounds draw onto the boundary instead
+        of rejecting it. The location sampler rejects here, and that is correct
+        for any domain rather than only for a translation quotient.
+        """
+        return np.clip(as_point(x, self._ndim), self.lower, self.upper)
+
+    def sample_uniform(self, rng: np.random.Generator) -> np.ndarray:
+        """Draw one point uniformly from the box."""
+        return np.asarray(rng.uniform(self.lower, self.upper), dtype=float)
+
+    def contains(self, x: np.ndarray) -> bool:
+        """Whether `x` lies in the box.
+
+        The inherited default returns ``True`` unconditionally, which is sound
+        for the quadrature -- it only ever asks about nodes drawn from
+        :attr:`bounds`, and this domain fills its box -- but it is not what the
+        method says. A bounded domain is the first one here where a caller might
+        reasonably ask about a point *outside* the box, so answer honestly.
+        """
+        point = as_point(x, self._ndim)
+        return bool(np.all(point >= self.lower) and np.all(point <= self.upper))
+
+    @property
+    def volume(self) -> float:
+        """Product of the side lengths."""
+        return float(np.prod(self.lengths))
+
+    @property
+    def bounds(self) -> np.ndarray:
+        """The box itself, shape ``(ndim, 2)``."""
+        return np.stack([self.lower, self.upper], axis=1)
+
+    @property
+    def max_distance(self) -> float:
+        """The full diagonal.
+
+        Not the *half*-diagonal the base class defaults to. That default is the
+        diameter of a flat domain with every axis periodic, where the farthest
+        two points are half a period apart. Nothing wraps here, so the two
+        opposite corners are the farthest pair and the diameter is twice as
+        large -- and this value sizes the window an image sum searches.
+        """
+        return float(np.linalg.norm(self.lengths))
 
 
 class Sphere(SpatialDomain):

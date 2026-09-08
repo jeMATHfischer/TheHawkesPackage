@@ -9,7 +9,7 @@ hidden dependency on the global stream survives.
 import numpy as np
 import pytest
 
-from hawkes_package import Circle, FundamentalDomain, Sphere, Torus2D
+from hawkes_package import Circle, FundamentalDomain, Rectangle, Sphere, Torus2D
 
 SEED = 20260825
 
@@ -70,6 +70,8 @@ def bump_spatial():
         FundamentalDomain.projective_plane(),
         FundamentalDomain.genus(2),
         FundamentalDomain.crosscaps(3),
+        Rectangle(4.0, 3.0),
+        Rectangle(2.0),
     ],
     ids=[
         "circle",
@@ -85,6 +87,8 @@ def bump_spatial():
         "fd-rp2",
         "fd-genus2",
         "fd-crosscaps3",
+        "rect-4x3",
+        "rect-1d",
     ],
 )
 def domain(request):
@@ -101,6 +105,9 @@ def domain(request):
       also has a chart whose bounding box is not its boundary's.
     * The hyperbolic pair have a bounding box that reaches *outside* their model
       space, and a geodesic diameter several times the width of their chart.
+    * The rectangles are the only ones with a **boundary**, so the kernel mass
+      over the domain depends on where an event sits. Nothing else here is
+      anything but a closed surface.
     """
     return request.param
 
