@@ -65,7 +65,10 @@ What is not here
 
 Partially observed or thinned data, which creates a genuine latent state and
 needs a different algorithm rather than a different setting of this one;
-continuous marks. And :mod:`hawkes_package.mcmc` is untouched -- it remains the
+continuous marks; and *spatio-temporal* multivariate processes -- space and
+event type do not combine, because thinning a vector intensity against a
+space-integrated bound is a second bound argument rather than a wider version
+of the first. And :mod:`hawkes_package.mcmc` is untouched -- it remains the
 spatial location sampler on the Ogata correctness path, and inference has its
 own chain in :mod:`hawkes_package.inference.mcmc`.
 
@@ -74,7 +77,8 @@ Multivariate and mutually-exciting processes **are** here as of 0.6.0, through
 :class:`~hawkes_package.inference.likelihood.MultivariateLogLikelihood`, with an
 ``O(n d)`` closed form for the shared exponential kernel. One kernel shape and a
 non-negative matrix of scales: cross-excitations share a decay rate, and
-inhibition is excluded by the thinning bound rather than by preference.
+inhibition is excluded by the thinning bound rather than by preference. Purely
+temporal -- see above.
 
 .. versionadded:: 0.5.0
 
