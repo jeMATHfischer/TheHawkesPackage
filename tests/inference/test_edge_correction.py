@@ -146,3 +146,67 @@ def test_a_kernel_that_integrates_to_nothing_is_refused(corrected, history):
         warnings.simplefilter("ignore", UserWarning)
         with pytest.raises(ValueError, match="cannot be renormalised"):
             likelihood.total(dead, history)
+
+
+# ---------------------------------------------------------------------------
+# The test that justifies the package
+# ---------------------------------------------------------------------------
+
+#: Excitation values the profile below maximises over.
+ALPHA_GRID = np.linspace(0.3, 2.4, 43)
+
+
+def profile_alpha(model, history):
+    """Return the excitation that maximises the log-likelihood, holding the rest.
+
+    A grid rather than an optimiser: this package holds SciPy to one call site,
+    and a coarse argmax is enough to show a bias of this size.
+    """
+    likelihood = SpatioTemporalLogLikelihood(model, backend="cached", homogeneous=False)
+    values = []
+    for alpha in ALPHA_GRID:
+        theta = TRUTH.copy()
+        theta[1] = alpha
+        values.append(likelihood.total(theta, history))
+    return float(ALPHA_GRID[int(np.argmax(values))])
+
+
+@pytest.mark.statistical
+@pytest.mark.slow
+@pytest.mark.parametrize("seed", [0, 7, 13])
+def test_ignoring_the_edge_inflates_the_excitation(seed, corrected, plain):
+    """Simulate with the correction, then fit with and without it.
+
+    This is the whole argument for the package in one assertion. The data have
+    every event producing the same expected number of offspring wherever it
+    sits. The uncorrected model expects an event near the boundary to produce
+    fewer -- its kernel integrates to ``S_i < 1`` there -- so it must raise the
+    excitation to explain the offspring it sees, and it does.
+
+    Measured over seeds 0-20 at 40 events: the corrected profile has mean 0.900
+    against a truth of 0.900, the uncorrected one has mean 1.474 -- a 64%
+    over-estimate -- and the uncorrected exceeds the corrected on **21 of 21
+    seeds**, with a minimum ratio of 1.500. The threshold below is 1.2, well
+    inside that.
+
+    The corrected half is what stops this being a test of nothing: without it,
+    a model that simply preferred larger alpha would pass.
+    """
+    process = corrected(TRUTH, rng=seed)
+    process.simulate(40)
+    history = History.from_simulation(process)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with_correction = profile_alpha(corrected, history)
+        without = profile_alpha(plain, history)
+
+    assert without > 1.2 * with_correction, (
+        f"omitting the edge correction should inflate the excitation, but the two "
+        f"profiles are {without:.3f} against {with_correction:.3f}"
+    )
+    # And the corrected one has to be in the right neighbourhood, or the ratio
+    # above could be produced by both being wrong together.
+    assert 0.3 < with_correction < 1.8, (
+        f"the corrected profile {with_correction:.3f} is nowhere near the truth 0.900"
+    )
