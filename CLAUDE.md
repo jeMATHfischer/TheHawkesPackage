@@ -31,7 +31,13 @@ processes: `MultivariateHawkes` and `MultivariateExponentialHawkes` simulate the
 `O(n·d)` closed form. One kernel shape and a non-negative `(d, d)` matrix of
 scales — so cross-excitations share a decay rate, and **inhibition is excluded by
 the bound argument** (`sup(a·f) = a·sup(f)` only for `a >= 0`), not by preference.
-Still out of scope: continuous marks — space and type are the only marks.
+Multivariate is **temporal only**: space and type do not combine, and a
+spatio-temporal multivariate process is out of scope rather than pending. It needs
+its own thinning bound drawn against a space-integrated *vector* intensity, with
+the floor moving from after-the-sum to per-component and the type drawn before the
+location — a second bound argument, not a wider version of the first, and one with
+no exact-value safety net because that reordering changes the draw stream. Still
+out of scope with it: continuous marks.
 Partially observed data is out too, and for a reason rather than by omission: it
 creates a genuine latent state and needs a different algorithm, not a different
 setting of this one.

@@ -309,3 +309,27 @@ def test_the_closed_form_refuses_a_saturating_nonlinearity():
     model = multivariate_model(2, nonlinearity=SoftPlusNonlinearity())
     with pytest.raises(ValueError, match=r"is the \*linear\* closed form"):
         MultivariateExponentialLogLikelihood(model)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [MultivariateLogLikelihood, lambda m: exact(m)],
+    ids=["general", "closed-form"],
+)
+def test_a_history_carrying_locations_is_refused(model, factory):
+    """Space and event type do not combine, and the boundary is stated here.
+
+    `History.from_multivariate_events` parses a ``(ndim + 2, n)`` record happily
+    -- the layout is well defined and costs nothing to describe -- but nothing in
+    the package produces one and no likelihood consumes one. Without this guard
+    it would be turned away three frames deeper by `_EventBuffer.replace`,
+    complaining about a row count rather than about the thing that is missing.
+    """
+    times = np.array([0.4, 1.1, 2.9])
+    points = np.array([[0.1, 0.2, 0.3]])
+    types = np.array([0.0, 1.0, 0.0])
+    record = np.vstack([times[None, :], points, types[None, :]])
+    history = History.from_multivariate_events(record, n_types=2, end=4.0)
+
+    with pytest.raises(ValueError, match="temporal only"):
+        factory(model).total(THETA, history)

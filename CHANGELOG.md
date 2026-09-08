@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `multivariate_model` fits them, with `MultivariateLogLikelihood` through the intensity hooks and
   `MultivariateExponentialLogLikelihood` as the `O(n·d)` closed form. The record is `(2, n)` —
   times in row 0, the type in row 1 — and `History` carries `types` and `n_types` alongside.
+
+  **Temporal only.** Space and event type do not combine: a spatio-temporal multivariate
+  process needs its own thinning bound, drawn against a space-integrated *vector* intensity,
+  with the floor moving from after-the-sum to per-component and the type drawn before the
+  location. That is a second bound argument rather than a wider version of the first, and
+  the reordering costs the exact-value safety net every other claim here rests on. The
+  multivariate likelihoods refuse a history carrying locations and say so.
 - **Additive: no previously produced number moves.** The existing classes are untouched, including
   `ExponentialHawkes`'s scalar `alpha/beta` guard, which is correct for a scalar class. A one-type
   multivariate process reproduces `MonotoneKernelHawkes`, `BellShapeHawkes` and `ExponentialHawkes`

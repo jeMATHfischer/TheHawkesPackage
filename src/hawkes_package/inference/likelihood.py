@@ -654,6 +654,49 @@ class TemporalLogLikelihood:
 # ---------------------------------------------------------------------------
 
 
+def _multivariate_types(history: History, n_types: int, owner: str) -> np.ndarray:
+    """Return `history`'s types, refusing a history a multivariate model cannot use.
+
+    Three refusals in one place, because both multivariate likelihoods need all
+    three and two copies of a guard is one copy that misses a fix.
+
+    An **untyped** history would put every event in component 0 -- a different
+    model, and not one anybody asked for. A **type-count mismatch** is the same
+    failure with a smaller radius: it drops or invents a component's background
+    and its column of the excitation matrix.
+
+    A history carrying **locations** is refused because multivariate models are
+    temporal only. :meth:`History.from_multivariate_events` parses a
+    ``(ndim + 2, n)`` record happily, since that layout is well defined and costs
+    nothing to describe, but nothing in the package produces one and no
+    likelihood consumes one. Without this it would be turned away three frames
+    deeper by ``_EventBuffer.replace``, complaining about a row count rather than
+    about the thing that is actually missing.
+
+    .. versionadded:: 0.6.0
+    """
+    if history.types is None:
+        raise ValueError(
+            f"{owner} needs a history carrying event types; build one with "
+            "History.from_multivariate_events"
+        )
+    if history.n_types != n_types:
+        raise ValueError(
+            f"the history has n_types={history.n_types} but the model has "
+            f"{n_types}. A mismatch silently drops or invents a component."
+        )
+    if history.points is not None:
+        raise ValueError(
+            f"{owner} is temporal only, but this history carries "
+            f"{history.ndim}-dimensional locations. Space and event type do not "
+            "combine in this release: a spatio-temporal multivariate process needs "
+            "its own thinning bound, drawn against a space-integrated vector "
+            "intensity. Use SpatioTemporalLogLikelihood for locations, or a "
+            "multivariate model for types."
+        )
+    return np.asarray(history.types, dtype=np.intp)
+
+
 class MultivariateLogLikelihood:
     r"""The log-likelihood of a multivariate Hawkes process, from its own hooks.
 
@@ -724,17 +767,7 @@ class MultivariateLogLikelihood:
         it drops or invents a component's background and its column of the
         excitation matrix.
         """
-        if history.types is None:
-            raise ValueError(
-                "a multivariate model needs a history carrying event types; build "
-                "one with History.from_multivariate_events"
-            )
-        if history.n_types != self.n_types:
-            raise ValueError(
-                f"the history has n_types={history.n_types} but the model has "
-                f"{self.n_types}. A mismatch silently drops or invents a component."
-            )
-        return np.asarray(history.types, dtype=np.intp)
+        return _multivariate_types(history, self.n_types, type(self).__name__)
 
     def _process(self, theta: Any, history: History, upto: float) -> Any:
         """Build the process at `theta` and condition it on the history so far."""
@@ -1060,17 +1093,7 @@ class MultivariateExponentialLogLikelihood:
 
     def _require_types(self, history: History) -> np.ndarray:
         """Return the history's types, refusing one that cannot carry them."""
-        if history.types is None:
-            raise ValueError(
-                "a multivariate model needs a history carrying event types; build "
-                "one with History.from_multivariate_events"
-            )
-        if history.n_types != self.n_types:
-            raise ValueError(
-                f"the history has n_types={history.n_types} but the model has "
-                f"{self.n_types}. A mismatch silently drops or invents a component."
-            )
-        return np.asarray(history.types, dtype=np.intp)
+        return _multivariate_types(history, self.n_types, type(self).__name__)
 
     def extend(
         self,
