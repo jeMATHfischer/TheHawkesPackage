@@ -121,10 +121,26 @@ class SpatialComponents:
     """Images per direction in the periodised sum, or ``None`` when the kernel
     is used unperiodised."""
 
+    edge_correction: str = "auto"
+    """What the process does about excitation falling off a boundary. Recorded
+    here because the likelihood has to make the *same* choice: if the simulator
+    renormalises and the likelihood does not, the fit is biased by exactly the
+    correction, and nothing raises.
+
+    .. versionadded:: 0.7.0
+    """
+
     @property
     def nodes_per_axis(self) -> int:
         """The node count the process will actually build its rule at."""
         return self.domain.nodes_per_axis if self.n_quad is None else int(self.n_quad)
+
+    @property
+    def renormalises(self) -> bool:
+        """Whether the spatial kernel is divided by its in-domain mass per event."""
+        return self.edge_correction == "renormalise" or (
+            self.edge_correction == "auto" and bool(self.domain.has_boundary)
+        )
 
 
 def _all_true(theta: np.ndarray) -> np.ndarray:
@@ -412,6 +428,7 @@ def spatio_temporal_model(
     spatial: SpatialKernelFamily | None = None,
     n_quad: int | None = None,
     n_images: int | None = None,
+    edge_correction: str = "auto",
 ) -> ProcessModel:
     """Build a :class:`~hawkes_package.SpatioTemporalHawkesProcess` over families.
 
@@ -464,6 +481,7 @@ def spatio_temporal_model(
         spatial=shape,
         n_quad=n_quad,
         n_images=n_images,
+        edge_correction=edge_correction,
     )
 
     n_base = len(background.spec)
@@ -496,6 +514,7 @@ def spatio_temporal_model(
             n_quad=n_quad,
             peak_lag=None if located is None else located.lag,
             peak_value=None if located is None else located.value,
+            edge_correction=edge_correction,
         )
 
     def branching(theta: np.ndarray) -> np.ndarray:

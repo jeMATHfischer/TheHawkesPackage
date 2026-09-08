@@ -1384,12 +1384,21 @@ class SpatioTemporalLogLikelihood:
             if self.homogeneous is True or self.spatial_spread <= self.rtol:
                 self.homogeneous_used = True
                 return np.full(n, float(np.mean(sampled)), dtype=float)
+            cause = (
+                "This domain has a boundary, so the spread is real geometry rather "
+                "than quadrature error -- an event near the edge genuinely keeps less "
+                "of its kernel -- and raising n_quad will not reduce it. Pass "
+                "edge_correction='renormalise' to divide it out, or 'none' and read "
+                "the excitation as position-dependent."
+                if self.components.domain.has_boundary
+                else "On a domain that fills its bounding box this spread is the "
+                "quadrature error, so raising n_quad is the other fix."
+            )
             warnings.warn(
                 f"the spatial mass varies by {100 * self.spatial_spread:.3g}% across "
                 f"events, above rtol={self.rtol}, so a single value cannot stand for all "
                 "of them. Falling back to a mass per event, which is exact and still far "
-                "cheaper than the hooks. On a domain that fills its bounding box this "
-                "spread is the quadrature error, so raising n_quad is the other fix.",
+                f"cheaper than the hooks. {cause}",
                 UserWarning,
                 stacklevel=4,
             )
@@ -1400,6 +1409,38 @@ class SpatioTemporalLogLikelihood:
             scale = max(abs(float(np.mean(masses))), np.finfo(float).tiny)
             self.spatial_spread = float(np.ptp(masses)) / scale
         return masses
+
+    def _edge_scales(self, cache: GeometryCache, theta: np.ndarray, n: int) -> np.ndarray | None:
+        """Per-event in-domain kernel mass, or ``None`` when not renormalising.
+
+        The *exact* mass per event, never the `homogeneous` shortcut's mean.
+        That shortcut exists because on a closed surface every event's mass is
+        the same up to quadrature error, so one value stands for all of them --
+        but a bounded domain is precisely where they differ, and dividing by a
+        mean would leave the position dependence the correction exists to
+        remove, at a fraction of its size and much harder to see.
+
+        Computed from ``cache.node_event`` on the restricted rule, which is the
+        same quadrature the simulator integrates over. A likelihood that
+        renormalised by a different rule than the simulator did would be biased
+        by the ratio of the two.
+
+        .. versionadded:: 0.7.0
+        """
+        if not self.components.renormalises or n == 0:
+            return None
+        kernel = self.components.spatial.build(theta[self._spatial_slice])
+        scales = self._masses_at(kernel, cache, np.arange(n))
+        if not np.all(scales > 0.0):
+            worst = float(np.min(scales))
+            raise ValueError(
+                f"the spatial kernel integrates to {worst:.6g} over the domain around "
+                "at least one event, so it cannot be renormalised. Either its support "
+                "is narrower than a quadrature panel -- raise n_quad -- or build the "
+                "model with edge_correction='none' and read the excitation as "
+                "position-dependent."
+            )
+        return scales
 
     def _masses_at(self, kernel: Any, cache: GeometryCache, which: np.ndarray) -> np.ndarray:
         """Integrate the spatial kernel around the events indexed by `which`."""
@@ -1461,8 +1502,22 @@ class SpatioTemporalLogLikelihood:
         if n == 0:
             return np.empty(0, dtype=float), masses, background_integral
 
+        scales = self._edge_scales(cache, theta, n)
+        if scales is not None:
+            # Every event's spatial kernel now integrates to one over the
+            # domain, so the compensator's per-event masses are exactly one --
+            # not approximately, by construction. The division that makes that
+            # true is applied to `pair` below.
+            masses = np.ones(n, dtype=float)
+
         # log-sum term: lambda(t_i^-, x_i), strictly over earlier events.
         pair = np.asarray(kappa_s(cache.event_event), dtype=float).sum(axis=2)
+        if scales is not None:
+            # Axis 1 is the *source* event -- `pair[i, j]` is the kernel from
+            # event j reaching event i -- and it is the source whose mass leaks
+            # off the boundary. Dividing along axis 0 would renormalise by the
+            # receiver and be wrong in a way that still looks like a correction.
+            pair = pair / scales[None, :]
         lags = times[:, None] - times[None, :]
         earlier = lags > 0.0
         factors = np.where(earlier, np.asarray(kappa_t(np.where(earlier, lags, 0.0))), 0.0)
