@@ -190,6 +190,9 @@ SPATIO_TEMPORAL = [
     "st-hexagon",
     "st-hexagon-periodic",  # the same, through make_periodic's orbit branch
     pytest.param("st-rectangle", marks=pytest.mark.slow),
+    # Bounded, non-periodic. Every other case here is a closed surface.
+    pytest.param("st-bounded-rect", marks=pytest.mark.slow),
+    "st-bounded-interval",
     # The curved domains. Each one changes something the domination argument
     # depends on, and the argument only ever needed the bound and the acceptance
     # test to share one node set with strictly positive weights -- so each is a
@@ -326,6 +329,19 @@ def build(
             )
         if name == "st-rectangle":
             return _spatio_temporal(domain=hp.FundamentalDomain.rectangle(), rng=seed)
+        if name == "st-bounded-rect":
+            # The first domain with an *edge*. Nothing wraps, so the kernel mass
+            # over the domain depends on where an event sits -- and the bound is
+            # integrated over a rule whose nodes fill the box exactly, as on a
+            # torus, but whose geometry is not a quotient. The invariant has to
+            # hold before any edge correction is applied, so that the correction
+            # can be shown not to have broken it.
+            return _spatio_temporal(domain=hp.Rectangle(4.0, 3.0), rng=seed)
+        if name == "st-bounded-interval":
+            # One dimension, the non-periodic counterpart of `st-circle`. A bump
+            # kernel of reach pi on an interval of length 4 loses real mass off
+            # both ends, which is the whole phenomenon in its simplest form.
+            return _spatio_temporal(domain=hp.Rectangle(4.0), rng=seed)
         if name == "st-sphere":
             return _spatio_temporal(domain=hp.Sphere(), rng=seed)
         if name == "st-klein":
@@ -393,6 +409,7 @@ TWO_DIMENSIONAL = {
     "st-hexagon-periodic",
     "st-sphere",
     "st-klein",
+    "st-bounded-rect",
 }
 
 #: The curved domains cost more again: a hyperbolic `distance` searches a
