@@ -24,8 +24,16 @@ import hawkes_package as hp
 
 
 def total(value):
-    """Reduce a vector intensity to the scalar its single bound dominates."""
-    return float(np.sum(value))
+    """Reduce a vector intensity to the scalar its single bound dominates.
+
+    ``cumsum(v)[-1]`` rather than ``sum(v)``, and the difference is not
+    pedantry: the multivariate loop partitions ``(0, M]`` with the cumulative
+    intensities and compares its draw against their last entry, while ``sum``
+    reduces pairwise and is free to land a bit away. Recording one while the
+    loop compared the other would mean the harness checks a number the loop
+    never used.
+    """
+    return float(np.cumsum(np.asarray(value, dtype=float))[-1])
 
 
 def instrument(proc, lam_name, *, reduce=None):
@@ -231,6 +239,19 @@ def build(
             return hp.BellShapeHawkes(triangular_kernel, rng=seed)
         if name == "DelayedBellShapeHawkes":
             return hp.BellShapeHawkes(delayed_bump_kernel, rng=seed)
+        if name == "mv-d1":
+            # The degenerate multivariate process: one type, and by construction
+            # the same intensity `MonotoneKernelHawkes` has. It earns its place
+            # because it reaches that intensity through the *vector* hook and
+            # the summed bound, so a defect in the reduction or in the type draw
+            # shows up here against a case whose correct answer is already known.
+            return hp.MultivariateHawkes(
+                mu=[0.0],
+                excitation=[[1.0]],
+                temporal=exp_kernel,
+                nonlinearity=lambda x: x + 2,
+                rng=seed,
+            )
         if name == "st-circle":
             return _spatio_temporal(rng=seed)
         if name == "st-torus":
@@ -279,6 +300,25 @@ def build(
 def test_temporal_thinning_invariant(build, name, seed, stop):
     proc, drive = stopping_rule(build, name, seed, 300, stop)
     state = instrument(proc, "_conditional_intensity")
+    drive()
+    _check(state, label=f"{name}(seed={seed}, stop={stop})")
+
+
+#: Multivariate cases. The bound is one number dominating the *total* of a
+#: vector intensity, so these are instrumented on the vector hook and reduced --
+#: recording a single component would check a weaker inequality than the loop
+#: relies on.
+MULTIVARIATE = ["mv-d1"]
+
+
+@pytest.mark.statistical
+@pytest.mark.parametrize("stop", STOPPING)
+@pytest.mark.parametrize("name", MULTIVARIATE)
+@pytest.mark.parametrize("seed", [11, 23, 47])
+def test_multivariate_thinning_invariant(build, name, seed, stop):
+    """Same invariant, against the summed intensity one bound has to dominate."""
+    proc, drive = stopping_rule(build, name, seed, 300, stop)
+    state = instrument(proc, "_component_intensities", reduce=total)
     drive()
     _check(state, label=f"{name}(seed={seed}, stop={stop})")
 

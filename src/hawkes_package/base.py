@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["HawkesProcess", "TemporalHawkesProcess"]
+__all__ = ["HawkesProcess", "MultivariateTemporalHawkesProcess", "TemporalHawkesProcess"]
 
 #: Anything :func:`numpy.random.default_rng` accepts.
 SeedLike = int | np.random.Generator | np.random.SeedSequence | None
@@ -435,3 +435,153 @@ class TemporalHawkesProcess(HawkesProcess):
         times = np.unique(np.append(np.asarray(x, dtype=float).ravel(), self.events))
         intensity = np.array([self._conditional_intensity(float(t)) for t in times])
         return times, intensity
+
+
+class MultivariateTemporalHawkesProcess(TemporalHawkesProcess):
+    r"""A Hawkes process on the time line whose events carry one of `n_types` types.
+
+    Type *j* excites type *i*, so the intensity is a vector and the process is
+    mutually exciting:
+
+    .. math::
+
+        \lambda_i(t \mid H_t) = \varphi_i\!\left( \mu_i + \sum_j A_{ij}
+            \sum_{t_k < t,\; c_k = j} \kappa(t - t_k) \right).
+
+    Subclasses implement :meth:`_component_intensities` and
+    :meth:`~TemporalHawkesProcess._upper_bound`; the loop, the accessor and the
+    record are inherited.
+
+    **One bound, on the total.** The thinning bound dominates
+    :math:`\sum_i \lambda_i`, not each component separately, and the type is
+    drawn at acceptance. The domination argument is the univariate one applied
+    per component and then summed: the event set does not grow before the next
+    accepted event, each term obeys
+    :math:`A_{ij}\kappa(s - t_k) \le A_{ij}\sup_{u \ge t - t_k}\kappa(u)`, and a
+    sum of finitely many dominating scalars dominates the sum of the dominated
+    ones.
+
+    That middle step needs :math:`A_{ij} \ge 0`, because
+    :math:`\sup(af) = a\sup(f)` only for non-negative *a*. Concrete subclasses
+    must refuse a negative entry at construction; inhibitory cross-excitation is
+    not a setting this class can be given, it is a different bound argument.
+
+    **The type costs no extra variate.** One exponential and one uniform per
+    candidate, exactly as :class:`TemporalHawkesProcess` draws them: the
+    cumulative component intensities partition :math:`(0, M]` into one slice per
+    type plus the rejection remainder, and which slice the uniform landed in
+    *is* the type. So a one-type process here consumes the same stream as the
+    univariate classes and reproduces them event for event.
+
+    Parameters
+    ----------
+    n_types : int
+        Number of event types, at least one.
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`HawkesProcess`.
+
+    Attributes
+    ----------
+    n_types : int
+        Number of event types.
+    events : numpy.ndarray
+        Shape ``(2, n)``: row 0 holds times, row 1 the type index as a float.
+        Exact for every type index this class admits, since a float64 carries
+        integers below ``2 ** 53`` exactly.
+    types : numpy.ndarray
+        Row 1 of the record, as integers.
+
+    .. versionadded:: 0.6.0
+    """
+
+    def __init__(self, n_types: int, *, rng: SeedLike = None) -> None:
+        count = int(n_types)
+        if count != n_types or count < 1:
+            raise ValueError(f"n_types must be a positive whole number, got {n_types!r}")
+        super().__init__(rng=rng, rows=2)
+        self.n_types = count
+
+    @abstractmethod
+    def _component_intensities(self, t: float) -> np.ndarray:
+        """Per-type intensity at `t`, shape ``(n_types,)``.
+
+        Strictly excludes events at `t`, as the scalar hook does.
+        """
+
+    def _cumulative_intensities(self, t: float) -> np.ndarray:
+        """Return the running total of :meth:`_component_intensities`.
+
+        The last entry is the total intensity.
+
+        One expression serves both the acceptance test and
+        :meth:`_conditional_intensity`. That is deliberate: ``cumsum(v)[-1]``
+        and ``sum(v)`` are free to disagree in the last bit, and defining the
+        accessor as one while the loop thins against the other is precisely how
+        :class:`~hawkes_package.exponential.ExponentialHawkes` once came to
+        report a curve that was not the curve it simulated from.
+        """
+        return np.cumsum(self._component_intensities(t))
+
+    def _conditional_intensity(self, t: float) -> float:
+        """Return the total intensity across types, which is what the bound dominates."""
+        return float(self._cumulative_intensities(t)[-1])
+
+    @property
+    def types(self) -> np.ndarray:
+        """Type index of each recorded event."""
+        return self.events[1].astype(np.intp)
+
+    def _accepted_type(self, t: float, bound: float) -> int | None:
+        """Run the acceptance test at `t`, returning the accepted type or ``None``.
+
+        One uniform, drawn and scaled exactly as the univariate loop draws and
+        scales it, so the two consume identical streams.
+        """
+        cumulative = self._cumulative_intensities(t)
+        target = self.rng.uniform() * bound
+        if target > cumulative[-1]:
+            return None
+        # `target <= cumulative[-1]` puts the draw inside some slice, so this
+        # never returns `n_types`.
+        return int(np.searchsorted(cumulative, target, side="left"))
+
+    def _propagate(self, k: int) -> None:
+        t = self._events.last_time
+        accepted = 0
+
+        while accepted < k:
+            bound = self._bound_at(t)
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} of {k} requested events")
+                )
+            t = advanced
+
+            kind = self._accepted_type(t, bound)
+            if kind is not None:
+                self._events.append((t, float(kind)))
+                accepted += 1
+                self.n_simulated += 1
+
+    def _propagate_until(self, t_end: float, start: float) -> None:
+        t = start
+        accepted = 0
+
+        while True:
+            bound = self._bound_at(t)
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} events past t={start!r}")
+                )
+            t = advanced
+
+            if t > t_end:
+                return
+
+            kind = self._accepted_type(t, bound)
+            if kind is not None:
+                self._events.append((t, float(kind)))
+                accepted += 1
+                self.n_simulated += 1
