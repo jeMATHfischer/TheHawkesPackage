@@ -239,6 +239,59 @@ def build(
             return hp.BellShapeHawkes(triangular_kernel, rng=seed)
         if name == "DelayedBellShapeHawkes":
             return hp.BellShapeHawkes(delayed_bump_kernel, rng=seed)
+        if name == "mv-exp-d2":
+            # Linear, asymmetric: type 1 excites type 0 harder than the reverse,
+            # so the two components are genuinely different functions and a bound
+            # that quietly used one of them for both would show.
+            return hp.MultivariateHawkes(
+                mu=[0.5, 0.2],
+                excitation=[[0.6, 0.9], [0.3, 0.5]],
+                temporal=exp_kernel,
+                rng=seed,
+            )
+        if name == "mv-exp-d3-asym":
+            # Three types, no symmetry and two zero entries: a component that
+            # receives nothing from a source still has to be bounded, and the
+            # cumulative slices have to stay ordered when one of them is empty.
+            return hp.MultivariateHawkes(
+                mu=[0.4, 0.1, 0.3],
+                excitation=[[0.5, 0.2, 0.0], [0.3, 0.4, 0.2], [0.0, 0.3, 0.5]],
+                temporal=exp_kernel,
+                rng=seed,
+            )
+        if name == "mv-monotone-d2":
+            # A nonlinearity on top, so the bound is only valid because phi is
+            # monotone increasing -- the same condition the univariate class rests
+            # on, now applied to a vector.
+            return hp.MultivariateHawkes(
+                mu=[0.0, 0.0],
+                excitation=[[0.7, 0.4], [0.2, 0.6]],
+                temporal=exp_kernel,
+                nonlinearity=lambda x: x + 2,
+                rng=seed,
+            )
+        if name == "mv-bell-d2":
+            # Non-monotone kernel: each event is bounded by its own future
+            # supremum, and with two types several events can be rising at once
+            # from different sources. That is the configuration the univariate
+            # bell-shaped bound was originally wrong about.
+            return hp.MultivariateHawkes(
+                mu=[0.4, 0.2],
+                excitation=[[0.6, 0.5], [0.4, 0.7]],
+                temporal=triangular_kernel,
+                monotone_temporal_kernel=False,
+                rng=seed,
+            )
+        if name == "mv-delayed-d2":
+            # The kernel that is flat at lag 0, which collapsed the univariate
+            # peak search to zero and silently disabled the bell-shaped bound.
+            return hp.MultivariateHawkes(
+                mu=[0.4, 0.2],
+                excitation=[[0.6, 0.5], [0.4, 0.7]],
+                temporal=delayed_bump_kernel,
+                monotone_temporal_kernel=False,
+                rng=seed,
+            )
         if name == "mv-d1":
             # The degenerate multivariate process: one type, and by construction
             # the same intensity `MonotoneKernelHawkes` has. It earns its place
@@ -308,7 +361,14 @@ def test_temporal_thinning_invariant(build, name, seed, stop):
 #: vector intensity, so these are instrumented on the vector hook and reduced --
 #: recording a single component would check a weaker inequality than the loop
 #: relies on.
-MULTIVARIATE = ["mv-d1"]
+MULTIVARIATE = [
+    "mv-d1",
+    "mv-exp-d2",
+    "mv-exp-d3-asym",
+    "mv-monotone-d2",
+    "mv-bell-d2",
+    "mv-delayed-d2",
+]
 
 
 @pytest.mark.statistical
