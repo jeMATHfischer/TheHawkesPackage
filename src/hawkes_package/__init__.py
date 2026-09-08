@@ -44,6 +44,7 @@ from .multivariate import MultivariateExponentialHawkes, MultivariateHawkes
 from .spatio_temporal import (
     Circle,
     FundamentalDomain,
+    Rectangle,
     SpatialDomain,
     SpatioTemporalHawkesProcess,
     Sphere,
@@ -63,6 +64,7 @@ __all__ = [
     "MultivariateExponentialHawkes",
     "MultivariateHawkes",
     "MultivariateTemporalHawkesProcess",
+    "Rectangle",
     "SpatialDomain",
     "SpatioTemporalHawkesProcess",
     "Sphere",
