@@ -543,7 +543,7 @@ class MultivariateTemporalHawkesProcess(TemporalHawkesProcess):
     @property
     def types(self) -> np.ndarray:
         """Type index of each recorded event."""
-        return self.events[1].astype(np.intp)
+        return np.asarray(self.events[1], dtype=np.intp)
 
     def _accepted_type(self, t: float, bound: float) -> int | None:
         """Run the acceptance test at `t`, returning the accepted type or ``None``.
