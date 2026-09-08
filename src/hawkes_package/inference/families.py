@@ -37,11 +37,13 @@ from .parameters import Parameter, ParameterSpec
 __all__ = [
     "BaseFamily",
     "ConstantBase",
+    "ExcitationMatrix",
     "ExponentialKernel",
     "GammaKernel",
     "GaussianSpatial",
     "KernelFamily",
     "LinearNonlinearity",
+    "MultivariateBase",
     "NonlinearityFamily",
     "SoftPlusNonlinearity",
     "SpatialKernelFamily",
@@ -444,3 +446,138 @@ class SoftPlusNonlinearity:
             )
 
         return phi
+
+
+# ---------------------------------------------------------------------------
+# Multivariate structure
+# ---------------------------------------------------------------------------
+
+
+def spectral_radii(matrices: Any) -> np.ndarray:
+    """Largest absolute eigenvalue of each matrix in a batch.
+
+    Parameters
+    ----------
+    matrices : array_like of shape (n, d, d)
+        One branching matrix per particle.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(n,)``. A row carrying any non-finite entry returns ``inf``,
+        which is what :meth:`~hawkes_package.inference.models.ProcessModel.support`
+        already filters on.
+
+    Notes
+    -----
+    The non-finite rows are masked out and written back rather than passed to
+    the eigensolver, and that is not defensive tidiness. ``ProcessModel.support``
+    evaluates ``branching`` on **every** row before ``spec.contains`` filters
+    any, so rows carrying ``inf`` or ``nan`` do reach here -- and
+    :func:`numpy.linalg.eigvals` *raises* ``LinAlgError`` on those rather than
+    returning ``nan``. That would turn a particle the sampler was about to
+    reject anyway into a crashed fit, on a proposal that is drawn hundreds of
+    times per move.
+
+    .. versionadded:: 0.6.0
+    """
+    batch = np.asarray(matrices, dtype=float)
+    if batch.ndim != 3 or batch.shape[1] != batch.shape[2]:
+        raise ValueError(f"expected a batch of square matrices, got shape {batch.shape}")
+
+    radii = np.full(batch.shape[0], np.inf, dtype=float)
+    usable = np.all(np.isfinite(batch), axis=(1, 2))
+    if np.any(usable):
+        eigenvalues = np.linalg.eigvals(batch[usable])
+        radii[usable] = np.max(np.abs(eigenvalues), axis=1)
+    return radii
+
+
+@dataclass(frozen=True)
+class ExcitationMatrix:
+    """The ``(d, d)`` matrix of excitation scales in a multivariate model.
+
+    ``A[i, j]`` scales the excitation type *j* exerts on type *i*, against one
+    shared kernel shape. Every entry is positive, so the parameters are
+    unconstrained-transformable coordinatewise like every other rate here, and
+    the thinning bound's per-term supremum stays valid.
+
+    Parameters are named ``a_i_j`` and laid out **row-major**, matching
+    :func:`numpy.reshape`, so ``theta.reshape(d, d)`` is the matrix.
+
+    .. versionadded:: 0.6.0
+    """
+
+    n_types: int
+
+    def __post_init__(self) -> None:
+        """Refuse a type count that cannot index a matrix."""
+        count = int(self.n_types)
+        if count != self.n_types or count < 1:
+            raise ValueError(f"n_types must be a positive whole number, got {self.n_types!r}")
+        object.__setattr__(self, "n_types", count)
+
+    @property
+    def size(self) -> int:
+        """Number of coordinates the matrix consumes."""
+        return self.n_types * self.n_types
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(a_0_0, a_0_1, ..., a_{d-1}_{d-1})``, all positive, row-major."""
+        return ParameterSpec(
+            tuple(Parameter(f"a_{i}_{j}") for i in range(self.n_types) for j in range(self.n_types))
+        )
+
+    def matrices(self, theta: Any) -> np.ndarray:
+        """Reshape a batch of parameter rows into ``(n, d, d)`` matrices."""
+        values, _ = _batch(theta, self.size)
+        return values.reshape(-1, self.n_types, self.n_types)
+
+    def matrix(self, theta: Any) -> np.ndarray:
+        """Return the ``(d, d)`` matrix at one parameter vector."""
+        return np.asarray(self.matrices(theta)[0], dtype=float)
+
+    def spectral_radius(self, theta: Any, mass: Any) -> np.ndarray:
+        """Spectral radius of the branching matrix ``A * mass``, batched.
+
+        `mass` is the shared kernel's integral over all lags, one per row, so
+        ``A[i, j] * mass`` is the expected number of type-*i* offspring a
+        type-*j* event produces directly. Below one the process is stationary.
+        At one type this is exactly ``alpha / beta``.
+        """
+        values, flat = _batch(theta, self.size)
+        weights = np.atleast_1d(np.asarray(mass, dtype=float))
+        branching = values.reshape(-1, self.n_types, self.n_types) * weights[:, None, None]
+        return _unbatch(spectral_radii(branching), flat)
+
+
+@dataclass(frozen=True)
+class MultivariateBase:
+    """A constant background rate per event type.
+
+    The multivariate counterpart of :class:`ConstantBase`, and purely temporal:
+    there is no domain to be per unit measure of, so ``mu_i`` is the background
+    event rate of type *i* directly.
+
+    .. versionadded:: 0.6.0
+    """
+
+    n_types: int
+
+    def __post_init__(self) -> None:
+        """Refuse a type count that cannot index a background vector."""
+        count = int(self.n_types)
+        if count != self.n_types or count < 1:
+            raise ValueError(f"n_types must be a positive whole number, got {self.n_types!r}")
+        object.__setattr__(self, "n_types", count)
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(mu_0, ..., mu_{d-1})``, all positive."""
+        return ParameterSpec(tuple(Parameter(f"mu_{i}") for i in range(self.n_types)))
+
+    def rates(self, theta: Any) -> np.ndarray:
+        """Return the background vector at one parameter vector, shape ``(d,)``."""
+        values, _ = _batch(theta, self.n_types)
+        return np.asarray(values[0], dtype=float)

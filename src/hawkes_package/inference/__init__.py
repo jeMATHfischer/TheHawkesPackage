@@ -78,10 +78,12 @@ from .estimator import HawkesEstimator
 from .evolution import Evolution, LiuWest, RandomWalkDrift, Static
 from .families import (
     ConstantBase,
+    ExcitationMatrix,
     ExponentialKernel,
     GammaKernel,
     GaussianSpatial,
     LinearNonlinearity,
+    MultivariateBase,
     SoftPlusNonlinearity,
 )
 from .forecast import posterior_predictive, predictive_counts, predictive_interval
@@ -128,6 +130,7 @@ __all__ = [
     "ConstantBase",
     "ConstrainedPrior",
     "Evolution",
+    "ExcitationMatrix",
     "ExponentialKernel",
     "ExponentialLogLikelihood",
     "Gamma",
@@ -143,6 +146,7 @@ __all__ = [
     "LogLikelihood",
     "LogNormal",
     "Marginal",
+    "MultivariateBase",
     "Normal",
     "Parameter",
     "ParameterSpec",
