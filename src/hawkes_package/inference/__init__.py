@@ -65,12 +65,21 @@ What is not here
 
 Partially observed or thinned data, which creates a genuine latent state and
 needs a different algorithm rather than a different setting of this one;
-multivariate and mutually-exciting processes; discrete marks. And
-:mod:`hawkes_package.mcmc` is untouched -- it remains the spatial location
-sampler on the Ogata correctness path, and inference has its own chain in
-:mod:`hawkes_package.inference.mcmc`.
+continuous marks. And :mod:`hawkes_package.mcmc` is untouched -- it remains the
+spatial location sampler on the Ogata correctness path, and inference has its
+own chain in :mod:`hawkes_package.inference.mcmc`.
+
+Multivariate and mutually-exciting processes **are** here as of 0.6.0, through
+:func:`~hawkes_package.inference.models.multivariate_model` and
+:class:`~hawkes_package.inference.likelihood.MultivariateLogLikelihood`, with an
+``O(n d)`` closed form for the shared exponential kernel. One kernel shape and a
+non-negative matrix of scales: cross-excitations share a decay rate, and
+inhibition is excluded by the thinning bound rather than by preference.
 
 .. versionadded:: 0.5.0
+
+.. versionchanged:: 0.6.0
+   Multivariate models are no longer out of scope.
 """
 
 from .diagnostics import KSResult, ks_exponential, posterior_report, residuals

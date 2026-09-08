@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multivariate, mutually-exciting processes**, in both the simulator and the inference
+  subpackage. `MultivariateHawkes` and `MultivariateExponentialHawkes` simulate a finite set of
+  event types against one shared kernel shape and a non-negative `(d, d)` excitation matrix;
+  `multivariate_model` fits them, with `MultivariateLogLikelihood` through the intensity hooks and
+  `MultivariateExponentialLogLikelihood` as the `O(n·d)` closed form. The record is `(2, n)` —
+  times in row 0, the type in row 1 — and `History` carries `types` and `n_types` alongside.
+- **Additive: no previously produced number moves.** The existing classes are untouched, including
+  `ExponentialHawkes`'s scalar `alpha/beta` guard, which is correct for a scalar class. A one-type
+  multivariate process reproduces `MonotoneKernelHawkes`, `BellShapeHawkes` and `ExponentialHawkes`
+  **exactly** on the same seed — asserted at `rtol=0` on the realisation and pointwise on both
+  intensity hooks — because the type costs no extra variate: the cumulative component intensities
+  partition `(0, M]`, and the uniform that decides acceptance also decides which slice it landed in.
+  The one-type likelihood is bit-identical to `ExponentialLogLikelihood`, compensator included.
+- **Stationarity is now a spectral radius.** `A ∫κ` is the branching matrix, and the long-run rate
+  is the vector `(I − G)⁻¹ μ`. Nothing downstream changed to accommodate it: `ProcessModel.support`
+  and the `stationarity` prior take the ratio through an injected callable and never inspected how
+  it was computed.
+- `ExcitationMatrix`, `MultivariateBase` and `UnitExponentialKernel` as parameter families.
+  The last exists for identifiability: `ExponentialKernel` carries `alpha`, and `A[i, j] * alpha`
+  would make only the product identifiable — scale the matrix by `c`, divide `alpha` by `c`, and it
+  is the same process. The posterior would wander that ridge with every diagnostic reporting health
+  and the matrix it finally reported would be arbitrary. The amplitude now lives in one place.
+
+### Fixed
+
+- `_EventBuffer`'s error message told a two-row record that its second row should be a coordinate.
+  Multivariate records put the event type there.
+
 ### Planned
 
 - Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
@@ -26,52 +56,44 @@ Beyond those three, ten point-process capabilities the package does not have, li
 order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **Multivariate and mutually-exciting processes** — a finite set of event types with a full
-   excitation matrix, and a spectral radius replacing the scalar stationarity check. The check
-   itself is cheap, because `ProcessModel.branching` is already an injected callable that
-   nothing downstream inspects, and the event buffer already stores an arbitrary number of
-   rows. The cost is in `History`, whose `from_events` currently reads any two-dimensional
-   record as a spatio-temporal one — so a type row would be read as a coordinate, and nothing
-   would raise. Additive: the existing classes and their scalar guards are untouched, so no
-   previously produced number moves.
-2. **Bounded, non-periodic domains** with an explicit edge-correction policy. Masking already
+1. **Bounded, non-periodic domains** with an explicit edge-correction policy. Masking already
    works — `restrict` reweights the quadrature by `contains` and `volume_element`, so a
    rectangle or polygon drops in — but every domain today is a closed surface, and nothing
    accounts for kernel mass falling outside a boundary.
-3. **A validation and diagnostics harness**: spatio-temporal residuals, rolling-origin
+2. **A validation and diagnostics harness**: spatio-temporal residuals, rolling-origin
    backtesting, proper scoring rules and naive baselines. The residuals must be computed with a
    compensator that does not share the estimator's, because a fit made with one 20% too small
    inflates the intensity by 25% and the two errors cancel exactly.
-4. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
+3. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
    productivity vector broadcasts down one axis of the likelihood's existing `(n, n)` factor
    matrix; the work is the mark distribution, and a thinning bound that stays valid when an
    exponential productivity meets an unbounded mark.
-5. **A spatially varying background** — the biggest modelling restriction in the package. The
+4. **A spatially varying background** — the biggest modelling restriction in the package. The
    simulator already accepts a callable base rate and the likelihood already integrates the
    background numerically over the quadrature nodes, so this is a new `BaseFamily` beside
    `ConstantBase` rather than a plumbing change.
-6. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
+5. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
    index, and vectorisation across SMC particles, where an explicit per-particle loop in
    rejuvenation is already commented as the dominant cost of a fit. Truncation is an
    approximation, so the bound and the acceptance test must be computed from the same
    truncated quantity or the thinning is wrong without raising.
-7. **A wider kernel library** — power-law and compact-support spatial kernels, since the
+6. **A wider kernel library** — power-law and compact-support spatial kernels, since the
    Gaussian tail is too light for most data, and a non-separable option. New families are
    additive against the existing `KernelFamily` protocols; a non-separable kernel already
    simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
    to exploit, so fitting one needs a new backend.
-8. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+7. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
    signature rather than by mathematics: the background is a function of position only, and
    adding time to it also moves the thinning bound, which must then use the supremum over the
    remaining interval rather than the current value.
-9. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+8. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
    against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
    and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
    SciPy past the single call site it is deliberately held to.
-10. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
-    test that simulates from known parameters, refits and checks the credible intervals. Seeding
-    is already done. Coverage is a statistical threshold like any other — a collapsed particle
-    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
+9. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+   test that simulates from known parameters, refits and checks the credible intervals. Seeding
+   is already done. Coverage is a statistical threshold like any other — a collapsed particle
+   cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
 
 ## [0.5.0] — 2026-09-04
 
