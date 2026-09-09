@@ -30,8 +30,12 @@ from hawkes_package.inference import (
     ExponentialLogLikelihood,
     GaussianSpatial,
     HawkesEstimator,
+    History,
     IndependentPrior,
     LogNormal,
+    MarkedLogLikelihood,
+    MultivariateExponentialLogLikelihood,
+    MultivariateLogLikelihood,
     ParticleCloud,
     SpatioTemporalLogLikelihood,
     TemporalLogLikelihood,
@@ -39,7 +43,9 @@ from hawkes_package.inference import (
     block_boundaries,
     exponential_model,
     fit_smc,
+    marked_model,
     monotone_model,
+    multivariate_model,
     spatio_temporal_model,
 )
 from hawkes_package.inference.likelihood import _bind_history
@@ -417,6 +423,56 @@ def test_the_likelihood_is_auto_selected_by_family(history, factory, expected):
         model.support,
     )
     estimator = HawkesEstimator(model, prior, n_particles=8, blocks=1, rng=0).fit(history)
+    assert isinstance(estimator.likelihood_, expected)
+
+
+def _log_normal_prior(model):
+    """A vague prior on the model's own support, wide enough to initialise on."""
+    return ConstrainedPrior(
+        IndependentPrior(tuple(LogNormal(-0.5, 0.5) for _ in model.spec.names)),
+        model.support,
+    )
+
+
+@pytest.mark.parametrize(
+    ("factory", "record", "expected"),
+    [
+        (lambda: multivariate_model(2), "multivariate", MultivariateExponentialLogLikelihood),
+        (
+            lambda: multivariate_model(2, kernel=ExponentialKernel()),
+            "multivariate",
+            MultivariateLogLikelihood,
+        ),
+        (marked_model, "marked", MarkedLogLikelihood),
+    ],
+)
+def test_the_two_families_with_their_own_likelihood_are_routed_to_it(factory, record, expected):
+    """The families `ndim` cannot distinguish, and what happened before it did.
+
+    Both are temporal, so `ndim` is 0 for both and the fall-through handed them
+    to `TemporalLogLikelihood`, whose constructor refuses them -- so the
+    convenient front door raised on two of the five model families, pointing at
+    a class the user would then have to name themselves.
+    """
+    model = factory()
+    if record == "multivariate":
+        process = hp.MultivariateExponentialHawkes(
+            mu=[0.6, 0.3], excitation=[[0.4, 0.2], [0.2, 0.4]], beta=2.0, rng=0
+        )
+        process.simulate(80)
+        events = History.from_multivariate_events(
+            process.events, n_types=2, end=float(process.events[0, -1])
+        )
+    else:
+        process = hp.ExponentialMarkedHawkes(
+            mu=1.0, alpha=0.3, beta=2.0, scale=0.5, b_value=1.5, rng=0
+        )
+        process.simulate(80)
+        events = History.from_marked_events(process.events, end=float(process.events[0, -1]))
+
+    estimator = HawkesEstimator(
+        model, _log_normal_prior(model), n_particles=8, blocks=1, rng=0
+    ).fit(events)
     assert isinstance(estimator.likelihood_, expected)
 
 
