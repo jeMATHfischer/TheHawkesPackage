@@ -52,6 +52,8 @@ otherwise — an unstable process would not terminate.
 | `BellShapeHawkes` | Kernels with a single interior maximum, where the excitation ramps up before decaying. |
 | `MultivariateHawkes` | Several event types exciting one another, with any monotone or bell-shaped kernel. |
 | `MultivariateExponentialHawkes` | The same with a shared exponential kernel — the classic mutually-exciting case. |
+| `MarkedHawkes` | Events carry a magnitude that scales how much excitation they produce. |
+| `ExponentialMarkedHawkes` | The same with an exponential kernel and Gutenberg–Richter marks — the ETAS shape. |
 | `SpatioTemporalHawkesProcess` | Events carry a location on a surface: `Circle`, `Sphere`, `Torus2D` or any `FundamentalDomain`. |
 
 A multivariate process takes a background rate per type and a non-negative `(d, d)` excitation
@@ -70,6 +72,26 @@ process.simulate(500)
 process.events.shape  # (2, 500)
 process.types  # 0 or 1 per event
 ```
+
+A marked process attaches a magnitude to every event and multiplies that event's excitation by
+`g(m) = exp(a (m − m0))`. Its record is `(2, n)` too — times in row 0, marks in row 1 — and
+`process.marks` reads them back. The stability condition gains a factor: the branching ratio is
+`α/β · E[g(m)]`, and for exponential marks of rate `b` that expectation is `b / (b − a)`, which
+is **infinite once `a ≥ b`** while every mark in every realisation stays finite. A catalogue
+simulated there looks entirely ordinary, so the constructor refuses the parameter.
+
+```python
+process = hp.ExponentialMarkedHawkes(
+    mu=1.0, alpha=0.3, beta=2.0, scale=0.5, b_value=1.5, rng=0
+)
+process.simulate(500)
+process.marks  # one magnitude per event
+```
+
+An unbounded productivity is not a problem for the thinning bound, which is worth saying because
+it looks like one: the bound sums over marks that have **already been drawn**, so the supremum of
+`g` over the mark distribution never enters it, and an accepted candidate draws its mark
+afterwards.
 
 `simulate(k)` stops after `k` events; `simulate_until(T)` stops at a horizon, and is what a
 forecast needs — a fixed-count simulation cannot express "no events at all in the window". Its

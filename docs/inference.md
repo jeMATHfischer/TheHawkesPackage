@@ -401,12 +401,24 @@ temporal kernel it is minutes, so size such a fit at a few hundred events or use
 Partially observed or thinned data. That creates a genuine latent state and
 needs a different algorithm — a bootstrap filter or a branching-structure
 augmentation — rather than a different setting of this one. Also out of scope:
-continuous marks, and *spatio-temporal* multivariate processes, since space and
-event type do not combine.
+every *cross-product* of the axes — marks crossed with types, marks crossed with
+space, and spatio-temporal multivariate processes. Each of those needs its own
+thinning bound rather than a wider version of an existing one.
 
-Multivariate and mutually-exciting processes themselves **are** here as of
-0.6.0, through {func}`~hawkes_package.inference.models.multivariate_model` and
-the two multivariate likelihoods.
+The axes themselves **are** here. Multivariate and mutually-exciting processes
+since 0.6.0, through
+{func}`~hawkes_package.inference.models.multivariate_model` and the two
+multivariate likelihoods; marks since 0.8.0, through
+{func}`~hawkes_package.inference.models.marked_model` and
+{class}`~hawkes_package.inference.likelihood.MarkedLogLikelihood`.
+
+A marked fit has five coordinates, `(mu, alpha, beta, scale, b_value)`, and one
+thing worth knowing before reading one: the log-likelihood includes the mark
+density by default, and should. Without that term `b_value` does not move the
+likelihood at all — it enters the ground process not at all — so what is
+reported for it is the prior cut off at the stationarity boundary
+`scale < b_value`. The flag that drops it is for an optimiser holding the mark
+law fixed, and is not a cheaper route to the same answer.
 
 `hawkes_package.mcmc` is untouched by any of this. It remains the spatial
 location sampler on the Ogata correctness path; inference has its own chain in

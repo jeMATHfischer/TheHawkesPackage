@@ -96,6 +96,7 @@ finite time — when the expected number of offspring per event is below one.
 | `BellShapeHawkes(κ, φ)` | as above |
 | `MultivariateExponentialHawkes(μ, A, β)` | $\rho(A/\beta) < 1$ |
 | `MultivariateHawkes(μ, A, κ, φ)` | $\rho\!\left(A \int \kappa\right) < 1$, times the Lipschitz constant of $\varphi$ |
+| `ExponentialMarkedHawkes(μ, α, β, a, b)` | $\frac{\alpha}{\beta}\cdot\frac{b}{b-a} < 1$, which needs $a < b$ |
 
 For the exponential case the branching ratio is exactly $\alpha/\beta$, and the
 constructor rejects $\alpha/\beta \ge 1$ outright. The long-run event rate is
@@ -147,6 +148,49 @@ An explosive choice — $\varphi = \exp$ with a unit-mass kernel, say — makes 
 intensity diverge, the inter-arrival times underflow to zero, and time stop
 advancing. The simulator detects that and raises `RuntimeError` rather than
 looping forever.
+
+### A mark that scales productivity
+
+A **marked** process gives every event a magnitude $m$ and multiplies the
+excitation it exerts by a productivity $g(m)$, so that
+
+$$
+\lambda(t \mid H_t) = \varphi\!\left(\mu + \sum_{t_i < t} g(m_i)\,\kappa(t - t_i)\right).
+$$
+
+With $g(m) = e^{a(m - m_0)}$ and marks drawn independently from
+$m - m_0 \sim \mathrm{Exp}(b)$ — the Gutenberg–Richter law of magnitudes, whose
+rate is the *b-value* — the branching ratio picks up the expected productivity
+as a factor,
+
+$$
+E[g(m)] = \int_{m_0}^{\infty} e^{a(m - m_0)}\, b\,e^{-b(m-m_0)}\,\mathrm{d}m
+        = \frac{b}{b-a} \quad (a < b), \qquad +\infty \text{ otherwise.}
+$$
+
+**That integral diverges while every realised value stays finite**, and it is the
+one stability failure here that no simulation can detect. At $a \ge b$ the marks
+are still ordinary numbers, a catalogue on any finite window looks like any
+other, and the expected offspring per event is infinite. So it is refused at
+construction, which is the only place it can be refused.
+
+The thinning bound, by contrast, asks nothing of $g$ beyond non-negativity. It
+sums over $t_i \le t_0$ — marks that have **already been drawn** — and dominates
+
+$$
+g(m_i)\,\kappa(s - t_i) \le g(m_i) \sup_{u \ge t_0 - t_i} \kappa(u)
+$$
+
+term by term, so the supremum of $g$ over the mark *distribution* never enters
+it. An unbounded productivity is therefore not a difficulty for the simulator.
+The mark of an accepted candidate is drawn *after* the acceptance test, which is
+what keeps a marked run at $a = 0$ agreeing with the unmarked process on its
+first event time exactly rather than diverging at the first rejected candidate.
+
+The mark law appears in the likelihood too, and there it is not optional. Its
+term $\sum_i \log f(m_i)$ shares no parameter with the ground process, so
+dropping it leaves $b$ identified only by the stationarity boundary $a < b$, and
+what is then reported for it is the prior truncated at a line.
 
 ## Verifying a simulator
 
