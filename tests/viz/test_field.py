@@ -276,7 +276,14 @@ def test_the_self_check_catches_a_kernel_that_is_not_a_function(frame_times):
         counter["n"] += 1
         return 0.3 + 1e-3 * counter["n"]
 
-    process = seeded_process(Torus2D(WIDTH, HEIGHT), base=drifting_base)
+    # Since 0.8.0 the constructor also checks that the quadrature resolves the
+    # background, and a callable that changes between calls looks exactly like
+    # one it cannot resolve -- the coarse and doubled rules disagree by 58%.
+    # That warning is the *wrong* diagnosis here (no node count fixes an impure
+    # callable), which is why the check below still has work to do: it names the
+    # actual defect.
+    with pytest.warns(UserWarning, match="the background is too narrow"):
+        process = seeded_process(Torus2D(WIDTH, HEIGHT), base=drifting_base)
     with pytest.raises(RuntimeError, match=r"disagrees with process\.intensity"):
         intensity_frames(process, frame_times, resolution=RESOLUTION)
 
