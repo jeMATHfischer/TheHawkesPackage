@@ -221,6 +221,45 @@ def _profile(history, grid, *, concentrate):
     return float(grid[int(np.argmax(values))])
 
 
+def gaussian_log_density(reference, bandwidth):
+    """A kernel-density covariate: ``log`` of a Gaussian KDE over fixed points.
+
+    Written here rather than shipped as a `KernelDensityBase`, and the reason is
+    arithmetic. A background ``exp(b0 + b * log f(x))`` is ``exp(b0) * f(x)**b``,
+    so at ``b = 1`` it *is* the density up to a constant, and the constant is
+    what a fitted ``b0`` absorbs -- including the normaliser that would make the
+    density integrate to one over the domain. A separate family would be that
+    with one parameter fewer and a normalising integral of its own to keep in
+    step with the process's quadrature rule.
+    """
+    points = np.asarray(reference, dtype=float)
+
+    def covariate(query):
+        gaps = np.asarray(query, dtype=float)[:, None, :] - points[None, :, :]
+        squared = np.sum(gaps**2, axis=2)
+        return np.log(np.mean(np.exp(-squared / (2.0 * bandwidth**2)), axis=1))
+
+    return covariate
+
+
+def test_a_density_covariate_is_the_kernel_density_background():
+    """`exp(b0 + 1 * log f) == exp(b0) * f`, which is why there is no KDE family.
+
+    Asserted as a *proportionality* on a grid, since the two differ by exactly
+    the constant the intercept is there to carry.
+    """
+    reference = np.array([[-2.0], [0.1], [0.4], [1.7]])
+    covariate = gaussian_log_density(reference, 0.5)
+    grid = np.linspace(-np.pi, np.pi, 65).reshape(-1, 1)
+
+    base = LogLinearBase((covariate,), names=("density",))
+    values = base.at(np.array([-0.7, 1.0]), grid)
+    density = np.exp(covariate(grid))
+    ratio = values / density
+    np.testing.assert_allclose(ratio, ratio[0], rtol=1e-12)
+    assert ratio[0] == pytest.approx(math.exp(-0.7), rel=1e-12)
+
+
 @pytest.mark.statistical
 def test_the_coefficient_is_identified_by_the_likelihood():
     """A profile over `b_east` on data whose background genuinely varies.
@@ -250,6 +289,73 @@ def test_holding_the_intercept_fixed_biases_the_coefficient_low():
     history = _background_history(0, 0.9)
     assert _profile(history, grid, concentrate=False) < 0.7
     assert _profile(history, grid, concentrate=True) > 0.7
+
+
+CENTRES = np.array([-1.6, 0.9])
+LUMP_WIDTH = 0.35
+
+
+def two_lump_density(x):
+    """A background concentrated in two places, on the circle's own distance."""
+    values = np.asarray(x, dtype=float)
+    gaps = np.abs(values[..., None] - CENTRES)
+    gaps = np.minimum(gaps, 2 * np.pi - gaps)
+    return np.mean(np.exp(-(gaps**2) / (2 * LUMP_WIDTH**2)), axis=-1)
+
+
+def clustered_history(seed, n_events=80, horizon=20.0):
+    """Locations from the two lumps, times uniform: **no self-excitation at all**."""
+    rng = np.random.default_rng(seed)
+    top = float(two_lump_density(np.linspace(-np.pi, np.pi, 4001)).max())
+    draws = []
+    while len(draws) < n_events:
+        x = rng.uniform(-np.pi, np.pi)
+        if rng.uniform() * top < two_lump_density(x):
+            draws.append(x)
+    times = np.sort(rng.uniform(0.0, horizon, size=n_events))
+    return History(times, np.asarray(draws).reshape(1, -1), 0.0, end=horizon)
+
+
+def _excitation_profile(history, base, head):
+    """Where the likelihood peaks in `alpha`, the excitation amplitude."""
+    likelihood = SpatioTemporalLogLikelihood(model_with(base))
+    grid = np.linspace(0.0, 3.0, 61)[1:]  # alpha is positive
+    values = [likelihood.total(np.array([*head, alpha, 2.0, 0.5]), history) for alpha in grid]
+    return float(grid[int(np.argmax(values))])
+
+
+@pytest.mark.statistical
+def test_a_constant_background_blames_the_excitation():
+    """The measurement this whole package exists for.
+
+    The data has **no self-excitation whatsoever** -- locations drawn from two
+    fixed lumps, times uniform on the window. A constant background cannot
+    express the lumps, so the only thing left to explain events landing near
+    each other is excitation, and the likelihood duly finds some.
+
+    Over seeds 0-20 the constant background peaks at ``alpha`` **0.614** on
+    average (min 0.450, max 0.700) -- a branching ratio near 0.31 invented out
+    of nothing -- while the same data under a background carrying the density as
+    a covariate peaks at **0.062** (max 0.150). The constant one is higher on
+    **21 of 21 seeds**. Nothing raises in either case; both fits look converged.
+    """
+    history = clustered_history(0)
+    grid = np.linspace(-np.pi, np.pi, 4001)
+    mass = float(np.mean(two_lump_density(grid)) * 2 * np.pi)
+    flat_rate = history.n_events / (history.end * 2 * np.pi)
+    intercept = math.log(history.n_events / (history.end * mass))
+
+    def log_lumps(points):
+        return np.log(two_lump_density(np.asarray(points, dtype=float)[:, 0]))
+
+    constant = _excitation_profile(history, ConstantBase(), [flat_rate])
+    varying = _excitation_profile(history, LogLinearBase((log_lumps,)), [intercept, 1.0])
+
+    assert varying < 0.2, f"a background that fits the lumps still found alpha={varying}"
+    assert constant > 3 * varying, (
+        f"a constant background should attribute the lumps to excitation, but "
+        f"alpha peaked at {constant} against {varying}"
+    )
 
 
 @pytest.mark.statistical
