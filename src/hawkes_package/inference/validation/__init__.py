@@ -30,12 +30,20 @@ saying so is more useful than averaging them.
 
 from __future__ import annotations
 
+from ._baselines import (
+    BaselineComparison,
+    compare_with_baseline,
+    homogeneous_log_likelihood,
+)
 from ._cells import CellResiduals, cell_residuals
 from ._compensator import compensator_agreement, independent_compensator
 
 __all__ = [
+    "BaselineComparison",
     "CellResiduals",
     "cell_residuals",
+    "compare_with_baseline",
     "compensator_agreement",
+    "homogeneous_log_likelihood",
     "independent_compensator",
 ]
