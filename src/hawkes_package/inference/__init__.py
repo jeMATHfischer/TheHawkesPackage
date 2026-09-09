@@ -106,6 +106,7 @@ from .likelihood import (
     History,
     LikelihoodState,
     LogLikelihood,
+    MarkedLogLikelihood,
     MultivariateExponentialLogLikelihood,
     MultivariateLogLikelihood,
     SpatioTemporalLogLikelihood,
@@ -113,10 +114,12 @@ from .likelihood import (
 )
 from .mcmc import ChainResult, batch_posterior, metropolis_chain
 from .models import (
+    MarkedComponents,
     MultivariateComponents,
     ProcessModel,
     bell_shape_model,
     exponential_model,
+    marked_model,
     monotone_model,
     multivariate_model,
     spatio_temporal_model,
@@ -164,6 +167,8 @@ __all__ = [
     "LogLikelihood",
     "LogNormal",
     "Marginal",
+    "MarkedComponents",
+    "MarkedLogLikelihood",
     "MultivariateBase",
     "MultivariateComponents",
     "MultivariateExponentialLogLikelihood",
@@ -191,6 +196,7 @@ __all__ = [
     "exponential_model",
     "fit_smc",
     "ks_exponential",
+    "marked_model",
     "metropolis_chain",
     "monotone_model",
     "multinomial",

@@ -37,6 +37,7 @@ import numpy as np
 from ..base import HawkesProcess, SeedLike
 from ..bell_shape import BellShapeHawkes
 from ..exponential import ExponentialHawkes
+from ..marked import ExponentialMarkedHawkes
 from ..monotone import MonotoneKernelHawkes
 from ..multivariate import MultivariateHawkes
 from ..spatio_temporal.domains import Circle, SpatialDomain
@@ -56,15 +57,17 @@ from .families import (
     SpatialKernelFamily,
     UnitExponentialKernel,
 )
-from .parameters import ParameterSpec
+from .parameters import Parameter, ParameterSpec
 
 __all__ = [
+    "MarkedComponents",
     "MultivariateComponents",
     "ProcessModel",
     "SpatialComponents",
     "TemporalComponents",
     "bell_shape_model",
     "exponential_model",
+    "marked_model",
     "monotone_model",
     "multivariate_model",
     "spatio_temporal_model",
@@ -100,6 +103,25 @@ class MultivariateComponents:
     def n_types(self) -> int:
         """Number of event types."""
         return self.excitation.n_types
+
+
+@dataclass(frozen=True)
+class MarkedComponents:
+    """The families a marked temporal model is assembled from.
+
+    A separate type from :class:`TemporalComponents`, for the reason
+    :class:`MultivariateComponents` is: the likelihood implementations
+    discriminate on what they find here, and a model that merely *looked*
+    temporal would be accepted by
+    :class:`~hawkes_package.inference.likelihood.TemporalLogLikelihood`, which
+    would then fit the intensity while ignoring the mark density entirely.
+
+    .. versionadded:: 0.8.0
+    """
+
+    kernel: KernelFamily
+    nonlinearity: NonlinearityFamily | None
+    m0: float
 
 
 @dataclass(frozen=True)
@@ -171,7 +193,7 @@ class ProcessModel:
     spec: ParameterSpec
     family: str
     ndim: int
-    components: TemporalComponents | MultivariateComponents | SpatialComponents
+    components: TemporalComponents | MultivariateComponents | MarkedComponents | SpatialComponents
     builder: Callable[[np.ndarray, SeedLike], HawkesProcess]
     branching: Callable[[np.ndarray], np.ndarray]
     extra_support: Callable[[np.ndarray], np.ndarray] = field(default=_all_true)
@@ -645,6 +667,80 @@ def multivariate_model(
             background=background,
             excitation=matrix,
         ),
+        builder=build,
+        branching=branching,
+    )
+
+
+def marked_model(*, m0: float = 0.0) -> ProcessModel:
+    r"""Build an :class:`~hawkes_package.marked.ExponentialMarkedHawkes` over its parameters.
+
+    Coordinates ``(mu, alpha, beta, scale, b_value)``: the three of
+    :func:`exponential_model` plus the productivity's exponent and the mark
+    law's rate.
+
+    The support carries a condition the other models have no analogue for.
+    Stationarity needs ``alpha/beta * b/(b - a) < 1``, and the second factor is
+    **infinite for ``a >= b``** -- a region where every realisation is finite and
+    the expected offspring per event is not. `spec.contains` cannot express it,
+    since it is a relation between two coordinates rather than a bound on either,
+    so it enters through the branching callable, which returns ``inf`` there and
+    lets the existing ``isfinite(ratio) & (ratio < 1)`` gate do the rest.
+
+    Parameters
+    ----------
+    m0 : float
+        The lower end of the mark range. Not fitted: it is the completeness
+        threshold of a catalogue, which is a property of the instrument rather
+        than of the process, and fitting it would trade off exactly against
+        `scale`.
+
+    Examples
+    --------
+    >>> model = marked_model()
+    >>> model.spec.names
+    ('mu', 'alpha', 'beta', 'scale', 'b_value')
+    >>> model.support(np.array([[1.0, 0.3, 2.0, 0.5, 1.5], [1.0, 0.3, 2.0, 1.6, 1.5]])).tolist()
+    [True, False]
+
+    .. versionadded:: 0.8.0
+    """
+    floor = float(m0)
+    kernel = ExponentialKernel()
+    response = LinearNonlinearity()
+    spec = response.spec.concat(kernel.spec).concat(
+        ParameterSpec((Parameter("scale"), Parameter("b_value")))
+    )
+
+    def build(theta: np.ndarray, rng: SeedLike) -> HawkesProcess:
+        return ExponentialMarkedHawkes(
+            mu=float(theta[0]),
+            alpha=float(theta[1]),
+            beta=float(theta[2]),
+            scale=float(theta[3]),
+            b_value=float(theta[4]),
+            m0=floor,
+            rng=rng,
+        )
+
+    def branching(theta: np.ndarray) -> np.ndarray:
+        values = np.atleast_2d(np.asarray(theta, dtype=float))
+        mass = values[:, 1] / values[:, 2]
+        a, b = values[:, 3], values[:, 4]
+        # `inf` rather than a negative number where a >= b: the expectation
+        # genuinely diverges there, and `support` already filters on isfinite.
+        # `np.where` would evaluate both branches and warn on the divide, so the
+        # ratio is computed only where it is finite.
+        expectation = np.full(values.shape[0], np.inf, dtype=float)
+        usable = (b > 0.0) & (a < b)
+        expectation[usable] = b[usable] / (b[usable] - a[usable])
+        return np.asarray(mass * expectation, dtype=float)
+
+    return ProcessModel(
+        spec=spec,
+        family="marked",
+        ndim=0,
+        components=MarkedComponents(kernel=kernel, nonlinearity=response, m0=floor),
         builder=build,
         branching=branching,
     )
