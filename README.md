@@ -81,9 +81,7 @@ is **infinite once `a ≥ b`** while every mark in every realisation stays finit
 simulated there looks entirely ordinary, so the constructor refuses the parameter.
 
 ```python
-process = hp.ExponentialMarkedHawkes(
-    mu=1.0, alpha=0.3, beta=2.0, scale=0.5, b_value=1.5, rng=0
-)
+process = hp.ExponentialMarkedHawkes(mu=1.0, alpha=0.3, beta=2.0, scale=0.5, b_value=1.5, rng=0)
 process.simulate(500)
 process.marks  # one magnitude per event
 ```
