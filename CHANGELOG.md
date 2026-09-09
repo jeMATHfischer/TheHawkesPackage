@@ -169,6 +169,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is the same process. The posterior would wander that ridge with every diagnostic reporting health
   and the matrix it finally reported would be arbitrary. The amplitude now lives in one place.
 
+### Changed
+
+- `SpatioTemporalHawkesProcess` now checks that its quadrature rule **resolves the
+  background**, not only the spatial kernel, and warns when doubling the node count moves
+  the background integral by more than 1%. Nothing in the package could produce a varying
+  background before 0.8.0, but a caller has always been able to pass one as a plain
+  callable — and a background lump narrower than a quadrature panel loses its mass between
+  the nodes, in exactly the places the events are, so the simulated event rate comes out
+  wrong by that fraction with nothing said. No number changes; a construction that was
+  silently wrong now says so. The check is skipped when the background is constant across
+  the nodes, since this constructor runs once per particle per rejuvenation move.
+
 ### Fixed
 
 - `_EventBuffer`'s error message told a two-row record that its second row should be a coordinate.
