@@ -123,6 +123,48 @@ def test_the_background_integral_is_the_one_the_quadrature_reports():
     assert process._integrated_intensity(0.0) == pytest.approx(closed_form, rel=1e-9)
 
 
+def test_a_background_too_peaked_for_the_rule_says_so():
+    """The kernel is not the only thing the quadrature has to resolve.
+
+    A background lump narrower than a panel loses its mass *between* nodes, in
+    exactly the places the events are, and the only symptom is a simulated event
+    rate wrong by that fraction -- the same silent failure
+    `check_resolution` already catches for the spatial kernel, arriving from the
+    other term of the intensity.
+    """
+    flat = lambda values: np.zeros_like(np.asarray(values, dtype=float))
+    narrow = LogLinearBase((lambda points: -((np.asarray(points)[:, 0] / 0.01) ** 2) / 2,))
+
+    with pytest.warns(UserWarning, match="the background is too narrow"):
+        hp.SpatioTemporalHawkesProcess(
+            base=narrow.build(np.array([0.0, 1.0])),
+            spatial=flat,
+            temporal=flat,
+            domain=hp.Circle(),
+            monotone_temporal_kernel=True,
+            n_quad=16,
+            rng=0,
+        )
+
+
+def test_a_constant_background_is_not_checked_for_resolution():
+    """It is resolved exactly, and this constructor runs once per particle per move.
+
+    Checking it would double the quadrature work of every fit that predates a
+    varying background, to prove a rule integrates a constant.
+    """
+    flat = lambda values: np.zeros_like(np.asarray(values, dtype=float))
+    hp.SpatioTemporalHawkesProcess(
+        base=lambda x: 0.5,
+        spatial=flat,
+        temporal=flat,
+        domain=hp.Circle(),
+        monotone_temporal_kernel=True,
+        n_quad=16,
+        rng=0,
+    )
+
+
 def test_the_cached_backend_stays_usable(spatial_history):
     """The log link is what keeps it usable, and that is the reason for the link.
 
