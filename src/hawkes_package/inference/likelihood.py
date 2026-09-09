@@ -54,13 +54,19 @@ from ..spatio_temporal.process import SpatioTemporalHawkesProcess
 from . import _compensator
 from ._geometry import DEFAULT_MAX_BYTES, GeometryCache, build_geometry, extend_geometry
 from .families import LinearNonlinearity, UnitExponentialKernel
-from .models import MultivariateComponents, ProcessModel, SpatialComponents
+from .models import (
+    MarkedComponents,
+    MultivariateComponents,
+    ProcessModel,
+    SpatialComponents,
+)
 
 __all__ = [
     "ExponentialLogLikelihood",
     "History",
     "LikelihoodState",
     "LogLikelihood",
+    "MarkedLogLikelihood",
     "MultivariateExponentialLogLikelihood",
     "MultivariateLogLikelihood",
     "SpatioTemporalLogLikelihood",
@@ -109,6 +115,12 @@ class History:
         asked for. Undefaulted for the same reason `end` is.
 
         .. versionadded:: 0.6.0
+    marks : array_like of shape (n,), optional
+        A continuous mark per event, scaling its productivity. Unlike `types`
+        this carries no companion count: a mark is a real number and there is
+        nothing about the mark *law* the history can be asked to declare.
+
+        .. versionadded:: 0.8.0
 
     Raises
     ------
@@ -134,6 +146,7 @@ class History:
     end: float
     types: np.ndarray | None = None
     n_types: int | None = None
+    marks: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         """Normalise the arrays and refuse a history the likelihood cannot use."""
@@ -177,6 +190,7 @@ class History:
             object.__setattr__(self, "points", points)
 
         self._check_types(times.size)
+        self._check_marks(times.size)
 
     def _check_types(self, n_events: int) -> None:
         """Normalise and validate the type column, if there is one."""
@@ -212,6 +226,19 @@ class History:
                 f"[{int(types.min())}, {int(types.max())}]"
             )
         object.__setattr__(self, "types", types)
+
+    def _check_marks(self, n_events: int) -> None:
+        """Normalise and validate the mark column, if there is one."""
+        if self.marks is None:
+            return
+        values = np.asarray(self.marks, dtype=float).ravel()
+        if values.size != n_events:
+            raise ValueError(
+                f"marks must carry one entry per event: got {values.size} for {n_events} event(s)"
+            )
+        if values.size and not np.all(np.isfinite(values)):
+            raise ValueError("event marks must all be finite")
+        object.__setattr__(self, "marks", values)
 
     @property
     def n_events(self) -> int:
@@ -276,6 +303,43 @@ class History:
         if record.ndim == 2:
             return cls(record[0], record[1:], start, end, types, n_types)
         raise ValueError(f"events must be 1- or 2-dimensional, got shape {record.shape}")
+
+    @classmethod
+    def from_marked_events(
+        cls,
+        events: Any,
+        *,
+        start: float = 0.0,
+        end: float,
+    ) -> History:
+        """Build a history from a marked process's event record.
+
+        Parameters
+        ----------
+        events : array_like of shape (2, n)
+            Times in row 0, marks in row 1 -- the layout
+            :class:`~hawkes_package.base.MarkedTemporalHawkesProcess` records.
+        start : float
+            Beginning of the observation window.
+        end : float
+            End of it. Required.
+
+        Notes
+        -----
+        A separate constructor rather than a flag on :meth:`from_events`, for the
+        same reason :meth:`from_multivariate_events` is one: a ``(2, n)`` record
+        is read there as a *one-dimensional spatio-temporal* history, silently,
+        and the shape alone cannot say which of the three layouts it is.
+
+        .. versionadded:: 0.8.0
+        """
+        record = np.asarray(events, dtype=float)
+        if record.ndim != 2 or record.shape[0] != 2:
+            raise ValueError(
+                f"a marked record needs times in row 0 and marks in row 1, so exactly "
+                f"2 rows; got shape {record.shape}"
+            )
+        return cls(record[0], None, start, end, None, None, record[1])
 
     @classmethod
     def from_multivariate_events(
@@ -354,6 +418,7 @@ class History:
             cut,
             None if self.types is None else self.types[keep],
             self.n_types,
+            None if self.marks is None else self.marks[keep],
         )
 
     def as_process_events(self) -> np.ndarray:
@@ -368,6 +433,8 @@ class History:
             rows.append(self.points)
         if self.types is not None:
             rows.append(self.types.astype(float)[None, :])
+        if self.marks is not None:
+            rows.append(self.marks[None, :])
         if len(rows) == 1:
             return self.times
         return np.vstack(rows)
@@ -548,6 +615,19 @@ class TemporalLogLikelihood:
                 "log-likelihood needs the intensity of the type each event "
                 "carries. Use MultivariateLogLikelihood."
             )
+        # A marked model is `ndim == 0` as well, and worse, its intensity term
+        # would come out *right*: `_bind_history` puts the marks in the record
+        # and the hook reads them. Only the mark density would go missing -- and
+        # with it every constraint on `b_value` except the support boundary, so
+        # the fit returns a posterior for that parameter which is the prior
+        # truncated at a line, reported as though it were estimated.
+        if isinstance(model.components, MarkedComponents):
+            raise ValueError(
+                f"{type(self).__name__} cannot fit a marked model: it would compute "
+                "the intensity correctly and silently drop the mark density, leaving "
+                "b_value identified by the stationarity boundary alone. Use "
+                "MarkedLogLikelihood."
+            )
         self.model = model
         self.order = int(order)
         self.extra_lags = tuple(float(lag) for lag in extra_lags)
@@ -636,6 +716,206 @@ class TemporalLogLikelihood:
 
         process = self._process(theta, history, float(query[-1]))
         # The hook itself, not a second expression for the same intensity.
+        intensity = process._conditional_intensity
+
+        out = np.empty(query.size, dtype=float)
+        running = 0.0
+        left = history.start
+        for k, right in enumerate(query):
+            edges = _compensator.breakpoints(left, float(right), history.times, self.extra_lags)
+            running += _compensator.integrate(intensity, *_compensator.panels(edges, self.order))
+            out[k] = running
+            left = float(right)
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Marked temporal
+# ---------------------------------------------------------------------------
+
+
+def _marked_marks(history: History, owner: str) -> np.ndarray:
+    """Return `history`'s marks, refusing a history a marked model cannot use."""
+    if history.marks is None:
+        raise ValueError(
+            f"{owner} needs a history carrying event marks; build one with "
+            "History.from_marked_events"
+        )
+    if history.points is not None:
+        raise ValueError(
+            f"{owner} is temporal only, but this history carries "
+            f"{history.ndim}-dimensional locations. Marks and space do not combine "
+            "in this release."
+        )
+    if history.types is not None:
+        raise ValueError(
+            f"{owner} is single-type, but this history carries event types. Marks "
+            "and types do not combine in this release."
+        )
+    return np.asarray(history.marks, dtype=float)
+
+
+class MarkedLogLikelihood:
+    r"""The log-likelihood of a marked Hawkes process, from its own hooks.
+
+    Two terms, and the second is the one worth arguing about:
+
+    .. math::
+
+        \ell(\theta) = \underbrace{\sum_i \log\lambda(t_i^-) - \int\lambda}_{\text{the process}}
+                     + \underbrace{\sum_i \log f(m_i)}_{\text{the marks}}.
+
+    For marks drawn independently of the history the second term does not depend
+    on ``mu``, ``alpha``, ``beta`` or ``scale`` at all, so an optimiser over those
+    four may drop it as a constant. It is included **by default** anyway, for two
+    reasons.
+
+    ``b_value`` is the first. It appears in the mark density and nowhere else in
+    the likelihood -- its only other appearance is in the *support*, as the
+    stationarity boundary ``scale < b_value``. Drop the mark term and the
+    parameter is identified by a constraint rather than by data, and the
+    posterior for it is the prior truncated at a line.
+
+    The second is comparison. A log evidence or a Bayes factor that silently
+    omitted the marks would be comparing models on part of the data, and the part
+    omitted is the part a mark law is *for*.
+
+    Parameters
+    ----------
+    model : ProcessModel
+        A model whose components are
+        :class:`~hawkes_package.inference.models.MarkedComponents`.
+    order : int
+        Gauss-Legendre order per panel in the compensator.
+    extra_lags : sequence of float
+        Extra breakpoints per event, for a kernel with a kink away from zero.
+    check : bool
+        Compare order ``P`` against ``2P`` once and warn if they disagree.
+    include_mark_density : bool
+        Whether to add the mark term. ``False`` is for an optimiser that holds
+        ``b_value`` fixed and wants the constant out of the way; it is not a
+        cheaper way to get the same answer.
+
+    .. versionadded:: 0.8.0
+    """
+
+    def __init__(
+        self,
+        model: ProcessModel,
+        *,
+        order: int = _compensator.DEFAULT_ORDER,
+        extra_lags: Sequence[float] = (),
+        check: bool = True,
+        include_mark_density: bool = True,
+    ) -> None:
+        if not isinstance(model.components, MarkedComponents):
+            raise ValueError(
+                f"{type(self).__name__} is for marked models; this one is "
+                f"{model.family!r}. Use TemporalLogLikelihood."
+            )
+        self.model = model
+        self.m0 = float(model.components.m0)
+        self.order = int(order)
+        self.extra_lags = tuple(float(lag) for lag in extra_lags)
+        self.check = bool(check)
+        self.include_mark_density = bool(include_mark_density)
+        self._checked = False
+
+    def initial_state(self, start: float) -> LikelihoodState:
+        """Return the empty state at `start`."""
+        return LikelihoodState(upto=float(start), n_events=0, log_lik=0.0, carry=())
+
+    def _process(self, theta: Any, history: History, upto: float) -> Any:
+        """Build the process at `theta` and condition it on the history so far."""
+        process = self.model(theta)
+        _bind_history(process, history.upto(upto))
+        return process
+
+    def _mark_log_density(self, theta: Any, marks: np.ndarray) -> float:
+        r"""``sum log f(m)`` for the exponential mark law, rate ``b_value``.
+
+        :math:`\log f(m) = \log b - b(m - m_0)` on :math:`[m_0, \infty)`. A mark
+        below ``m0`` has density zero there, which is a likelihood of zero rather
+        than an error: the catalogue simply cannot have come from a law with that
+        threshold.
+        """
+        if marks.size == 0:
+            return 0.0
+        rate = float(np.asarray(theta, dtype=float).reshape(-1)[4])
+        shifted = marks - self.m0
+        if np.any(shifted < 0.0):
+            return -math.inf
+        return float(marks.size * math.log(rate) - rate * float(np.sum(shifted)))
+
+    def extend(
+        self,
+        state: LikelihoodState,
+        theta: Any,
+        history: History,
+        upto: float,
+    ) -> tuple[LikelihoodState, float]:
+        """Account for the block ``(state.upto, upto]``."""
+        marks = _marked_marks(history, type(self).__name__)
+        end = _check_extension(state, history, upto)
+        if end == state.upto:
+            return state, 0.0
+
+        process = self._process(theta, history, end)
+        intensity = process._conditional_intensity
+
+        selected = (history.times > state.upto) & (history.times <= end)
+        fresh = history.times[selected]
+
+        log_sum = 0.0
+        for t in fresh:
+            value = intensity(float(t))
+            if not value > 0.0:
+                return (
+                    LikelihoodState(end, state.n_events + fresh.size, -math.inf, ()),
+                    -math.inf,
+                )
+            log_sum += math.log(value)
+
+        edges = _compensator.breakpoints(state.upto, end, history.times, self.extra_lags)
+        if self.check and not self._checked:
+            self._checked = True
+            _compensator.check_resolution(intensity, edges, order=self.order)
+        integral = _compensator.integrate(intensity, *_compensator.panels(edges, self.order))
+
+        increment = log_sum - integral
+        if self.include_mark_density:
+            increment += self._mark_log_density(theta, marks[selected])
+
+        return (
+            LikelihoodState(
+                upto=end,
+                n_events=state.n_events + int(fresh.size),
+                log_lik=state.log_lik + increment,
+                carry=(),
+            ),
+            increment,
+        )
+
+    def total(self, theta: Any, history: History, upto: float | None = None) -> float:
+        """Return the whole log-likelihood on ``(start, upto]``, defaulting to the window."""
+        end = history.end if upto is None else float(upto)
+        return self.extend(self.initial_state(history.start), theta, history, end)[0].log_lik
+
+    def compensator(self, theta: Any, history: History, times: Any) -> np.ndarray:
+        r"""Evaluate :math:`\Lambda(t) - \Lambda(start)` at each of `times`.
+
+        The compensator of the ground process -- the events regardless of their
+        marks -- which is what the time-rescaling residuals need. The mark
+        density is a likelihood term, not a rate, and does not enter it.
+        """
+        _marked_marks(history, type(self).__name__)
+        query = np.asarray(times, dtype=float).ravel()
+        if query.size == 0:
+            return np.empty(0, dtype=float)
+        if np.any(np.diff(query) < 0):
+            raise ValueError("times must be sorted for the compensator")
+
+        process = self._process(theta, history, float(query[-1]))
         intensity = process._conditional_intensity
 
         out = np.empty(query.size, dtype=float)
