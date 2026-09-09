@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Marks with mark-dependent productivity**, in the ETAS shape: every event carries a magnitude
+  and a larger magnitude produces more offspring. `MarkedHawkes` takes any non-negative
+  productivity and mark sampler; `ExponentialMarkedHawkes` is the classic case, with an
+  exponential kernel and Gutenberg–Richter marks. `marked_model` and `MarkedLogLikelihood` fit
+  them. A new class beside the existing ones, so nothing that exists changes behaviour.
+
+  **An unbounded productivity is not a threat to the thinning bound**, which is worth stating
+  because it looks like one. The intensity sums over `t_i < t` strictly and the bound over
+  `t_i ≤ t₀`, so both range over marks *already drawn* — the supremum of `g` over the mark
+  distribution never enters, and a candidate accepted at `t` draws its mark afterwards.
+
+  **A divergent expected productivity is**, and it is the opposite kind of failure: it looks
+  harmless. `E[g(m)] = b/(b − a)` is infinite for `scale ≥ b_value`, while every realised mark
+  stays finite and every simulated catalogue looks ordinary. The constructor refuses it, because
+  nothing at run time would.
+
+  The mark density is part of the log-likelihood by default, and the measurement is the argument:
+  **without it, `b_value` does not move the likelihood at all** — three very different rates give
+  one identical value, since the parameter enters the ground process not at all. Its only other
+  appearance is the stationarity boundary, so omitting the term identifies it by a constraint
+  rather than by data. `TemporalLogLikelihood` refuses a marked model for exactly this reason,
+  and that hole is subtler than the multivariate one: the intensity term would have come out
+  *right*, and only the marks would have gone missing.
+- `History` gains a `marks` column and `History.from_marked_events`. A separate constructor
+  rather than a flag, for the reason `from_multivariate_events` is one: `from_events` reads a
+  `(2, n)` record as one-dimensional spatio-temporal, and the shape alone cannot say which of
+  the three layouts it is.
+
 - **A validation and diagnostics harness**, in a new `hawkes_package.inference.validation`
   subpackage. Four pieces, answering four questions the existing diagnostics could not.
 
@@ -134,33 +162,29 @@ Beyond those three, the point-process capabilities the package does not have yet
 the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
-   productivity vector broadcasts down one axis of the likelihood's existing `(n, n)` factor
-   matrix; the work is the mark distribution, and a thinning bound that stays valid when an
-   exponential productivity meets an unbounded mark.
-2. **A spatially varying background** — the biggest modelling restriction in the package. The
+1. **A spatially varying background** — the biggest modelling restriction in the package. The
    simulator already accepts a callable base rate and the likelihood already integrates the
    background numerically over the quadrature nodes, so this is a new `BaseFamily` beside
    `ConstantBase` rather than a plumbing change.
-3. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
+2. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
    index, and vectorisation across SMC particles, where an explicit per-particle loop in
    rejuvenation is already commented as the dominant cost of a fit. Truncation is an
    approximation, so the bound and the acceptance test must be computed from the same
    truncated quantity or the thinning is wrong without raising.
-4. **A wider kernel library** — power-law and compact-support spatial kernels, since the
+3. **A wider kernel library** — power-law and compact-support spatial kernels, since the
    Gaussian tail is too light for most data, and a non-separable option. New families are
    additive against the existing `KernelFamily` protocols; a non-separable kernel already
    simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
    to exploit, so fitting one needs a new backend.
-5. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+4. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
    signature rather than by mathematics: the background is a function of position only, and
    adding time to it also moves the thinning bound, which must then use the supremum over the
    remaining interval rather than the current value.
-6. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+5. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
    against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
    and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
    SciPy past the single call site it is deliberately held to.
-7. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+6. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
    test that simulates from known parameters, refits and checks the credible intervals. Seeding
    is already done. Coverage is a statistical threshold like any other — a collapsed particle
    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.

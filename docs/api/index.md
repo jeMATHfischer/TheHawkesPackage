@@ -33,6 +33,33 @@ a non-negative matrix of scales.
    MultivariateTemporalHawkesProcess
 ```
 
+## Marked processes
+
+Events carrying a magnitude that scales the excitation they produce, in the
+ETAS shape. The productivity may be unbounded -- the thinning bound sums over
+marks already drawn, so the supremum of `g` over the mark *distribution* never
+enters it -- but its **expectation** may not be, and
+{func}`~hawkes_package.marked.expected_productivity` is where that is decided.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+   :template: autosummary/class.rst
+   :nosignatures:
+
+   MarkedHawkes
+   ExponentialMarkedHawkes
+   MarkedTemporalHawkesProcess
+```
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   marked.expected_productivity
+```
+
 ## Spatio-temporal processes
 
 ```{eval-rst}
@@ -160,6 +187,7 @@ parameter vector to a process, and the set of parameters that map is defined on.
    monotone_model
    bell_shape_model
    multivariate_model
+   marked_model
    spatio_temporal_model
 ```
 
@@ -217,6 +245,17 @@ integrating the total across types -- using the total in both places inflates
 the log-sum by 265 nats over 400 events, which is why `TemporalLogLikelihood`
 refuses a multivariate model rather than reading its scalar hook.
 
+`MarkedLogLikelihood` adds the mark density to the process term, and adds it
+**by default**. Without it `b_value` does not move the likelihood at all -- it
+enters the ground process not at all, so three very different mark rates give
+one identical value -- leaving the parameter identified by the stationarity
+boundary rather than by data. `TemporalLogLikelihood` refuses a marked model for
+that reason, and it is the subtler of its two refusals: the intensity term would
+have come out right, and only the marks would have gone missing.
+
+`HawkesEstimator` picks all of these itself; a multivariate or marked model
+reaches its own likelihood without being told.
+
 ```{eval-rst}
 .. autosummary::
    :toctree: _autosummary
@@ -227,6 +266,7 @@ refuses a multivariate model rather than reading its scalar hook.
    TemporalLogLikelihood
    MultivariateLogLikelihood
    MultivariateExponentialLogLikelihood
+   MarkedLogLikelihood
    SpatioTemporalLogLikelihood
    LikelihoodState
 ```

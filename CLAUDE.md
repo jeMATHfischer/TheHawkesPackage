@@ -36,8 +36,15 @@ spatio-temporal multivariate process is out of scope rather than pending. It nee
 its own thinning bound drawn against a space-integrated *vector* intensity, with
 the floor moving from after-the-sum to per-component and the type drawn before the
 location — a second bound argument, not a wider version of the first, and one with
-no exact-value safety net because that reordering changes the draw stream. Still
-out of scope with it: continuous marks.
+no exact-value safety net because that reordering changes the draw stream.
+
+Since 0.8.0 there are also **marks**: `MarkedHawkes` and `ExponentialMarkedHawkes`
+attach a magnitude that scales the excitation an event produces, `marked_model` and
+`MarkedLogLikelihood` fit them. Marks are **temporal and single-type** for the same
+reason: marks crossed with types, and marks crossed with space, are cross-products
+each needing their own bound argument. The new failure mode is not the unbounded
+productivity — that one is safe, and the reason is below — but its *expectation*.
+
 Partially observed data is out too, and for a reason rather than by omission: it
 creates a genuine latent state and needs a different algorithm, not a different
 setting of this one.
@@ -231,6 +238,19 @@ This is the section that matters. None of the following raises when violated.
   separability identity `∫_D λ = ∫_D μ + Σ κ_t·S_i` holds only where the pre-floor
   integrand is non-negative at every node. `backend="hooks"` is the normative
   definition; `"auto"` falls back to it once, with a warning, and records what ran.
+- **A divergent expected productivity is finite in every realisation.** For a
+  marked process the branching ratio is `E[g(m)] · ∫κ`, and `E[g] = b/(b−a)` is
+  infinite once the productivity's exponent reaches the mark law's rate. Every
+  simulated catalogue at such a parameter looks perfectly ordinary and the
+  expected offspring per event is not finite, so `ExponentialMarkedHawkes`
+  refuses it at construction — nothing at run time would.
+- **The mark density is not an optional term.** It does not depend on `mu`,
+  `alpha`, `beta` or `scale`, so an optimiser over those may drop it. Drop it
+  from the *model* and `b_value` stops moving the likelihood entirely —
+  measured: three different rates, one identical value — leaving it identified
+  by the stationarity boundary alone. `TemporalLogLikelihood` refuses a marked
+  model because there the intensity term would come out right and only the
+  marks would go missing.
 - **Particle degeneracy reads as confidence.** A collapsed cloud reports a very
   tight posterior centred wherever the resampling noise left it. Neither obvious
   diagnostic catches a frozen rejuvenation kernel: the effective sample size is
