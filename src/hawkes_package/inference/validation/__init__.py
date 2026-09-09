@@ -30,9 +30,12 @@ saying so is more useful than averaging them.
 
 from __future__ import annotations
 
+from ._cells import CellResiduals, cell_residuals
 from ._compensator import compensator_agreement, independent_compensator
 
 __all__ = [
+    "CellResiduals",
+    "cell_residuals",
     "compensator_agreement",
     "independent_compensator",
 ]
