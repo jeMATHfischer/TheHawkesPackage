@@ -218,6 +218,36 @@ point estimate.
 `History.end` is keyword-required and has no default: "observed on `[0, T]`" and "stopped at the
 n-th event" are different experiments, and defaulting it would switch between them silently.
 
+## Validation
+
+`hawkes_package.inference.validation` asks whether a fitted model is any good — judged without
+reusing the arithmetic that produced it.
+
+```python
+from hawkes_package.inference.validation import (
+    cell_residuals,
+    compare_with_baseline,
+    compensator_agreement,
+    rolling_origin,
+)
+
+print(compensator_agreement(likelihood, theta, history))  # is the integral itself right?
+print(cell_residuals(likelihood, theta, history).summary())  # right amounts, where and when?
+print(compare_with_baseline(likelihood, theta, history).summary())  # better than a constant rate?
+print(rolling_origin(likelihood, history, fit, origins=[...]).summary())  # any use prospectively?
+```
+
+The first of those exists because of one cancellation. `residuals` takes its compensator from
+the likelihood it is handed, which is right for checking two implementations against each other
+and wrong for validation: **a fit made with a compensator 20% too small inflates the intensity,
+and rescaling through that same broken integral gives unit-rate gaps.** Measured on 400 events —
+the broken compensator passes the KS test at `p = 0.46`, an honest one rejects at `p = 3.3e-05`.
+
+The baseline is the homogeneous Poisson process at its *own* maximum likelihood, not at a
+convenient rate: a baseline handed a bad parameter is worse than none, because beating it reads
+as evidence. Over seeds 0–20 a Hawkes fit beats it on 21 of 21 runs of Hawkes data and on 0 of 21
+runs with the excitation switched off.
+
 ## Visualization
 
 `hawkes_package.viz` draws the surface a spatio-temporal process lives on, colours it by
