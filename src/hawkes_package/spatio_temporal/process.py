@@ -347,6 +347,26 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
             self._quadrature, make_rule, self.n_quad, lambda x: self._spatial_at(x, centre)
         )
 
+        # The kernel is not the only thing the rule has to resolve. A peaked
+        # *background* loses its mass between nodes in exactly the places the
+        # events are, and the only symptom is an event rate wrong by that
+        # fraction -- the same silent failure, from the other term.
+        #
+        # Guarded by one pass over the coarse nodes rather than run
+        # unconditionally: a constant background is resolved exactly, and this
+        # constructor runs once per particle per rejuvenation move, where a
+        # doubled rule would be paid for nothing on every fit that predates a
+        # varying background.
+        background = np.array([as_float(self.base(node)) for node in self._quadrature.nodes])
+        if background.size and float(np.ptp(background)) > 0.0:
+            _integration.check_resolution(
+                self._quadrature,
+                make_rule,
+                self.n_quad,
+                lambda x: as_float(self.base(x)),
+                name="background",
+            )
+
     def _check_quadrature_volume(self) -> None:
         """Check the rule reproduces the domain's own measure.
 
