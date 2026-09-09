@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A validation and diagnostics harness**, in a new `hawkes_package.inference.validation`
+  subpackage. Four pieces, answering four questions the existing diagnostics could not.
+
+  `independent_compensator` and `compensator_agreement` answer *is the compensator itself
+  right*. `residuals` takes its integral from the likelihood it is handed, which is correct
+  for checking two implementations against each other and exactly wrong for validation: a fit
+  made with a compensator 20% too small inflates the intensity, and rescaling through that same
+  broken integral gives unit-rate gaps. Measured on 400 events — the inflated fit puts `alpha`
+  at 0.690 against a truth of 0.500, the residuals through the broken compensator pass at
+  **p = 0.46**, the same residuals through an honest one reject at **p = 3.3e-05**, and the
+  agreement number reports 0.2, the defect at its actual size.
+
+  `cell_residuals` answers *does it fit where and when the events are*. Time rescaling collapses
+  the window before it starts, so it says only that something is wrong, never which part. Cells
+  compare observed counts against `∫_C λ`; over seeds 0–20 the standardised residuals sit in
+  [−0.343, 0.343] at the truth and never above −1.480 at a wrong excitation.
+
+  `compare_with_baseline` answers *is the model worth having*. The bar is the homogeneous
+  Poisson process at its **own maximum likelihood**, not at a convenient rate — a baseline
+  handed a bad parameter is worse than none, because beating it reads as evidence. Over seeds
+  0–20 a Hawkes fit beats it on 21 of 21 runs of Hawkes data and on 0 of 21 runs with the
+  excitation switched off.
+
+  `rolling_origin` answers *would it have been any use prospectively*. Expanding window,
+  refitting at each origin and scoring only what followed. The no-leakage guarantee is asserted
+  arithmetically rather than by reading the code: a spy fitter records every history it is
+  handed and no event in any of them lies past its origin.
+
 - **Bounded, non-periodic domains.** `Rectangle` and `Polygon` are the first domains here with a
   real boundary; everything else is a closed surface, periodic or a quotient. `Polygon` is convex,
   masks the quadrature by half-planes fixed at construction, and carries its own `nodes_per_axis`
@@ -99,37 +127,33 @@ Beyond those three, the point-process capabilities the package does not have yet
 the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **A validation and diagnostics harness**: spatio-temporal residuals, rolling-origin
-   backtesting, proper scoring rules and naive baselines. The residuals must be computed with a
-   compensator that does not share the estimator's, because a fit made with one 20% too small
-   inflates the intensity by 25% and the two errors cancel exactly.
-2. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
+1. **Marks with mark-dependent productivity**, in the style of the ETAS magnitude term. The
    productivity vector broadcasts down one axis of the likelihood's existing `(n, n)` factor
    matrix; the work is the mark distribution, and a thinning bound that stays valid when an
    exponential productivity meets an unbounded mark.
-3. **A spatially varying background** — the biggest modelling restriction in the package. The
+2. **A spatially varying background** — the biggest modelling restriction in the package. The
    simulator already accepts a callable base rate and the likelihood already integrates the
    background numerically over the quadrature nodes, so this is a new `BaseFamily` beside
    `ConstantBase` rather than a plumbing change.
-4. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
+3. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
    index, and vectorisation across SMC particles, where an explicit per-particle loop in
    rejuvenation is already commented as the dominant cost of a fit. Truncation is an
    approximation, so the bound and the acceptance test must be computed from the same
    truncated quantity or the thinning is wrong without raising.
-5. **A wider kernel library** — power-law and compact-support spatial kernels, since the
+4. **A wider kernel library** — power-law and compact-support spatial kernels, since the
    Gaussian tail is too light for most data, and a non-separable option. New families are
    additive against the existing `KernelFamily` protocols; a non-separable kernel already
    simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
    to exploit, so fitting one needs a new backend.
-6. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+5. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
    signature rather than by mathematics: the background is a function of position only, and
    adding time to it also moves the thinning bound, which must then use the supremum over the
    remaining interval rather than the current value.
-7. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+6. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
    against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
    and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
    SciPy past the single call site it is deliberately held to.
-8. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+7. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
    test that simulates from known parameters, refits and checks the credible intervals. Seeding
    is already done. Coverage is a statistical threshold like any other — a collapsed particle
    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.

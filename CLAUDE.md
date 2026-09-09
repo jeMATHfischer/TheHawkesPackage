@@ -124,6 +124,7 @@ between the value and its per-event future supremum.
 | `inference/models.py` | `ProcessModel` — theta to a process, and where it is defined |
 | `inference/_geometry.py` | the theta-independent distance tensors |
 | `inference/_compensator.py` | panelled Gauss–Legendre for `∫ λ` |
+| `inference/validation/` | the harness: an *independent* compensator, cell residuals, baselines, rolling origin |
 | `viz/_embedding.py` | chart → R³, one immersion per surface, derived from its own pairings |
 | `viz/_field.py` | the hoisted λ frames, the colour range, the event fade |
 | `viz/_plotly.py` | the only module that names a plotting library, inside a function body |
@@ -207,6 +208,16 @@ This is the section that matters. None of the following raises when violated.
   accordingly, and reach for `@pytest.mark.slow` for anything over a second. Note
   which side is slow: a spatio-temporal *fit* of 60 events is 3 s against 65 s to
   generate them.
+- **The validation harness must not reuse the estimator's compensator.** Since
+  0.7.0 `inference/validation/` exists for exactly one reason: `residuals` takes
+  its integral from the likelihood it is handed, and a fit made with a
+  compensator 20% too small inflates the intensity so that rescaling through
+  that same broken integral gives unit-rate gaps. Measured — the broken
+  compensator passes the KS test at p = 0.46 while an honest one rejects at
+  p = 3.3e-05. `independent_compensator` shares one thing with the likelihood it
+  checks, the parameter vector; if it ever starts calling
+  `LogLikelihood.compensator` the whole subpackage is theatre, and a test
+  monkeypatches that method to raise so it cannot happen quietly.
 - **A compensator computed too small is the inference-side twin of a bound
   computed too small.** Every unit of `∫ λ` that goes missing is a penalty on a
   high intensity that never gets applied, so `mu` and the excitation both come

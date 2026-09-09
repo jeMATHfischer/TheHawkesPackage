@@ -163,6 +163,46 @@ parameter vector to a process, and the set of parameters that map is defined on.
    spatio_temporal_model
 ```
 
+### Validation
+
+`hawkes_package.inference.validation` answers a harder question than the
+diagnostics above: not "do the two implementations of this model agree" but "is
+the model right at all", judged without reusing the arithmetic that produced it.
+
+That distinction is one specific cancellation. A fit made with a compensator 20%
+too small inflates the intensity, and rescaling the events through that *same*
+broken integral gives unit-rate gaps — so the goodness-of-fit test passes, and
+the worse the compensator the more exactly the fit compensates for it. Measured
+on 400 events: the broken compensator gives KS `p = 0.46`, an honest one
+`p = 3.3e-05`. `independent_compensator` integrates the simulator's own hook on a
+dense uniform grid, sharing only the parameter vector with the likelihood it
+checks.
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+   :nosignatures:
+
+   validation.independent_compensator
+   validation.compensator_agreement
+   validation.cell_residuals
+   validation.compare_with_baseline
+   validation.homogeneous_log_likelihood
+   validation.rolling_origin
+```
+
+```{eval-rst}
+.. autosummary::
+   :toctree: _autosummary
+   :template: autosummary/class.rst
+   :nosignatures:
+
+   validation.CellResiduals
+   validation.BaselineComparison
+   validation.Backtest
+   validation.OriginScore
+```
+
 ### Likelihoods
 
 `ExponentialLogLikelihood` is the closed form and is `O(n)`;
