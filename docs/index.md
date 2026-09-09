@@ -119,6 +119,7 @@ examples/spatio_temporal
 examples/surfaces
 examples/intensity_surfaces
 examples/online_inference
+examples/validating_a_fit
 ```
 
 ```{toctree}

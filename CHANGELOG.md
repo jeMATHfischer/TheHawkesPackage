@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refitting at each origin and scoring only what followed. The no-leakage guarantee is asserted
   arithmetically rather than by reading the code: a spy fitter records every history it is
   handed and no event in any of them lies past its origin.
+- A sixth executed example, `docs/examples/validating_a_fit.ipynb`, which works all four through
+  on one fit and *demonstrates* the cancellation rather than describing it. It runs in 34 s and
+  needs a longer window for the backtest section than for the rest, for a reason the notebook
+  states: five blocks of fifty events cannot separate a branching ratio of 0.5 from a constant
+  rate, and even the true parameters score negative skill at three of five origins there. That
+  is the backtest being underpowered, not the model being useless — and it is exactly the result
+  that gets misread as the second.
 
 - **Bounded, non-periodic domains.** `Rectangle` and `Polygon` are the first domains here with a
   real boundary; everything else is a closed surface, periodic or a quotient. `Polygon` is convex,
