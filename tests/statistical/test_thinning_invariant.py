@@ -242,6 +242,33 @@ def build(
             return hp.BellShapeHawkes(triangular_kernel, rng=seed)
         if name == "DelayedBellShapeHawkes":
             return hp.BellShapeHawkes(delayed_bump_kernel, rng=seed)
+        if name == "marked-light":
+            # A mark law far heavier than the productivity that feeds it, so
+            # E[g] = b/(b-a) is close to one and the process is barely marked.
+            return hp.ExponentialMarkedHawkes(
+                mu=1.0, alpha=0.3, beta=2.0, scale=0.2, b_value=2.0, rng=seed
+            )
+        if name == "marked-heavy":
+            # scale just below b_value: E[g] = 10, and the realised marks reach
+            # far enough that a handful of events dominate the whole intensity.
+            # This is the configuration most likely to expose an under-bound and
+            # exactly the kind the 0.2.0 harness did not reach -- and it is safe
+            # only because the bound sums over marks already drawn.
+            return hp.ExponentialMarkedHawkes(
+                mu=1.0, alpha=0.09, beta=2.0, scale=0.9, b_value=1.0, rng=seed
+            )
+        if name == "marked-bell":
+            # A rising kernel *and* a mark: each event is bounded by its own
+            # future supremum, scaled by its own productivity, and the two
+            # per-event factors have to be applied to the same event.
+            return hp.MarkedHawkes(
+                mu=0.5,
+                temporal=triangular_kernel,
+                productivity=lambda m: np.exp(0.5 * np.asarray(m, dtype=float)),
+                mark_sampler=lambda rng_: float(rng_.exponential(1.0)),
+                monotone_temporal_kernel=False,
+                rng=seed,
+            )
         if name == "mv-exp-d2":
             # Linear, asymmetric: type 1 excites type 0 harder than the reverse,
             # so the two components are genuinely different functions and a bound
@@ -377,6 +404,25 @@ def test_temporal_thinning_invariant(build, name, seed, stop):
 #: vector intensity, so these are instrumented on the vector hook and reduced --
 #: recording a single component would check a weaker inequality than the loop
 #: relies on.
+#: Marked cases. The productivity multiplies each event's kernel by a number
+#: drawn from an unbounded law, which sounds like a threat to the bound and is
+#: not: both the intensity and the bound sum over marks that have already been
+#: observed, so the supremum of `g` over the mark *distribution* never enters.
+MARKED = ["marked-light", "marked-heavy", "marked-bell"]
+
+
+@pytest.mark.statistical
+@pytest.mark.parametrize("stop", STOPPING)
+@pytest.mark.parametrize("name", MARKED)
+@pytest.mark.parametrize("seed", [11, 23, 47])
+def test_marked_thinning_invariant(build, name, seed, stop):
+    """The same invariant with a per-event productivity in front of the kernel."""
+    proc, drive = stopping_rule(build, name, seed, 300, stop)
+    state = instrument(proc, "_conditional_intensity")
+    drive()
+    _check(state, label=f"{name}(seed={seed}, stop={stop})")
+
+
 MULTIVARIATE = [
     "mv-d1",
     "mv-exp-d2",
