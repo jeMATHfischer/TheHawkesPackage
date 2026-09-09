@@ -43,6 +43,7 @@ __all__ = [
     "GaussianSpatial",
     "KernelFamily",
     "LinearNonlinearity",
+    "LogLinearBase",
     "MultivariateBase",
     "NonlinearityFamily",
     "SoftPlusNonlinearity",
@@ -413,6 +414,162 @@ class ConstantBase:
         values, _ = _batch(theta, 1)
         nodes = np.asarray(points, dtype=float)
         return np.full(nodes.shape[0], float(values[0, 0]), dtype=float)
+
+
+#: The largest exponent a double survives. `exp` of anything past this is `inf`,
+#: and numpy warns -- which `filterwarnings = ["error"]` turns into a failure in
+#: the middle of an otherwise healthy fit. Clipping here is not a modelling
+#: choice: a background of 1e308 per unit measure gives a compensator no finite
+#: log-likelihood can survive, so the particle is rejected either way. It is the
+#: difference between rejecting it and raising.
+_MAX_EXPONENT = 709.0
+
+
+@dataclass(frozen=True)
+class LogLinearBase:
+    r"""A background that varies over the domain, log-linear in covariates.
+
+    .. math::
+
+        \mu(x) = \exp\!\left(\beta_0 + \sum_k \beta_k\, z_k(x)\right),
+
+    **per unit measure**, the same convention :class:`ConstantBase` states: the
+    background event rate is the integral of this over the domain, not the value
+    times anything. Two backgrounds are comparable only if both mean that.
+
+    The link is logarithmic rather than affine so the value is **positive
+    everywhere by construction**. That is not cosmetic: the cached
+    spatio-temporal backend's separability identity holds only where the
+    pre-floor integrand is non-negative at every quadrature node, and it raises
+    rather than degrading when it is not. An affine background with a covariate
+    coefficient of the wrong sign trips that on a fit that is otherwise going
+    fine; this one cannot.
+
+    With no covariates at all it is a constant background in an unusual
+    parameterisation, which is a useful thing to have: it is what the tests
+    compare against :class:`ConstantBase` to show the plumbing carries a varying
+    background without changing any number.
+
+    Parameters
+    ----------
+    covariates : sequence of callable
+        Each takes an ``(m, ndim)`` array of positions and returns ``(m,)``
+        values. **Vectorized**, because these are evaluated at every quadrature
+        node for every particle of every rejuvenation move. Non-finite values
+        are refused where they appear, naming the covariate: a ``nan`` covariate
+        otherwise turns the whole log-likelihood into ``nan``, which the sampler
+        reads as an invalid particle and quietly resamples away.
+    names : sequence of str, optional
+        Names for the coefficients, used in the parameter names and so in every
+        diagnostic. Defaults to positional ``b_0``, ``b_1``, ...
+
+    Notes
+    -----
+    Nothing is centred or standardised for you. A covariate with a large mean
+    trades off against ``log_mu0`` almost exactly, and a pair of parameters that
+    trade off exactly is a ridge the posterior never leaves -- the same failure
+    :class:`SoftPlusNonlinearity` avoids by not fitting its scale. Centre the
+    covariate if the marginal for ``log_mu0`` comes back wide and correlated.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> east = lambda points: np.asarray(points, dtype=float)[:, 0]
+    >>> base = LogLinearBase((east,), names=("east",))
+    >>> base.spec.names
+    ('log_mu0', 'b_east')
+    >>> base.at(np.array([0.0, 1.0]), np.array([[0.0], [1.0]]))
+    array([1.        , 2.71828183])
+
+    .. versionadded:: 0.8.0
+    """
+
+    covariates: tuple[Callable[[Any], Any], ...] = ()
+    names: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        """Normalise both sequences to tuples and check they describe each other."""
+        fields = tuple(self.covariates)
+        object.__setattr__(self, "covariates", fields)
+        if self.names is None:
+            return
+        labels = tuple(str(name) for name in self.names)
+        if len(labels) != len(fields):
+            raise ValueError(
+                f"got {len(labels)} names for {len(fields)} covariates; a name per "
+                "covariate or none at all, since the names are what a diagnostic "
+                "reports the coefficients under"
+            )
+        object.__setattr__(self, "names", labels)
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(log_mu0, b_...)``, every one of them on the **whole real line**.
+
+        The first parameters in this package that are not positive rates. A
+        coefficient's sign is the direction of the effect, and ``log_mu0`` is a
+        log, so both are unbounded and
+        :class:`~hawkes_package.inference.parameters.ParameterSpec` transforms
+        them with the identity.
+        """
+        labels = (
+            tuple(f"b_{i}" for i in range(len(self.covariates)))
+            if self.names is None
+            else tuple(f"b_{name}" for name in self.names)
+        )
+        return ParameterSpec(
+            (
+                Parameter("log_mu0", lower=-math.inf, upper=math.inf),
+                *(Parameter(label, lower=-math.inf, upper=math.inf) for label in labels),
+            )
+        )
+
+    def _design(self, points: Any) -> np.ndarray:
+        """Evaluate every covariate at `points`, shape ``(m, ndim)`` -> ``(m, k)``."""
+        nodes = np.atleast_2d(np.asarray(points, dtype=float))
+        rows = nodes.shape[0]
+        if not self.covariates:
+            return np.empty((rows, 0), dtype=float)
+
+        columns = []
+        for index, covariate in enumerate(self.covariates):
+            column = np.asarray(covariate(nodes), dtype=float).reshape(-1)
+            if column.size != rows:
+                label = index if self.names is None else self.names[index]
+                raise ValueError(
+                    f"covariate {label!r} returned {column.size} values for {rows} "
+                    "positions; a covariate takes an (m, ndim) array and returns one "
+                    "value per row, vectorized"
+                )
+            if not np.all(np.isfinite(column)):
+                label = index if self.names is None else self.names[index]
+                raise ValueError(
+                    f"covariate {label!r} returned a non-finite value. It would turn "
+                    "the whole log-likelihood into nan, which the sampler reads as an "
+                    "invalid particle and resamples away without ever saying why."
+                )
+            columns.append(column)
+        return np.stack(columns, axis=1)
+
+    def build(self, theta: Any) -> Callable[[Any], Any]:
+        """Return the background at one parameter vector, as a function of position."""
+        values, _ = _batch(theta, len(self.covariates) + 1)
+        vector = np.asarray(values[0], dtype=float)
+
+        def background(x: Any) -> float:
+            return float(self.at(vector, np.atleast_2d(np.asarray(x, dtype=float)))[0])
+
+        return background
+
+    def at(self, theta: Any, points: Any) -> np.ndarray:
+        """Evaluate at every row of `points`, shape ``(m, ndim)`` -> ``(m,)``."""
+        values, _ = _batch(theta, len(self.covariates) + 1)
+        vector = np.asarray(values[0], dtype=float)
+        design = self._design(points)
+        linear = vector[0] + design @ vector[1:]
+        # See `_MAX_EXPONENT`: clipped where a double stops holding the answer,
+        # not where the model stops being sensible.
+        return np.asarray(np.exp(np.minimum(linear, _MAX_EXPONENT)), dtype=float)
 
 
 # ---------------------------------------------------------------------------
