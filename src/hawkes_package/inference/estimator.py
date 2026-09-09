@@ -76,11 +76,21 @@ from .likelihood import (
     ExponentialLogLikelihood,
     History,
     LogLikelihood,
+    MarkedLogLikelihood,
+    MultivariateExponentialLogLikelihood,
+    MultivariateLogLikelihood,
     SpatioTemporalLogLikelihood,
     TemporalLogLikelihood,
     _bind_history,
 )
-from .models import ProcessModel, bell_shape_model, exponential_model, monotone_model
+from .models import (
+    MarkedComponents,
+    MultivariateComponents,
+    ProcessModel,
+    bell_shape_model,
+    exponential_model,
+    monotone_model,
+)
 from .parameters import ParameterSpec
 from .priors import Prior
 from .resample import log_sum_exp, systematic
@@ -864,11 +874,30 @@ class HawkesEstimator(_ParamsMixin):
         return factory()
 
     def _resolve_likelihood(self, model: ProcessModel) -> LogLikelihood:
-        """Return the given likelihood, or the fastest one exact for `model`."""
+        """Return the given likelihood, or the fastest one exact for `model`.
+
+        The two families with their own likelihood are dispatched on their
+        `components` type rather than on `ndim`, which is 0 for both of them.
+        Without that, the fall-through hands them to `TemporalLogLikelihood`,
+        whose constructor refuses them -- correctly, since it would sum the
+        total intensity where a multivariate log-sum needs the intensity of the
+        type each event carries, and would drop the mark density entirely -- so
+        the estimator raised on two of the five model families it is meant to be
+        the convenient front door for.
+        """
         if self.likelihood is not None:
             return self.likelihood
         if model.ndim > 0:
             return SpatioTemporalLogLikelihood(model)
+        if isinstance(model.components, MultivariateComponents):
+            try:
+                return MultivariateExponentialLogLikelihood(model)
+            except ValueError:
+                # Not the exponential parameterisation; the hook-based form is
+                # exact for any kernel shape, at O(n^2 P) instead of O(n d).
+                return MultivariateLogLikelihood(model)
+        if isinstance(model.components, MarkedComponents):
+            return MarkedLogLikelihood(model)
         if model.family == "exponential" and model.spec.names == ("mu", "alpha", "beta"):
             return ExponentialLogLikelihood(model)
         return TemporalLogLikelihood(model)
