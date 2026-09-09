@@ -311,9 +311,17 @@ per particle per move.
    GammaKernel
    GaussianSpatial
    ConstantBase
+   LogLinearBase
    LinearNonlinearity
    SoftPlusNonlinearity
 ```
+
+`ConstantBase` says events are equally likely everywhere on the domain.
+`LogLinearBase` is the background that does not: `exp(b0 + sum_k b_k z_k(x))`,
+per unit measure, with the covariates any vectorized callables on the domain.
+The link is logarithmic so the value is positive at every quadrature node, which
+is what keeps the cached spatio-temporal backend usable -- it raises rather than
+degrading where the pre-floor integrand goes negative.
 
 ### Fitting
 

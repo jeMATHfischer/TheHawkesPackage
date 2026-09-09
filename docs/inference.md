@@ -343,6 +343,45 @@ too small, and the excitation is biased upward — so the cached backend checks 
 **raises** rather than degrading. `backend="auto"` falls back to the hooks once,
 with a warning, and records which path ran in `backend_used`.
 
+### A background that varies
+
+`ConstantBase` says events are equally likely everywhere on the domain, and for
+applied data they are not. `LogLinearBase` takes covariates — any vectorized
+callables from an `(m, ndim)` array of positions to `(m,)` values — and fits
+
+$$\mu(x) = \exp\!\big(\beta_0 + \sum_k \beta_k z_k(x)\big)$$
+
+per unit measure, the same convention `ConstantBase` uses.
+
+```{code-block} python
+from hawkes_package.inference import LogLinearBase, spatio_temporal_model
+
+east = lambda points: np.asarray(points, dtype=float)[:, 0]
+model = spatio_temporal_model(hp.Circle(), base=LogLinearBase((east,), names=("east",)))
+model.spec.names          # ('log_mu0', 'b_east', 'alpha', 'beta', 'sigma')
+```
+
+**Fit one when the background might vary, not only when you are sure it does.**
+On data with no self-excitation at all — locations drawn from two fixed lumps,
+times uniform — a constant background cannot express the lumps, so the only
+thing left to explain events landing near each other is excitation. Over seeds
+0–20 it peaks at `alpha` 0.614, a branching ratio near 0.31 invented out of
+nothing, against 0.062 under a background that can express them, on 21 of 21
+seeds. Both fits converge and neither warns.
+
+A density is a covariate. `exp(b0 + b log f(x))` is `exp(b0) f(x)**b`, so
+passing the log of a kernel-density estimate gives a kernel-density background
+at `b = 1`, with the normaliser absorbed by the intercept and `b` reading how
+strongly the background follows the density. Fitting the *bandwidth* from the
+same events is the thing to avoid: the background absorbs the clusters and the
+excitation goes to zero, which is a silent failure that looks like a
+well-behaved fit.
+
+`log_mu0` and a coefficient trade off through the total event count, so read
+their marginals together. A coefficient profiled at a fixed intercept comes back
+systematically low — 0.583 against a truth of 0.9 over seeds 0–20 — and reads as
+a weaker spatial trend rather than as a fit that was held wrong.
+
 :::{note}
 The cost of a spatio-temporal fit is dominated by the geometry cache, which is
 built once and costs `nodes × events × images` distance calls. On a `Circle` at

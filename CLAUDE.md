@@ -53,6 +53,16 @@ path and nothing else; inference has its own chain in `inference/mcmc.py`, named
 it cannot read as a drop-in. Adding anything in the out-of-scope list is new
 territory, not a gap to fill in by analogy with what is already here.
 
+Since 0.8.0 the spatio-temporal background may also **vary over the domain**:
+`LogLinearBase` is `exp(b0 + sum b_k z_k(x))` per unit measure, beside `ConstantBase`.
+It needed no plumbing — the simulator already took a callable base rate and the
+cached likelihood backend already evaluated the background at the nodes — and the
+log link is load-bearing rather than stylistic: an affine background with a
+coefficient of the wrong sign goes negative at some node, and the cached backend's
+separability precondition raises there rather than degrading. There is no separate
+kernel-density family because `exp(b0 + b log f)` is `exp(b0) f**b`: a density is a
+covariate, and the normaliser is what the intercept absorbs.
+
 **Visualization** (`hawkes_package.viz`, 0.5.0) is a third area, and was a
 deliberate scope addition rather than a roadmap item — it is not on the `###
 Planned` list. It draws four of the closed surfaces, colours them by the
@@ -251,6 +261,17 @@ This is the section that matters. None of the following raises when violated.
   by the stationarity boundary alone. `TemporalLogLikelihood` refuses a marked
   model because there the intensity term would come out right and only the
   marks would go missing.
+- **A constant background blames the excitation.** On data with no
+  self-excitation at all — locations from two fixed lumps, times uniform —
+  `ConstantBase` cannot express the lumps, so the only thing left to explain
+  events landing near each other is excitation, and the likelihood finds it:
+  `alpha` peaks at 0.614 over seeds 0–20, a branching ratio near 0.31 out of
+  nothing, against 0.062 for a background that fits the lumps, on 21 of 21
+  seeds. The fit converges and nothing raises. `LogLinearBase` is the answer,
+  and its own trap is the intercept: `log_mu0` and a coefficient trade off
+  through the total count, so a coefficient profiled at a fixed intercept comes
+  back systematically low (0.583 against a truth of 0.9) and reads as a weaker
+  spatial trend rather than as a bad fit.
 - **Particle degeneracy reads as confidence.** A collapsed cloud reports a very
   tight posterior centred wherever the resampling noise left it. Neither obvious
   diagnostic catches a frozen rejuvenation kernel: the effective sample size is
