@@ -47,6 +47,12 @@ MODULES = [
     "hawkes_package.inference.priors",
     "hawkes_package.inference.resample",
     "hawkes_package.inference.smc",
+    # The validation subpackage. Its `_compensator` is listed for the same
+    # reason `viz._plotly` is: it is the module whose independence from the
+    # likelihood is the point, so it should not be able to drift out of the
+    # surface unnoticed.
+    "hawkes_package.inference.validation",
+    "hawkes_package.inference.validation._compensator",
     # The viz subpackage. Every one of these must import with numpy and scipy
     # alone -- the rendering backend is an optional extra, and `_plotly` is
     # listed on purpose: it is the module whose importability the lazy boundary
