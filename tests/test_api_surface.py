@@ -52,6 +52,7 @@ MODULES = [
     # likelihood is the point, so it should not be able to drift out of the
     # surface unnoticed.
     "hawkes_package.inference.validation",
+    "hawkes_package.inference.validation._backtest",
     "hawkes_package.inference.validation._baselines",
     "hawkes_package.inference.validation._cells",
     "hawkes_package.inference.validation._compensator",
