@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A background that varies over the domain.** `LogLinearBase` is
+  `mu(x) = exp(b0 + sum_k b_k z_k(x))`, per unit measure, as `ConstantBase` already means
+  it. A constant background says events are equally likely everywhere, which is false for
+  every applied dataset, and the failure that causes is the one this package exists to
+  prevent: **a constant-background fit to data whose background is clustered attributes
+  the clustering to self-excitation.** Measured on data with no self-excitation at all —
+  locations drawn from two fixed lumps, times uniform — the constant background peaks at
+  `alpha` 0.614 over seeds 0–20, a branching ratio near 0.31 invented out of nothing,
+  against 0.062 for a background that can express the lumps, and it is higher on 21 of 21
+  seeds. Neither fit raises; both look converged.
+
+  Nothing else needed changing, which was checked rather than assumed: the simulator
+  already takes a callable base rate, `spatio_temporal_model` already takes a `BaseFamily`,
+  and the cached likelihood backend already evaluates the background at the quadrature
+  nodes and at the events.
+
+  The link is **logarithmic rather than affine**, so the background is positive everywhere
+  by construction and cannot trip the cached backend's non-negativity precondition — which
+  raises rather than degrading, and would do so mid-fit on a particle that looked fine a
+  move ago. The coefficients are the first parameters here on the whole real line: a sign
+  is a direction, not a rate.
+
+  There is **no separate kernel-density family**, and the reason is arithmetic rather than
+  scope. `exp(b0 + b log f(x))` is `exp(b0) f(x)**b`, so a density passed as a covariate
+  *is* a kernel-density background at `b = 1`, with the normaliser absorbed by the fitted
+  intercept and `b` a free reading of how strongly the background follows the density. A
+  fitted bandwidth and stochastic declustering are a different thing — an alternating
+  scheme that absorbs the clusters into the background if the same events feed both — and
+  belong with the EM baseline.
+
+  One caution the class docstring states and the tests measure: `log_mu0` and a coefficient
+  trade off through the total event count. Profiling a coefficient at a fixed intercept
+  peaks in [0.53, 0.62] against a truth of 0.9 over seeds 0–20, never once near it, where
+  concentrating the intercept out recovers 0.933. On real data that reads as a weaker
+  spatial trend rather than as a bad fit.
 - **Marks with mark-dependent productivity**, in the ETAS shape: every event carries a magnitude
   and a larger magnitude produces more offspring. `MarkedHawkes` takes any non-negative
   productivity and mark sampler; `ExponentialMarkedHawkes` is the classic case, with an
@@ -162,29 +197,25 @@ Beyond those three, the point-process capabilities the package does not have yet
 the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **A spatially varying background** — the biggest modelling restriction in the package. The
-   simulator already accepts a callable base rate and the likelihood already integrates the
-   background numerically over the quadrature nodes, so this is a new `BaseFamily` beside
-   `ConstantBase` rather than a plumbing change.
-2. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
+1. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
    index, and vectorisation across SMC particles, where an explicit per-particle loop in
    rejuvenation is already commented as the dominant cost of a fit. Truncation is an
    approximation, so the bound and the acceptance test must be computed from the same
    truncated quantity or the thinning is wrong without raising.
-3. **A wider kernel library** — power-law and compact-support spatial kernels, since the
+2. **A wider kernel library** — power-law and compact-support spatial kernels, since the
    Gaussian tail is too light for most data, and a non-separable option. New families are
    additive against the existing `KernelFamily` protocols; a non-separable kernel already
    simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
    to exploit, so fitting one needs a new backend.
-4. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+3. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
    signature rather than by mathematics: the background is a function of position only, and
    adding time to it also moves the thinning bound, which must then use the supremum over the
    remaining interval rather than the current value.
-5. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+4. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
    against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
    and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
    SciPy past the single call site it is deliberately held to.
-6. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+5. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
    test that simulates from known parameters, refits and checks the credible intervals. Seeding
    is already done. Coverage is a statistical threshold like any other — a collapsed particle
    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
