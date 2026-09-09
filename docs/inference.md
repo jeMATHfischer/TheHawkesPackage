@@ -257,6 +257,36 @@ prints it alongside the marginals, because the combination — confident posteri
 rejected fit — is the one worth noticing and the one that goes unnoticed when
 they are read separately.
 
+### And the check on that check
+
+`residuals` takes its compensator from the likelihood it is handed. For
+comparing two implementations of one model that is exactly right. For deciding
+whether the model is *correct* it is exactly backwards, because of one
+cancellation: **a fit made with a compensator 20% too small inflates the
+intensity, and rescaling the events through that same broken integral gives
+unit-rate gaps.** The test passes, and the worse the compensator the more
+exactly the fit compensates for it — measured at `p = 0.45` through the broken
+integral against `p = 3.3e-05` through an honest one.
+
+`hawkes_package.inference.validation` is the second opinion, and answers three
+further questions the KS test cannot:
+
+```{code-block} python
+from hawkes_package.inference.validation import (
+    cell_residuals, compare_with_baseline, compensator_agreement, rolling_origin,
+)
+
+compensator_agreement(likelihood, theta, history)      # is the integral itself right?
+cell_residuals(likelihood, theta, history).summary()   # right amounts, where and when?
+compare_with_baseline(likelihood, theta, history)      # better than a constant rate?
+rolling_origin(likelihood, history, fit, origins=...)  # any use prospectively?
+```
+
+Read the agreement number first: if the integral is wrong, every test built on
+it is reporting a number about the wrong model. The
+[validation notebook](examples/validating_a_fit) works all four through on one
+fit.
+
 ## Forecasting
 
 ```{code-block} python
@@ -371,7 +401,12 @@ temporal kernel it is minutes, so size such a fit at a few hundred events or use
 Partially observed or thinned data. That creates a genuine latent state and
 needs a different algorithm — a bootstrap filter or a branching-structure
 augmentation — rather than a different setting of this one. Also out of scope:
-multivariate and mutually-exciting processes, and discrete marks.
+continuous marks, and *spatio-temporal* multivariate processes, since space and
+event type do not combine.
+
+Multivariate and mutually-exciting processes themselves **are** here as of
+0.6.0, through {func}`~hawkes_package.inference.models.multivariate_model` and
+the two multivariate likelihoods.
 
 `hawkes_package.mcmc` is untouched by any of this. It remains the spatial
 location sampler on the Ogata correctness path; inference has its own chain in
