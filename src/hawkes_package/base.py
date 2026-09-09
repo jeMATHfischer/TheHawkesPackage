@@ -18,7 +18,12 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["HawkesProcess", "MultivariateTemporalHawkesProcess", "TemporalHawkesProcess"]
+__all__ = [
+    "HawkesProcess",
+    "MarkedTemporalHawkesProcess",
+    "MultivariateTemporalHawkesProcess",
+    "TemporalHawkesProcess",
+]
 
 #: Anything :func:`numpy.random.default_rng` accepts.
 SeedLike = int | np.random.Generator | np.random.SeedSequence | None
@@ -449,6 +454,117 @@ class TemporalHawkesProcess(HawkesProcess):
         times = np.unique(np.append(np.asarray(x, dtype=float).ravel(), self.events))
         intensity = np.array([self._conditional_intensity(float(t)) for t in times])
         return times, intensity
+
+
+class MarkedTemporalHawkesProcess(TemporalHawkesProcess):
+    r"""A Hawkes process whose events carry a mark that scales their excitation.
+
+    .. math::
+
+        \lambda(t \mid H_t) = \varphi\!\left( \mu
+            + \sum_{t_i < t} g(m_i)\, \kappa(t - t_i) \right)
+
+    with :math:`g` a non-negative **productivity**: an event with a larger mark
+    produces more offspring, in the style of the ETAS magnitude term. Subclasses
+    supply :meth:`_productivity`, :meth:`_draw_mark` and the two inherited hooks;
+    the loop and the record come from here.
+
+    **An unbounded productivity does not threaten the bound**, which is worth
+    stating because it looks as though it should. The intensity sums over
+    :math:`t_i < t` strictly and the bound sums over :math:`t_i \le t_0`, so both
+    range over a finite set of marks that have *already been observed*. The
+    supremum of :math:`g` over the mark distribution never enters: a candidate
+    accepted at :math:`t` draws its mark afterwards, by which time the bound for
+    that step has done its work.
+
+    What the bound does need is :math:`g \ge 0`, because
+    :math:`\sup(af) = a\sup(f)` holds only for non-negative *a* -- the same step
+    the non-negative excitation matrix serves in
+    :class:`MultivariateTemporalHawkesProcess`.
+
+    **The mark is drawn after acceptance**, and only after. That is what keeps a
+    marked run comparable with an unmarked one: until the first mark is drawn the
+    two consume the same stream in the same order.
+
+    Parameters
+    ----------
+    rng : None, int or numpy.random.Generator
+        Source of randomness. See :class:`HawkesProcess`.
+
+    Attributes
+    ----------
+    events : numpy.ndarray
+        Shape ``(2, n)``: row 0 holds times, row 1 the marks.
+    marks : numpy.ndarray
+        Row 1 of the record.
+
+    .. versionadded:: 0.8.0
+    """
+
+    def __init__(self, *, rng: SeedLike = None) -> None:
+        super().__init__(rng=rng, rows=2, layout="holding the event mark")
+
+    @abstractmethod
+    def _productivity(self, marks: np.ndarray) -> np.ndarray:
+        """Return ``g(m)`` for each mark, elementwise and non-negative."""
+
+    @abstractmethod
+    def _draw_mark(self) -> float:
+        """Draw one mark for an accepted event, from ``self.rng``."""
+
+    @property
+    def marks(self) -> np.ndarray:
+        """The mark of each recorded event."""
+        return np.asarray(self.events[1], dtype=float)
+
+    def _past(self, t: float, inclusive: bool = False) -> tuple[np.ndarray, np.ndarray]:
+        """Return the times and marks of the events before `t`, as a pair of views."""
+        record = self.events
+        times = record[0]
+        keep = times <= t if inclusive else times < t
+        return times[keep], record[1][keep]
+
+    def _propagate(self, k: int) -> None:
+        t = self._events.last_time
+        accepted = 0
+
+        while accepted < k:
+            bound = self._bound_at(t)
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} of {k} requested events")
+                )
+            t = advanced
+
+            if self.rng.uniform() * bound <= self._conditional_intensity(t):
+                # After acceptance, never before: the bound for this step was
+                # computed from marks already recorded, and drawing earlier would
+                # consume a variate on every rejected candidate as well.
+                self._events.append((t, self._draw_mark()))
+                accepted += 1
+                self.n_simulated += 1
+
+    def _propagate_until(self, t_end: float, start: float) -> None:
+        t = start
+        accepted = 0
+
+        while True:
+            bound = self._bound_at(t)
+            advanced = t + self.rng.exponential() / bound
+            if not advanced > t:
+                raise RuntimeError(
+                    _stalled_message(t, bound, f"after {accepted} events past t={start!r}")
+                )
+            t = advanced
+
+            if t > t_end:
+                return
+
+            if self.rng.uniform() * bound <= self._conditional_intensity(t):
+                self._events.append((t, self._draw_mark()))
+                accepted += 1
+                self.n_simulated += 1
 
 
 class MultivariateTemporalHawkesProcess(TemporalHawkesProcess):

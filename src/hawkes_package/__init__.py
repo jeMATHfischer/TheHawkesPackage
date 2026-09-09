@@ -35,9 +35,15 @@ influences simulations.
 """
 
 from . import inference
-from .base import HawkesProcess, MultivariateTemporalHawkesProcess, TemporalHawkesProcess
+from .base import (
+    HawkesProcess,
+    MarkedTemporalHawkesProcess,
+    MultivariateTemporalHawkesProcess,
+    TemporalHawkesProcess,
+)
 from .bell_shape import BellShapeHawkes
 from .exponential import ExponentialHawkes
+from .marked import ExponentialMarkedHawkes, MarkedHawkes
 from .mcmc import mcmc_sampler
 from .monotone import MonotoneKernelHawkes
 from .multivariate import MultivariateExponentialHawkes, MultivariateHawkes
@@ -59,8 +65,11 @@ __all__ = [
     "BellShapeHawkes",
     "Circle",
     "ExponentialHawkes",
+    "ExponentialMarkedHawkes",
     "FundamentalDomain",
     "HawkesProcess",
+    "MarkedHawkes",
+    "MarkedTemporalHawkesProcess",
     "MonotoneKernelHawkes",
     "MultivariateExponentialHawkes",
     "MultivariateHawkes",

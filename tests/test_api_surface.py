@@ -22,6 +22,7 @@ MODULES = [
     "hawkes_package.base",
     "hawkes_package.bell_shape",
     "hawkes_package.exponential",
+    "hawkes_package.marked",
     "hawkes_package.mcmc",
     "hawkes_package.monotone",
     "hawkes_package.spatio_temporal",
