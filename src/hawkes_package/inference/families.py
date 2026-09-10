@@ -105,7 +105,28 @@ class KernelFamily(Protocol):
 
 @runtime_checkable
 class SpatialKernelFamily(Protocol):
-    """A parameterised isotropic spatial kernel, evaluated at a distance."""
+    """A parameterised isotropic spatial kernel, evaluated at a distance.
+
+    **A family here must be normalised to unit mass on the model space**, and
+    that is a requirement rather than a convention every shipped family happens
+    to meet. It is what makes the mass over a *compact* domain at most one, and
+    so what makes the temporal kernel's mass a sufficient bound on the branching
+    ratio -- with no quadrature, and no dependence on which surface the process
+    lives on. A family normalised some other way would leave
+    :meth:`ProcessModel.support` admitting supercritical parameters, and the
+    failure would appear as an explosion during simulation rather than as a
+    rejected proposal.
+
+    The kernel receives a scalar distance, so it is isotropic by construction.
+    An anisotropic kernel is not excluded by anything here, but it needs the
+    ``pairwise`` protocol the periodised images already use -- both endpoints
+    rather than the distance between them -- rather than a wider version of this
+    one.
+
+    .. versionchanged:: 0.9.0
+       Unit mass is stated as a requirement, and ``mass`` may report ``inf``
+       where a family's own integral diverges.
+    """
 
     @property
     def spec(self) -> ParameterSpec:
@@ -117,7 +138,15 @@ class SpatialKernelFamily(Protocol):
         ...
 
     def mass(self, theta: Any) -> np.ndarray:
-        """Integral over the whole model space, batched over `theta`."""
+        """Integral over the whole model space, batched over `theta`.
+
+        ``1.0`` for a family that meets the normalisation above, and ``inf``
+        wherever the integral does not converge -- never a plausible finite
+        number there, because
+        :meth:`~hawkes_package.inference.models.ProcessModel.support` evaluates
+        the branching callable on every row of a batch before the parameter
+        bounds filter it.
+        """
         ...
 
     def min_scale(self, theta: Any) -> np.ndarray:
