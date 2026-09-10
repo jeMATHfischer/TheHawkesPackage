@@ -520,10 +520,13 @@ The three code-level items:
 - **The quadratic term is the intensity, not the record.** 0.4.0 replaced
   `np.append` with a doubling buffer — 7× faster at 5 000 events, 17× at 50 000,
   and linear rather than quadratic — and it changed no simulation's running time
-  measurably, because the record was never where the time went. The remaining
-  `O(n²)` is the intensity sum, `O(n)` per thinning step. Making it incremental
-  is possible for the exponential kernel and is the real fix; do not reach for
-  the buffer again.
+  measurably, because the record was never where the time went. Making the
+  intensity incremental was the real fix, and 0.9.0 made it: `ExponentialHawkes`
+  carries its sum and is linear. What remains is `MonotoneKernelHawkes` and
+  `BellShapeHawkes`, which take an arbitrary kernel and so have no recursion to
+  carry — a *kernel-aware* path rather than a loop change, and an exponential
+  mixture is the case that would work. Either way, do not reach for the buffer
+  again.
 - **Hyperbolic surfaces stop at twelve sides** — genus 3, six crosscaps — and
   `_MAX_HYPERBOLIC_SIDES` refuses the rest at construction. The limit is the
   deck-group search, not the geometry: a certified `distance` enumerates every
