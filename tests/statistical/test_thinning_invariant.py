@@ -265,6 +265,17 @@ SPATIO_TEMPORAL = [
     # background integral and accept everything.
     "st-pareto",
     "st-compact",
+    # A background that varies in *time*, 0.10.0. The one case here whose bound
+    # is not a statement about the kernel: a candidate is drawn ahead of the
+    # moment the bound is computed, so the background contribution has to be the
+    # supremum over every later time and not the value at the current one. The
+    # two differ by the whole amplitude of the cycle, and the error is in the
+    # direction that accepts everything.
+    "st-periodic-background",
+    # The same at an amplitude that takes the schedule to zero for part of the
+    # cycle, where the intensity is the excitation alone and the acceptance
+    # ratio is at its most extreme.
+    "st-periodic-deep",
     pytest.param("st-rectangle", marks=pytest.mark.slow),
     # Bounded, non-periodic. Every other case here is a closed surface.
     pytest.param("st-bounded-rect", marks=pytest.mark.slow),
@@ -427,6 +438,14 @@ def build(
             # process would silently degenerate towards Poisson in time, which
             # `check_resolution` warns about at construction.
             return _spatio_temporal(spatial=CompactSpatial(1).build(np.array([1.2])), rng=seed)
+        if name == "st-periodic-background":
+            schedule = hp.PeriodicSchedule([0.6], [0.3], period=4.0)
+            return _spatio_temporal(base=hp.PeriodicBackground(lambda x: 0.5, schedule), rng=seed)
+        if name == "st-periodic-deep":
+            # Amplitude 1.0 with one harmonic: the raw series touches zero, so
+            # the floor bites for an instant each period.
+            schedule = hp.PeriodicSchedule([1.0], [0.0], period=3.0)
+            return _spatio_temporal(base=hp.PeriodicBackground(lambda x: 0.6, schedule), rng=seed)
         if name == "st-circle":
             return _spatio_temporal(rng=seed)
         if name == "st-torus":
