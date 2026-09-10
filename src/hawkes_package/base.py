@@ -233,6 +233,19 @@ class HawkesProcess(ABC):
     @events.setter
     def events(self, value: Any) -> None:
         self._events.replace(value)
+        self._record_replaced()
+
+    def _record_replaced(self) -> None:  # noqa: B027 - a hook, not an abstract method
+        """React to the record being replaced wholesale rather than appended to.
+
+        Deliberately not abstract: a class that derives nothing from the record
+        has nothing to do here, and making every process implement an empty
+        method to say so is how a hook becomes noise.
+        :class:`~hawkes_package.exponential.ExponentialHawkes` is the one class
+        that overrides it -- it carries a decaying sum, and a replaced record
+        with the same length and last time would otherwise be described by a sum
+        belonging to the record that is gone.
+        """
 
     @abstractmethod
     def _propagate(self, k: int) -> None:
