@@ -24,6 +24,7 @@ MODULES = [
     "hawkes_package.exponential",
     "hawkes_package.marked",
     "hawkes_package.mcmc",
+    "hawkes_package.periodic",
     "hawkes_package.monotone",
     "hawkes_package.spatio_temporal",
     "hawkes_package.spatio_temporal.domains",
@@ -50,6 +51,7 @@ MODULES = [
     "hawkes_package.inference.models",
     "hawkes_package.inference.parameters",
     "hawkes_package.inference.priors",
+    "hawkes_package.inference.recipe",
     "hawkes_package.inference.resample",
     "hawkes_package.inference.smc",
     # The validation subpackage. Its `_compensator` is listed for the same
