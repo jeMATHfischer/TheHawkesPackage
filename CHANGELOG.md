@@ -311,6 +311,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two functions returned `Any` where they promised an `ndarray`**, which numpy 2's stubs
+  flag and numpy 1's do not: `PeriodicSchedule.__call__` returning `np.maximum` directly, and
+  `Rectangle.wrap` returning `np.clip`. `py.typed` ships, so downstream typing must not
+  regress. Worth recording *how* they got in: a local mypy on numpy 1 reports a large,
+  different set of errors and misses these two entirely, so agreement with a local run is not
+  evidence — the CI matrix is.
+
 - **A power-law kernel's compensator was too small at the package's default quadrature
   order**, which is the direction that matters: every unit of `∫λ` that goes missing is a
   penalty on a high intensity that never gets applied, so the excitation comes back too large

@@ -446,7 +446,7 @@ class Rectangle(SpatialDomain):
         of rejecting it. The location sampler rejects here, and that is correct
         for any domain rather than only for a translation quotient.
         """
-        return np.clip(as_point(x, self._ndim), self.lower, self.upper)
+        return np.asarray(np.clip(as_point(x, self._ndim), self.lower, self.upper), dtype=float)
 
     def sample_uniform(self, rng: np.random.Generator) -> np.ndarray:
         """Draw one point uniformly from the box."""

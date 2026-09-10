@@ -144,7 +144,12 @@ class PeriodicSchedule:
         modelling error -- it makes the intensity's floor the thing that decides
         the answer, and the cached likelihood backend refuses it outright.
         """
-        return np.maximum(0.0, self._raw(t))
+        # Wrapped rather than returned straight from the ufunc: numpy 2's stubs
+        # type `np.maximum` as `Any`, and a function promising an ndarray must
+        # not quietly return one. numpy 1's stubs do not, which is exactly why
+        # this reached CI -- the two see different errors, so a clean local mypy
+        # is not evidence.
+        return np.asarray(np.maximum(0.0, self._raw(t)), dtype=float)
 
     def _certified_supremum(self) -> float:
         r"""Return a value the schedule never exceeds.
