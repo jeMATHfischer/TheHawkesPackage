@@ -9,7 +9,7 @@ loop makes *no* ``O(n)`` reductions, which is the same claim without a clock.
 What each table is for:
 
 ``simulate``
-    The temporal loop. Since 0.9.0 `ExponentialHawkes` carries its intensity
+    The temporal loop. Since 1.0.0 `ExponentialHawkes` carries its intensity
     forward, so its cost per event is flat in ``n`` while the other two classes
     stay quadratic -- running all three is what makes that visible.
 ``log-likelihood``

@@ -1,6 +1,6 @@
 """The multivariate loop, and the exactness that makes it an additive change.
 
-The claim 0.6.0 rests on is that nothing existing moves. The evidence is here:
+The claim 1.0.0 rests on is that nothing existing moves. The evidence is here:
 a one-type :class:`~hawkes_package.multivariate.MultivariateHawkes` reproduces
 the univariate class it corresponds to **event for event, bit for bit**, on the
 same seed. That is possible because the type costs no extra variate -- the
@@ -213,7 +213,7 @@ def test_n_types_must_be_a_positive_whole_number(exp_kernel):
 def test_one_type_reproduces_the_exponential_class_exactly(seed):
     """``MultivariateExponentialHawkes([mu], [[alpha]], beta)`` is `ExponentialHawkes`.
 
-    The assertion 0.6.0's "no previously produced number moves" rests on, made
+    The assertion 1.0.0's "no previously produced number moves" rests on, made
     against the class most users actually run.
     """
     mu, alpha, beta = 1.0, 0.5, 2.0
