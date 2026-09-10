@@ -32,6 +32,7 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 from .._numerics import PeakLocation
+from ..periodic import PeriodicBackground, PeriodicSchedule
 from .parameters import Parameter, ParameterSpec
 
 __all__ = [
@@ -49,6 +50,7 @@ __all__ = [
     "NonlinearityFamily",
     "OmoriUtsuKernel",
     "ParetoSpatial",
+    "PeriodicBase",
     "SoftPlusNonlinearity",
     "SpatialKernelFamily",
     "UnitExponentialKernel",
@@ -1104,3 +1106,121 @@ class MultivariateBase:
         """Return the background vector at one parameter vector, shape ``(d,)``."""
         values, _ = _batch(theta, self.n_types)
         return np.asarray(values[0], dtype=float)
+
+
+@dataclass(frozen=True)
+class PeriodicBase:
+    r"""A background whose rate repeats: :math:`\mu(t, x) = m(x)\,s(t)`.
+
+    Wraps another :class:`BaseFamily` -- the *shape* -- and adds a truncated
+    Fourier schedule on a declared period. Its coordinates are the shape's,
+    followed by ``(a_1, b_1, ..., a_K, b_K)`` on the whole real line.
+
+    **Separable on purpose.** The compensator then factorises into the spatial
+    integral the package already computes and the schedule's own closed form,
+    instead of a two-dimensional quadrature. A background whose spatial *shape*
+    changes with the hour is a joint model and is out of scope.
+
+    **Zero coefficients are the constant background**, exactly: the schedule is
+    then 1 at every time and its integral is the interval length, so a fit with
+    the amplitudes pinned at zero is the fit that predates this class. That is
+    what makes "is there a cycle at all" a question about a parameter rather
+    than a comparison of two models.
+
+    The confounding this exists to resolve is worth naming: a daily cycle and
+    self-excitation both produce clustering, and a fit that finds plausible
+    amounts of each may have split them anywhere along a ridge. The evidence
+    that they are separable at all is a recovery test with each effect switched
+    off in turn, not the model's own report.
+
+    Parameters
+    ----------
+    shape : BaseFamily
+        The spatial background, per unit measure.
+    n_harmonics : int
+        How many ``(cos, sin)`` pairs. One is a single daily cycle; more buy
+        shape at the cost of a rougher integrand, and the compensator's
+        resolution check is what says when that has gone too far.
+    period : float
+        The cycle length, **declared and not fitted**. A fitted period is
+        multimodal -- every integer fraction of the truth is a local maximum --
+        and applied users have a period they know.
+
+    .. versionadded:: 0.10.0
+    """
+
+    shape: BaseFamily
+    n_harmonics: int
+    period: float
+
+    def __post_init__(self) -> None:
+        """Refuse a period or harmonic count the schedule cannot be built from."""
+        if int(self.n_harmonics) != self.n_harmonics or self.n_harmonics < 0:
+            raise ValueError(
+                f"n_harmonics must be a non-negative whole number, got {self.n_harmonics!r}"
+            )
+        if not float(self.period) > 0:
+            raise ValueError(f"period must be positive, got {self.period!r}")
+        object.__setattr__(self, "n_harmonics", int(self.n_harmonics))
+        object.__setattr__(self, "period", float(self.period))
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """The shape's coordinates, then ``a_k`` and ``b_k`` on the whole line."""
+        if self.n_harmonics == 0:
+            # Returned before the harmonics are built rather than after: an
+            # empty `ParameterSpec` is refused at construction, so building one
+            # to discard it raises. Zero harmonics is a supported configuration
+            # -- it is the constant background, reached through this class.
+            return self.shape.spec
+        return self.shape.spec.concat(
+            ParameterSpec(
+                tuple(
+                    Parameter(name, lower=-math.inf, upper=math.inf)
+                    for k in range(1, self.n_harmonics + 1)
+                    for name in (f"cos_{k}", f"sin_{k}")
+                )
+            )
+        )
+
+    def _split(self, theta: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Split a parameter vector into the shape's part and the two coefficient sets."""
+        values = np.asarray(theta, dtype=float).reshape(-1)
+        cut = len(self.shape.spec)
+        return values[:cut], values[cut::2], values[cut + 1 :: 2]
+
+    def schedule(self, theta: Any) -> PeriodicSchedule:
+        """Return the :class:`~hawkes_package.periodic.PeriodicSchedule` at `theta`."""
+        _, cosine, sine = self._split(theta)
+        return PeriodicSchedule(cosine, sine, period=self.period)
+
+    def build(self, theta: Any) -> Callable[..., Any]:
+        """Return the background as the simulator's time-varying callable."""
+        head, _, _ = self._split(theta)
+        return PeriodicBackground(self.shape.build(head), self.schedule(theta))
+
+    def at(self, theta: Any, points: Any) -> np.ndarray:
+        """Evaluate the **spatial shape** at `points`, without the schedule.
+
+        Deliberately the shape alone, which is what lets the cached likelihood
+        backend keep computing one spatial integral and multiply it by the
+        schedule's own integral. :meth:`time_factor` is the other half.
+        """
+        head, _, _ = self._split(theta)
+        return np.asarray(self.shape.at(head, points), dtype=float)
+
+    def time_factor(self, theta: Any, times: Any) -> np.ndarray:
+        """Evaluate the schedule at `times`."""
+        return np.asarray(self.schedule(theta)(np.asarray(times, dtype=float)), dtype=float)
+
+    def time_integral(self, theta: Any, start: float, end: float) -> float:
+        """Integrate the schedule over ``[start, end]``, in closed form.
+
+        Exact where the schedule stays non-negative, which
+        :meth:`~hawkes_package.periodic.PeriodicSchedule.is_non_negative`
+        certifies. Below zero the schedule is floored and this over-states the
+        integral, so a compensator computed from it would be too *large* -- the
+        safe direction, and the opposite of the failure this package guards
+        against, but still worth knowing about rather than discovering.
+        """
+        return self.schedule(theta).integral(float(start), float(end))
