@@ -348,6 +348,46 @@ class HawkesProcess(ABC):
         self._propagate_until(horizon, origin)
 
 
+class _IntensityCursor:
+    """How the thinning loop reads the intensity as it walks forward.
+
+    One per :meth:`TemporalHawkesProcess._propagate` call. This default asks the
+    two hooks at the cursor's current time, which is exactly what the loop did
+    inline before 0.9.0 -- so every class that does not override
+    :meth:`TemporalHawkesProcess._cursor` is bit-identical to 0.8.0, down to the
+    order the hooks are called in.
+
+    It exists so that a class whose kernel admits a recursion can carry state
+    between steps *without* a second copy of the loop. Two copies of a thinning
+    loop that must consume the same random stream in the same order is the kind
+    of duplication that drifts, and there are already three of them in this
+    module for the three record layouts.
+
+    .. versionadded:: 0.9.0
+    """
+
+    __slots__ = ("process", "time")
+
+    def __init__(self, process: TemporalHawkesProcess, start: float) -> None:
+        self.process = process
+        self.time = float(start)
+
+    def move_to(self, t: float) -> None:
+        """Walk to `t`, which the loop guarantees is strictly later."""
+        self.time = t
+
+    def bound(self) -> float:
+        """Return ``M`` at the current time, refusing a non-positive one."""
+        return self.process._bound_at(self.time)
+
+    def intensity(self) -> float:
+        """Return ``lambda(t | H_t)`` at the current time."""
+        return self.process._conditional_intensity(self.time)
+
+    def accept(self) -> None:
+        """Absorb the event the loop has just recorded at the current time."""
+
+
 class TemporalHawkesProcess(HawkesProcess):
     """A Hawkes process on the time line, simulated by Ogata's thinning.
 
@@ -367,9 +407,12 @@ class TemporalHawkesProcess(HawkesProcess):
         silently degenerates towards a Poisson process.
         """
 
-    def _bound_at(self, t: float) -> float:
-        """Return the thinning bound at `t`, refusing a non-positive one."""
-        bound = self._upper_bound(t)
+    def _require_positive_bound(self, bound: float, t: float) -> float:
+        """Return `bound`, refusing a non-positive one.
+
+        Shared by every cursor rather than living inside :meth:`_bound_at`, so
+        that a cursor computing the bound its own way still fails the same way.
+        """
         if not bound > 0:
             raise RuntimeError(
                 f"Non-positive thinning bound M={bound!r} at t={t!r}; the "
@@ -377,50 +420,83 @@ class TemporalHawkesProcess(HawkesProcess):
             )
         return bound
 
+    def _bound_at(self, t: float) -> float:
+        """Return the thinning bound at `t`, refusing a non-positive one."""
+        return self._require_positive_bound(self._upper_bound(t), t)
+
+    def _cursor(self, start: float) -> _IntensityCursor:
+        """Return the object the thinning loop reads the intensity through.
+
+        The default asks the two hooks at the cursor's current time, which is
+        what the loop did inline before 0.9.0 -- so overriding *nothing* leaves
+        a class bit-identical. :class:`~hawkes_package.exponential.ExponentialHawkes`
+        overrides it with a cursor that carries the sum forward instead of
+        rebuilding it, which is exact only because its kernel is memoryless.
+        """
+        return _IntensityCursor(self, start)
+
     def _propagate(self, k: int) -> None:
         # The bootstrap time is a local, not an element of `events`.
-        t = self._events.last_time
+        cursor = self._cursor(self._events.last_time)
         accepted = 0
 
         while accepted < k:
-            bound = self._bound_at(t)
+            t = cursor.time
+            bound = cursor.bound()
             advanced = t + self.rng.exponential() / bound
             if not advanced > t:
                 raise RuntimeError(
                     _stalled_message(t, bound, f"after {accepted} of {k} requested events")
                 )
-            t = advanced
+            cursor.move_to(advanced)
 
-            if self.rng.uniform() * bound <= self._conditional_intensity(t):
-                self._events.append(t)
+            if self.rng.uniform() * bound <= cursor.intensity():
+                self._events.append(advanced)
+                cursor.accept()
                 accepted += 1
                 # Counted per event, so `n_simulated == len(events)` still holds
                 # if the loop raises partway through.
                 self.n_simulated += 1
 
+        self._save_cursor(cursor)
+
     def _propagate_until(self, t_end: float, start: float) -> None:
-        t = start
+        cursor = self._cursor(start)
         accepted = 0
 
         while True:
-            bound = self._bound_at(t)
+            t = cursor.time
+            bound = cursor.bound()
             advanced = t + self.rng.exponential() / bound
             if not advanced > t:
                 raise RuntimeError(
                     _stalled_message(t, bound, f"after {accepted} events past t={start!r}")
                 )
-            t = advanced
 
             # Tested before the acceptance test rather than after it, so the
             # candidate that ends the run costs one intensity evaluation fewer
             # rather than one more.
-            if t > t_end:
+            if advanced > t_end:
+                self._save_cursor(cursor)
                 return
 
-            if self.rng.uniform() * bound <= self._conditional_intensity(t):
-                self._events.append(t)
+            cursor.move_to(advanced)
+            if self.rng.uniform() * bound <= cursor.intensity():
+                self._events.append(advanced)
+                cursor.accept()
                 accepted += 1
                 self.n_simulated += 1
+
+    def _save_cursor(self, cursor: _IntensityCursor) -> None:
+        """Keep `cursor` for the next call, if the class has state worth keeping.
+
+        A no-op by default. It exists for
+        :meth:`~hawkes_package.exponential.ExponentialHawkes._cursor`, whose
+        carried sum must survive between calls: rebuilding it from the record
+        gives a different value in the last bits than the one the uninterrupted
+        loop held, and ``simulate(1); simulate(1)`` is asserted to be
+        ``simulate(2)`` bit for bit.
+        """
 
     def intensity_over_interval(self, x: Any) -> tuple[np.ndarray, np.ndarray]:
         """Evaluate the conditional intensity on `x` merged with the event times.
