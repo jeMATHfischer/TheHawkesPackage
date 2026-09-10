@@ -60,30 +60,65 @@ Three things, and each has something in here that watches for it.
 * **The observation window guessed.** ``History.end`` has no default, because
   defaulting it silently changes the model.
 
+What is here
+------------
+
+Each axis of the model has its own factory and its own likelihood, and each was
+added because leaving it out biases something specific.
+
+* **Multivariate**, since 0.6.0 --
+  :func:`~hawkes_package.inference.models.multivariate_model` and
+  :class:`~hawkes_package.inference.likelihood.MultivariateLogLikelihood`, with
+  an ``O(n d)`` closed form for the shared exponential kernel. One kernel shape
+  and a non-negative matrix of scales: cross-excitations share a decay rate, and
+  inhibition is excluded by the thinning bound rather than by preference.
+* **Marks**, since 0.8.0 -- :func:`~hawkes_package.inference.models.marked_model`
+  and :class:`~hawkes_package.inference.likelihood.MarkedLogLikelihood`. The mark
+  density is part of the log-likelihood by default, and has to be: without it
+  ``b_value`` does not move the likelihood at all.
+* **A background that varies over the domain**, since 0.8.0 --
+  :class:`~hawkes_package.inference.families.LogLinearBase`. A constant
+  background attributes spatial clustering to self-excitation.
+* **A background that varies in time**, since 0.10.0 --
+  :class:`~hawkes_package.inference.families.PeriodicBase`, for the
+  spatio-temporal path. A model without a daily cycle attributes the cycle to
+  self-excitation.
+* **Maximum likelihood**, since 0.10.0 --
+  :func:`~hawkes_package.inference.mle.fit_mle` and
+  :class:`~hawkes_package.inference.mle.HawkesMLE`. It exists to be compared
+  against on the terms a reviewer will use, not to be recommended: the
+  sequential path is the one this package argues for.
+* **Recipes**, since 0.10.0 -- :func:`~hawkes_package.inference.recipe.to_recipe`
+  writes the configuration, the seed and a reference to the data, which is what
+  rerunning a fit needs.
+
 What is not here
 ----------------
 
 Partially observed or thinned data, which creates a genuine latent state and
-needs a different algorithm rather than a different setting of this one;
-continuous marks; and *spatio-temporal* multivariate processes -- space and
-event type do not combine, because thinning a vector intensity against a
-space-integrated bound is a second bound argument rather than a wider version
-of the first. And :mod:`hawkes_package.mcmc` is untouched -- it remains the
-spatial location sampler on the Ogata correctness path, and inference has its
-own chain in :mod:`hawkes_package.inference.mcmc`.
+needs a different algorithm rather than a different setting of this one. Every
+*cross-product* of the axes above -- marks with types, marks with space, and
+spatio-temporal multivariate processes -- since each needs its own thinning
+bound rather than a wider version of an existing one; thinning a vector
+intensity against a space-integrated bound is a second argument, not a longer
+one. A periodic background for the three purely temporal classes, which fold
+their background into the nonlinearity and so would need a second place for it
+to live. And an EM fit through the branching structure.
 
-Multivariate and mutually-exciting processes **are** here as of 0.6.0, through
-:func:`~hawkes_package.inference.models.multivariate_model` and
-:class:`~hawkes_package.inference.likelihood.MultivariateLogLikelihood`, with an
-``O(n d)`` closed form for the shared exponential kernel. One kernel shape and a
-non-negative matrix of scales: cross-excitations share a decay rate, and
-inhibition is excluded by the thinning bound rather than by preference. Purely
-temporal -- see above.
+:mod:`hawkes_package.mcmc` is untouched by all of this -- it remains the spatial
+location sampler on the Ogata correctness path, and inference has its own chain
+in :mod:`hawkes_package.inference.mcmc`.
 
 .. versionadded:: 0.5.0
 
 .. versionchanged:: 0.6.0
    Multivariate models are no longer out of scope.
+
+.. versionchanged:: 0.8.0
+   Marks and a spatially varying background are no longer out of scope.
+
+.. versionchanged:: 0.10.0
+   A periodic background, maximum likelihood and recipes were added.
 """
 
 from .diagnostics import KSResult, ks_exponential, posterior_report, residuals
