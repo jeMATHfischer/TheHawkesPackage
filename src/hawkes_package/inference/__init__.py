@@ -117,12 +117,6 @@ from .likelihood import (
     TemporalLogLikelihood,
 )
 from .mcmc import ChainResult, batch_posterior, metropolis_chain
-from .mle import (
-    MaximumLikelihoodFit,
-    fit_mle,
-    profile_interval,
-    warm_start_prior,
-)
 from .models import (
     MarkedComponents,
     MultivariateComponents,
@@ -181,7 +175,6 @@ __all__ = [
     "Marginal",
     "MarkedComponents",
     "MarkedLogLikelihood",
-    "MaximumLikelihoodFit",
     "MultivariateBase",
     "MultivariateComponents",
     "MultivariateExponentialLogLikelihood",
@@ -209,7 +202,6 @@ __all__ = [
     "block_boundaries",
     "effective_sample_size",
     "exponential_model",
-    "fit_mle",
     "fit_smc",
     "ks_exponential",
     "marked_model",
@@ -221,10 +213,8 @@ __all__ = [
     "posterior_report",
     "predictive_counts",
     "predictive_interval",
-    "profile_interval",
     "residuals",
     "spatio_temporal_model",
     "stationarity",
     "systematic",
-    "warm_start_prior",
 ]
