@@ -553,6 +553,33 @@ def _check_extension(state: LikelihoodState, history: History, upto: float) -> f
 # ---------------------------------------------------------------------------
 
 
+def _quadrature_order(model: ProcessModel, order: int | None) -> int:
+    """Return the compensator order to use: the caller's, else the kernel's own.
+
+    A kernel family may carry ``quadrature_order`` to say that its shape needs
+    more nodes per panel than the package default -- which
+    :class:`~hawkes_package.inference.families.OmoriUtsuKernel` does, because a
+    power law's compensator comes out **too small** at the default and a
+    compensator too small biases the excitation upward with nothing raising.
+    Families that do not carry the attribute get
+    :data:`~hawkes_package.inference._compensator.DEFAULT_ORDER`, so nothing that
+    predates 0.9.0 changes.
+
+    .. versionadded:: 0.9.0
+    """
+    if order is not None:
+        return int(order)
+    # `kernel` on a temporal, multivariate or marked model; `temporal` on a
+    # spatio-temporal one. Reading only the first would leave the spatio-temporal
+    # path on the default while the temporal path was corrected, which is the
+    # kind of half-applied fix that is worse than none.
+    components = model.components
+    family = getattr(components, "kernel", None)
+    if family is None:
+        family = getattr(components, "temporal", None)
+    return int(getattr(family, "quadrature_order", _compensator.DEFAULT_ORDER))
+
+
 class TemporalLogLikelihood:
     r"""The log-likelihood of any temporal model, through its intensity hook.
 
@@ -593,7 +620,7 @@ class TemporalLogLikelihood:
         self,
         model: ProcessModel,
         *,
-        order: int = _compensator.DEFAULT_ORDER,
+        order: int | None = None,
         extra_lags: Sequence[float] = (),
         check: bool = True,
     ) -> None:
@@ -629,7 +656,7 @@ class TemporalLogLikelihood:
                 "MarkedLogLikelihood."
             )
         self.model = model
-        self.order = int(order)
+        self.order = _quadrature_order(model, order)
         self.extra_lags = tuple(float(lag) for lag in extra_lags)
         self.check = bool(check)
         self._checked = False
@@ -785,8 +812,11 @@ class MarkedLogLikelihood:
     model : ProcessModel
         A model whose components are
         :class:`~hawkes_package.inference.models.MarkedComponents`.
-    order : int
-        Gauss-Legendre order per panel in the compensator.
+    order : int, optional
+        Gauss-Legendre nodes per panel in the compensator. Defaults to what the
+        model's kernel family asks for, which is the package default for every
+        shape except a power law -- see
+        :class:`~hawkes_package.inference.families.OmoriUtsuKernel`.
     extra_lags : sequence of float
         Extra breakpoints per event, for a kernel with a kink away from zero.
     check : bool
@@ -803,7 +833,7 @@ class MarkedLogLikelihood:
         self,
         model: ProcessModel,
         *,
-        order: int = _compensator.DEFAULT_ORDER,
+        order: int | None = None,
         extra_lags: Sequence[float] = (),
         check: bool = True,
         include_mark_density: bool = True,
@@ -815,7 +845,7 @@ class MarkedLogLikelihood:
             )
         self.model = model
         self.m0 = float(model.components.m0)
-        self.order = int(order)
+        self.order = _quadrature_order(model, order)
         self.extra_lags = tuple(float(lag) for lag in extra_lags)
         self.check = bool(check)
         self.include_mark_density = bool(include_mark_density)
@@ -1003,8 +1033,11 @@ class MultivariateLogLikelihood:
     model : ProcessModel
         A model whose components are
         :class:`~hawkes_package.inference.models.MultivariateComponents`.
-    order : int
-        Gauss-Legendre order per panel in the compensator.
+    order : int, optional
+        Gauss-Legendre nodes per panel in the compensator. Defaults to what the
+        model's kernel family asks for, which is the package default for every
+        shape except a power law -- see
+        :class:`~hawkes_package.inference.families.OmoriUtsuKernel`.
     extra_lags : sequence of float
         Extra breakpoints per event, for a kernel with a kink away from zero.
     check : bool
@@ -1017,7 +1050,7 @@ class MultivariateLogLikelihood:
         self,
         model: ProcessModel,
         *,
-        order: int = _compensator.DEFAULT_ORDER,
+        order: int | None = None,
         extra_lags: Sequence[float] = (),
         check: bool = True,
     ) -> None:
@@ -1029,7 +1062,7 @@ class MultivariateLogLikelihood:
             )
         self.model = model
         self.n_types = model.components.n_types
-        self.order = int(order)
+        self.order = _quadrature_order(model, order)
         self.extra_lags = tuple(float(lag) for lag in extra_lags)
         self.check = bool(check)
         self._checked = False
@@ -1574,7 +1607,7 @@ class SpatioTemporalLogLikelihood:
         self,
         model: ProcessModel,
         *,
-        order: int = _compensator.DEFAULT_ORDER,
+        order: int | None = None,
         backend: str = "auto",
         homogeneous: bool | str = "auto",
         geometry: GeometryCache | None = None,
@@ -1594,7 +1627,7 @@ class SpatioTemporalLogLikelihood:
 
         self.model = model
         self.components: SpatialComponents = model.components
-        self.order = int(order)
+        self.order = _quadrature_order(model, order)
         self.backend = backend
         self.homogeneous = homogeneous
         self.rtol = float(rtol)

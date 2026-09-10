@@ -360,6 +360,35 @@ class OmoriUtsuKernel:
 
     monotone: bool = True
 
+    #: Gauss-Legendre nodes per panel the compensator needs for this shape, read
+    #: by the likelihoods when the caller does not name one. **Measured, not
+    #: chosen.** The compensator of a power law is systematically *too small* at
+    #: the package default of 8 -- and a compensator too small is a penalty on a
+    #: high intensity that never gets applied, so the excitation comes back too
+    #: large and the fit looks converged. Against the closed-form integral, worst
+    #: relative error over a 300-event history at branching ratio 0.68:
+    #:
+    #: ===========  ========  ========  ========  ========
+    #: ``c``        ``P=8``   ``P=12``  ``P=16``  ``P=20``
+    #: ===========  ========  ========  ========  ========
+    #: 0.5          1.5e-04   2.4e-06   3.4e-08   4.5e-10
+    #: 0.2          2.6e-03   1.7e-04   1.0e-05   5.6e-07
+    #: 0.05         3.0e-02   7.6e-03   1.7e-03   3.5e-04
+    #: ===========  ========  ========  ========  ========
+    #:
+    #: (worst over the compensator evaluated *at intermediate times*, which is
+    #: what time-rescaling residuals read; the whole-window integral is milder,
+    #: because the exactly-integrated background dilutes it)
+    #:
+    #: 16 is where the middle row stops mattering, at twice the integrand
+    #: evaluations. An exponential kernel is exact to 7e-13 at 8, which is why
+    #: this is a per-family number rather than a new default for everyone.
+    #:
+    #: It does not rescue the bottom row: a core four times narrower than the
+    #: median inter-event gap is a *panel* problem, not an order problem, and
+    #: there the order-``P``-versus-``2P`` check fires and says so.
+    quadrature_order: int = 16
+
     @property
     def spec(self) -> ParameterSpec:
         """``(alpha, c, p)``: amplitude and offset positive, exponent above 1."""
