@@ -56,6 +56,11 @@ otherwise — an unstable process would not terminate.
 | `ExponentialMarkedHawkes` | The same with an exponential kernel and Gutenberg–Richter marks — the ETAS shape. |
 | `SpatioTemporalHawkesProcess` | Events carry a location on a surface: `Circle`, `Sphere`, `Torus2D` or any `FundamentalDomain`. |
 
+Kernel *shapes* are separate from process classes: any of them takes a plain callable, and
+`hawkes_package.inference` ships parameterised families for fitting — exponential and gamma in
+time, `OmoriUtsuKernel` for the power-law decay real catalogues show, `GaussianSpatial`,
+`ParetoSpatial` and `CompactSpatial` in space.
+
 A multivariate process takes a background rate per type and a non-negative `(d, d)` excitation
 matrix, `A[i, j]` scaling the excitation type *j* exerts on type *i*, against **one shared kernel
 shape**. Its record is `(2, n)` — times in row 0, the type in row 1 — and `process.types` reads

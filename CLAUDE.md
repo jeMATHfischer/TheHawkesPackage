@@ -89,6 +89,7 @@ pre-commit install
 ```
 
 ```bash
+python benchmarks/run.py     # recorded timings, not a CI check
 pytest                       # everything
 pytest -m "not slow"         # the fast suite, ~25 s — what the CI matrix runs
 pytest --cov                 # adds the 90% coverage gate
@@ -117,6 +118,16 @@ Pre-commit is not run by any workflow — CI re-runs only `ruff` and `mypy`. So
 guarantees; run `pre-commit run --all-files` before pushing.
 
 ## Architecture
+
+**The loop reads through a cursor, since 0.9.0.**
+`TemporalHawkesProcess._propagate` asks a small cursor object for the bound and
+the intensity instead of calling the hooks inline. The default cursor calls the
+same two hooks at the same times, so a class that overrides nothing is
+byte-identical; `ExponentialHawkes` overrides it to carry
+`S(t) = Σ e^{-β(t−t_i)}` forward, which is exact for a memoryless kernel and for
+no other shape here. **If you instrument a process by patching the hooks, a
+class with its own cursor will record nothing** — the harness learned that by
+failing `assert len(pairs) > 0`, not by passing.
 
 **The two-hook contract.** Every process supplies an intensity hook —
 `_conditional_intensity` (temporal) or `_integrated_intensity` (spatio-temporal) —
@@ -220,11 +231,23 @@ This is the section that matters. None of the following raises when violated.
   old/new pair to the removal tables in `tests/test_deprecations.py`, which
   `docs/migration.md` is written from so the documentation cannot drift from
   behaviour.
-- Simulation is O(n²) in the intensity sum: eight events on a 2-D domain already
-  takes ~12 s, and 60 events on a `Circle` takes ~65 s. Budget test sizes
+- Simulation is O(n²) in the intensity sum **except for `ExponentialHawkes`**,
+  which carries the sum forward since 0.9.0 and is linear: 7.8 µs per event at
+  8 000 events against `MonotoneKernelHawkes`'s 81 µs at 2 000 and rising. The
+  spatio-temporal path is untouched by that — eight events on a 2-D domain
+  already takes ~12 s, and 60 events on a `Circle` takes ~65 s. Budget test sizes
   accordingly, and reach for `@pytest.mark.slow` for anything over a second. Note
   which side is slow: a spatio-temporal *fit* of 60 events is 3 s against 65 s to
   generate them.
+- **Exact neighbour skipping does not pay here, and that was measured rather
+  than assumed.** `CompactSpatial` is exactly zero past its radius, so skipping a
+  distant pair would be exact — but you have to compute the distance to know
+  whether to skip, and the distance *is* the cost: 1 420 µs for 200 pairs on a
+  `Circle` against 11 µs to evaluate the kernel on them, so the kernel is 0.8% of
+  the pair cost. Avoiding the distance needs a spatial index, and `distance` on a
+  hyperbolic quotient (164 µs a call) is a deck-group search that no index
+  replaces. The likelihood cannot sparsify either: `GeometryCache` is
+  theta-independent by design and the cutoff is a fitted parameter.
 - **The validation harness must not reuse the estimator's compensator.** Since
   0.7.0 `inference/validation/` exists for exactly one reason: `residuals` takes
   its integral from the likelihood it is handed, and a fit made with a
@@ -409,7 +432,13 @@ shift, and 0.9.0 is the only stage that moves previously produced numbers, so it
 is the only one owing `docs/migration.md` a section. The diagnostics package
 depends on nothing and can be pulled forward at any time.
 
-Stage 1 has graduated to a design document, `docs/plans/multivariate.md`.
+**Stages 1 to 4 have shipped**, each from its own design document:
+`multivariate.md`, `bounded-domains.md`, `diagnostics.md`, `marks.md`,
+`varying-background.md` and `performance-and-kernels.md`. Stage 5 — the periodic
+background, the MLE baseline and reproducibility — is the remainder, and
+`09-mle-baseline` carries the one blocking question left in the programme:
+whether to widen the SciPy rule past its single call site, or declare MLE out of
+scope.
 
 Their build order is `1 → 3 → 7 → 2 → 5 → 9` as the note authored it, with the
 four items it left unsequenced placed after by its own tiers — so the files are
@@ -423,6 +452,15 @@ blocked by a signature rather than by mathematics, 09's cost is widening SciPy
 past its one call site rather than any code, and 06 is half done in the place
 nobody looks — the `O(n)` exponential recursion already exists in
 `ExponentialLogLikelihood`, and it is the *simulators* that rebuild the full sum.
+
+That last reading proved right and incomplete. The recursion did port straight
+across in 0.9.0, and `ExponentialHawkes` is now linear. What the sizing missed is
+that **06's other three pieces do not pay here**: exact neighbour skipping cannot
+avoid the distance computation that dominates a pair (0.8% of it is the kernel),
+a spatial index cannot help a domain whose `distance` is a deck-group search, and
+the `GeometryCache` cannot be sparsified because it is theta-independent while a
+cutoff is fitted. SMC vectorisation is the piece that remains, and it is the
+largest of the four.
 
 The three code-level items:
 

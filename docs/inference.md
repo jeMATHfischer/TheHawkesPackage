@@ -425,15 +425,17 @@ is not, and silent in both cases.
 
 | Path | Full `ℓ(θ)` | Incremental |
 |---|---|---|
-| temporal, exponential | `O(n)` — 0.55 ms at n = 800 | `O(new events)` |
-| temporal, general kernel | `O(n²P)` — hundreds of ms at n = 2000 | `O(nP)` |
+| temporal, exponential | `O(n)` — 1.1 ms at n = 2000 | `O(new events)` |
+| temporal, general kernel | `O(n²P)` — 543 ms at n = 2000 | `O(nP)` |
 | spatio-temporal, hooks | `O(n²mP)` — minutes at n = 200 | — |
 | spatio-temporal, cached | vectorized — 2.8 ms at n = 200 | — |
 
-Rejuvenation dominates a fit, at `n_particles × n_move` full evaluations per
-resample. For the exponential family that is well under a second; for a general
-temporal kernel it is minutes, so size such a fit at a few hundred events or use
-{class}`~hawkes_package.inference.likelihood.ExponentialLogLikelihood`.
+**494× between the first two rows at 2 000 events**, and the ratio grows with
+`n`. Rejuvenation dominates a fit, at `n_particles × n_move` full evaluations per
+resample: a 128-particle fit of 500 events takes 0.22 s with the closed form and
+minutes with the hook path. So size a general-kernel fit at a few hundred events,
+or use {class}`~hawkes_package.inference.likelihood.ExponentialLogLikelihood`.
+`benchmarks/run.py` reproduces the whole table.
 
 ## What is not here
 

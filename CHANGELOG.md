@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Power-law and compact-support kernels.** `OmoriUtsuKernel` is
+  `alpha (s + c)**-p`, the applied standard for aftershock decay; `ParetoSpatial` is
+  `(r**2 + d**2)**-q` in space; both are normalised or parameterised so the existing
+  branching bound keeps working unchanged. The package had only light tails before, and the
+  difference is not decorative: matched at the peak and at the branching ratio, the power law
+  at lag 20 is more than a **million times** the exponential's value, which is where a real
+  catalogue's late aftershocks live.
+
+  Both bound their exponent where the integral *converges* — `p > 1` in time, `q > ndim/2`
+  in space — and return `inf` from `mass` below it rather than a plausible finite number.
+  `ProcessModel.support` evaluates the branching callable on every row of a batch before the
+  bounds filter it, so a finite answer there would admit a parameter with infinitely many
+  offspring per event, and the failure would surface as an explosion during simulation rather
+  than as a rejected proposal.
+
+  `CompactSpatial` is `1 - (r/R)**2` inside `R` and **exactly** zero past it. A Gaussian at
+  ten sigma is 1e-22 and a power law at ten scales is 1e-3 — both small, neither zero — so
+  dropping such a pair changes the answer by an amount somebody has to bound. Here there is
+  nothing to bound.
+- **A recorded benchmark harness**, `benchmarks/run.py` and `benchmarks/RESULTS.md`. Not a CI
+  check: a wall-clock threshold on a shared runner measures the runner. The first recording
+  says that one log-likelihood at 2 000 events is 1.1 ms closed-form against 543 ms through
+  the intensity hook — **494×**, widening with `n` — which is how to size a general-kernel fit
+  before starting one.
+
 - **A background that varies over the domain.** `LogLinearBase` is
   `mu(x) = exp(b0 + sum_k b_k z_k(x))`, per unit measure, as `ConstantBase` already means
   it. A constant background says events are equally likely everywhere, which is false for
@@ -171,6 +196,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`ExponentialHawkes` is linear in the number of events, and its seeded realisations move
+  in the last bits.** The loop re-summed every past event twice per thinning step, 2.36 `O(n)`
+  reductions per accepted event, so a simulation was quadratic in its own output. It now
+  carries `S(t) = Σ e^{-β(t - t_i)}` and advances it with one multiply: 1.258 s → 0.048 s at
+  8 000 events, and 157 µs → 6.0 µs per event, flat out to 16 000 rather than growing.
+
+  A product of decays rounds differently from one exponential of the total lag, so the
+  realisation is **not bit-identical** to 0.8.0's. The size of that is the point, and is
+  measured over seeds 0–20 at 2 000 events under both stopping rules: **0 of 42 realisations
+  changed length**, 1 983 of 2 000 event times in seed 0 are bit-identical, and the worst
+  relative move in any event time is **3.7e-16** — under two units in the last place. Same
+  seed, same number of events at the same horizon, same clustering, different floats.
+  `docs/migration.md` carries the caveat that cannot be measured away: an acceptance test
+  could in principle flip, and one that did would differ from that point on.
+
+  Nothing else moves. `MonotoneKernelHawkes`, `BellShapeHawkes`, `MarkedHawkes`, every
+  multivariate class and the whole spatio-temporal path are **byte-identical** to 0.8.0,
+  asserted by fingerprint rather than by argument.
+- The temporal thinning loop reads its intensity through a cursor rather than calling
+  `_upper_bound` and `_conditional_intensity` inline. A subclass implementing only the two
+  hooks is unaffected — the default cursor calls them at the same times in the same order,
+  which is asserted byte-for-byte. A harness that *instruments* those hooks is affected, and
+  the package's own said so: every `ExponentialHawkes` case in
+  `tests/statistical/test_thinning_invariant.py` failed on `assert len(pairs) > 0` rather
+  than passing vacuously.
+
 - `SpatioTemporalHawkesProcess` now checks that its quadrature rule **resolves the
   background**, not only the spatial kernel, and warns when doubling the node count moves
   the background integral by more than 1%. Nothing in the package could produce a varying
@@ -192,9 +243,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- Make the intensity incremental for the exponential kernel, which is the classic `O(n)` Hawkes
-  simulation. This is now the whole of the quadratic term: 0.4.0's buffer made the event record
-  grow linearly, and measuring showed the record was never where the time went.
+- Make the intensity incremental for the two temporal classes that still rebuild it.
+  `ExponentialHawkes` has it as of 0.9.0; `MonotoneKernelHawkes` and `BellShapeHawkes` take an
+  arbitrary kernel and have no recursion to carry, so this needs a *kernel-aware* path rather
+  than a loop change — an exponential mixture is the case that would work.
 - Hyperbolic surfaces past twelve sides — genus 4, seven crosscaps — are refused at
   construction, and reaching them needs a different search rather than a bigger budget. A
   certified distance enumerates a deck-group window whose size grows like `exp(R)`, and the
@@ -209,25 +261,15 @@ Beyond those three, the point-process capabilities the package does not have yet
 the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **Performance beyond the incremental intensity above**: neighbour truncation with a spatial
-   index, and vectorisation across SMC particles, where an explicit per-particle loop in
-   rejuvenation is already commented as the dominant cost of a fit. Truncation is an
-   approximation, so the bound and the acceptance test must be computed from the same
-   truncated quantity or the thinning is wrong without raising.
-2. **A wider kernel library** — power-law and compact-support spatial kernels, since the
-   Gaussian tail is too light for most data, and a non-separable option. New families are
-   additive against the existing `KernelFamily` protocols; a non-separable kernel already
-   simulates through `PairwiseKernel` but has no factorisation for the fast likelihood backend
-   to exploit, so fitting one needs a new backend.
-3. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
+1. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
    signature rather than by mathematics: the background is a function of position only, and
    adding time to it also moves the thinning bound, which must then use the supremum over the
    remaining interval rather than the current value.
-4. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
+2. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
    against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
    and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
    SciPy past the single call site it is deliberately held to.
-5. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+3. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
    test that simulates from known parameters, refits and checks the credible intervals. Seeding
    is already done. Coverage is a statistical threshold like any other — a collapsed particle
    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
