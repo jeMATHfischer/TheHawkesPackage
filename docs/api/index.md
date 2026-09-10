@@ -343,16 +343,6 @@ per particle per move.
    SoftPlusNonlinearity
 ```
 
-A kernel that is **not separable** — joint in lag and distance, so that the
-spatial scale grows with elapsed time — simulates but does not fit. `PairwiseKernel`
-already carries it through the simulator, which is what the periodised image sums
-use. The cached likelihood backend has nothing to exploit there: it factorises the
-space integral into a background term plus one per-event spatial mass, and that
-factorisation is the reason it is milliseconds rather than minutes. Such a kernel
-therefore falls back to `backend="hooks"`, which is the definition of the
-likelihood and is unusably slow for a fit — one space integral costs 114 ms on a
-`Circle` at 256 nodes. Fitting one needs a new backend rather than a new family.
-
 Three shapes for the tail, and the choice matters more than it looks.
 `ExponentialKernel` and `GaussianSpatial` decay fast enough that a fit to data
 with distant offspring either widens the scale until the near field is wrong or
