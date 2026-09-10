@@ -81,7 +81,7 @@ def test_every_event_excites_the_same_total_amount():
 
 
 def test_a_closed_surface_is_bit_identical_with_and_without_the_flag():
-    """`auto` must be inert on every domain that predates 0.7.0.
+    """`auto` must be inert on every domain that predates 1.0.0.
 
     Not "close": the same events, because the same code path runs.
     """

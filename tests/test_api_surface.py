@@ -44,7 +44,7 @@ MODULES = [
     "hawkes_package.inference.forecast",
     "hawkes_package.inference.likelihood",
     "hawkes_package.inference.mcmc",
-    # Since 0.10.0, and the one module that reaches for `scipy.optimize`.
+    # Since 1.0.0, and the one module that reaches for `scipy.optimize`.
     # Listed rather than left implicit, because the rule it widens was
     # asserted here: see `test_scipy_is_reached_for_deliberately`.
     "hawkes_package.inference.mle",
@@ -152,7 +152,7 @@ def test_only_one_top_level_package_ships():
 
 
 #: Every module in `src` that imports scipy at module scope, with what it uses.
-#: Until 0.10.0 there was exactly one, and the docstring of `_numerics` says so;
+#: Until 1.0.0 there was exactly one, and the docstring of `_numerics` says so;
 #: the maintainer widened the rule to admit an optimiser for the maximum
 #: likelihood fit. The list is here rather than in a docstring because a rule
 #: nobody checks becomes a rule nobody keeps -- and the *point* of the rule is

@@ -103,7 +103,7 @@ def test_the_spread_warning_blames_geometry_on_a_bounded_domain(plain, history):
     """The advice has to be right, not merely present.
 
     Without the correction the per-event masses genuinely differ by ~40% on this
-    domain, and the pre-0.7.0 wording told the reader to raise `n_quad` — which
+    domain, and the pre-1.0.0 wording told the reader to raise `n_quad` — which
     cannot help, because the spread is not quadrature error.
     """
     with pytest.warns(UserWarning, match="real geometry rather than quadrature error"):

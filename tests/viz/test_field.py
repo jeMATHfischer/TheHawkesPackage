@@ -276,7 +276,7 @@ def test_the_self_check_catches_a_kernel_that_is_not_a_function(frame_times):
         counter["n"] += 1
         return 0.3 + 1e-3 * counter["n"]
 
-    # Since 0.8.0 the constructor also checks that the quadrature resolves the
+    # Since 1.0.0 the constructor also checks that the quadrature resolves the
     # background, and a callable that changes between calls looks exactly like
     # one it cannot resolve -- the coarse and doubled rules disagree by 58%.
     # That warning is the *wrong* diagnosis here (no node count fixes an impure

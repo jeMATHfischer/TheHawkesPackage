@@ -7,7 +7,7 @@ cloud behind it, and those diagnostics exist to be read.
 
 The shared refusals are the interesting half. Both estimators reject a target,
 demand an observation window with a bare array, and refuse to evaluate an
-intensity past the window -- and since 0.10.0 they do that through the same
+intensity past the window -- and since 1.0.0 they do that through the same
 module-level helpers, so the explanations cannot drift apart.
 """
 

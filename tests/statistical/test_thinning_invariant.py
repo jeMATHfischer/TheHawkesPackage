@@ -234,7 +234,7 @@ TEMPORAL = [
     # search returned 0 here, collapsing the peak value to 0 and silently
     # disabling the bell-shaped bound: 46% of steps violated M >= lambda.
     "DelayedBellShapeHawkes",
-    # A power-law kernel, 0.9.0. Monotone, so its bound is the value at the
+    # A power-law kernel, 1.0.0. Monotone, so its bound is the value at the
     # current time -- but the *reason* it needs a case is the tail: every past
     # event still contributes at every later step, where an exponential's
     # contribution has underflowed to nothing. A bound that quietly dropped old
@@ -257,7 +257,7 @@ SPATIO_TEMPORAL = [
     # and that shared node set is the whole reason M >= lambda holds.
     "st-hexagon",
     "st-hexagon-periodic",  # the same, through make_periodic's orbit branch
-    # The two spatial families added in 0.9.0. The power law puts real mass at
+    # The two spatial families added in 1.0.0. The power law puts real mass at
     # every distance the domain reaches, so the space-integrated bound cannot
     # rely on the kernel having decayed by the boundary; the compact one is
     # exactly zero over most of the domain, which is the opposite stress -- a
@@ -265,7 +265,7 @@ SPATIO_TEMPORAL = [
     # background integral and accept everything.
     "st-pareto",
     "st-compact",
-    # A background that varies in *time*, 0.10.0. The one case here whose bound
+    # A background that varies in *time*, 1.0.0. The one case here whose bound
     # is not a statement about the kernel: a candidate is drawn ahead of the
     # moment the bound is computed, so the background contribution has to be the
     # supremum over every later time and not the value at the current one. The

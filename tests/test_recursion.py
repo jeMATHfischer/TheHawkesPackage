@@ -1,7 +1,7 @@
 """The exponential intensity carried forward instead of rebuilt.
 
 `ExponentialHawkes` used to re-sum every past event on both of the loop's
-evaluations, 2.36 O(n) reductions per accepted event. Since 0.9.0 it carries
+evaluations, 2.36 O(n) reductions per accepted event. Since 1.0.0 it carries
 ``S(t) = sum exp(-beta (t - t_i))`` and advances it with one multiply, which
 turns a quadratic simulation into a linear one -- 157 µs per event at 8 000
 events before, 6.0 µs after, and flat out to 16 000.
@@ -106,7 +106,7 @@ def test_the_cost_per_event_stops_growing_with_n():
     large = min(seconds(8000) for _ in range(3))
     assert large / small < 3.0, (
         f"doubling n multiplied the work by {large / small:.2f}; linear is 2 and "
-        "the pre-0.9.0 quadratic loop was 4.09"
+        "the pre-1.0.0 quadratic loop was 4.09"
     )
 
 

@@ -24,9 +24,9 @@ Recorded 2026-09-10, CPython 3.12.10 on Windows AMD64, numpy 1.26.4.
 Read the last column, not the middle one. `ExponentialHawkes` gets **cheaper**
 per event as `n` grows — fixed costs amortising over a linear loop — while the
 other two get dearer, which is the quadratic intensity sum showing through. That
-contrast is the whole content of the 0.9.0 recursion.
+contrast is the whole content of the 1.0.0 recursion.
 
-Before 0.9.0 `ExponentialHawkes` read 28.4, 37.1 and 157.2 µs/event at those
+Before 1.0.0 `ExponentialHawkes` read 28.4, 37.1 and 157.2 µs/event at those
 three sizes, and 1.258 s in total at 8 000.
 
 ## One log-likelihood evaluation
