@@ -21,6 +21,8 @@ import pytest
 from _pytest.mark.structures import ParameterSet
 
 import hawkes_package as hp
+from hawkes_package.base import TemporalHawkesProcess
+from hawkes_package.exponential import _DecayCursor
 from hawkes_package.inference import CompactSpatial, OmoriUtsuKernel, ParetoSpatial
 
 
@@ -75,7 +77,66 @@ def instrument(proc, lam_name, *, reduce=None):
 
     proc._upper_bound = bound
     setattr(proc, lam_name, lam)
+
+    if carries_a_cursor(proc):
+        # The loop reads a class like `ExponentialHawkes` through a cursor and
+        # never calls the two hooks patched above, so patching them alone
+        # records nothing at all. That is not hypothetical: when the cursor
+        # landed, every `ExponentialHawkes` case here failed on
+        # ``assert len(pairs) > 0`` rather than passing vacuously -- the one
+        # assertion in `_check` that exists to catch a harness gone blind.
+        original = proc._cursor
+
+        def make_cursor(start, _original=original):
+            return _RecordingCursor(_original(start), state, reduce)
+
+        proc._cursor = make_cursor
+
     return state
+
+
+def carries_a_cursor(proc):
+    """Whether `proc` reads the intensity through a cursor of its own."""
+    return (
+        isinstance(proc, TemporalHawkesProcess)
+        and type(proc)._cursor is not TemporalHawkesProcess._cursor
+    )
+
+
+class _RecordingCursor:
+    """Delegates to a real cursor and records what the loop actually compared.
+
+    The pair is ``(the bound drawn against, the intensity tested against it)``,
+    the same pair the hook-level instrumentation records -- so a class with a
+    cursor is held to exactly the inequality every other class is.
+    """
+
+    def __init__(self, inner, state, reduce=None):
+        self.inner = inner
+        self.state = state
+        self.reduce = reduce
+
+    @property
+    def time(self):
+        return self.inner.time
+
+    def move_to(self, t):
+        self.inner.move_to(t)
+
+    def bound(self):
+        value = self.inner.bound()
+        self.state["m"] = value
+        return value
+
+    def intensity(self):
+        value = self.inner.intensity()
+        self.state["pairs"].append(
+            (self.state["m"], value if self.reduce is None else self.reduce(value))
+        )
+        return value
+
+    def accept(self):
+        self.inner.accept()
 
 
 def as_vector_hook(proc, lam_name):
@@ -530,8 +591,15 @@ def test_spatio_temporal_thinning_invariant(build, name, stop):
     _check(state, label=f"{name}(stop={stop})")
 
 
+#: The temporal cases whose loop reads the intensity *hook*, which is what
+#: `as_vector_hook` can reshape. `ExponentialHawkes` reads a cursor instead, so
+#: wrapping its hook changes nothing the loop sees -- a fact worth stating here
+#: rather than discovering as a mysteriously passing test.
+THROUGH_THE_HOOK = [name for name in TEMPORAL if name != "ExponentialHawkes"]
+
+
 @pytest.mark.statistical
-@pytest.mark.parametrize("name", TEMPORAL)
+@pytest.mark.parametrize("name", THROUGH_THE_HOOK)
 def test_reducing_a_vector_intensity_records_the_same_pairs(build, name):
     """`reduce` must not disturb what the harness records.
 
@@ -581,3 +649,29 @@ def test_instrumentation_detects_a_broken_bound(exp_kernel, reduce):
     proc.simulate(50)
     with pytest.raises(AssertionError, match=r"violated|every candidate was accepted"):
         _check(state, label="deliberately-broken")
+
+
+@pytest.mark.statistical
+def test_instrumentation_detects_a_broken_bound_inside_a_cursor():
+    """The same guard, on the path where the bound lives in carried state.
+
+    A class with a cursor computes its bound from a running sum, so a defect
+    there never touches `_upper_bound` and the hook-level instrumentation cannot
+    see it. This breaks the cursor the way the pre-0.2.0 bug broke the hook --
+    the most recent event left out of the bound -- and requires the harness to
+    catch it, which is what makes the `ExponentialHawkes` cases above worth
+    anything.
+    """
+    proc = hp.ExponentialHawkes(np.array([1.0, 0.5, 2.0]), rng=3)
+
+    class NeverAbsorbs(_DecayCursor):
+        """The bound stops seeing events as they are accepted."""
+
+        def accept(self):
+            self.n_events += 1  # the count keeps up; the sum does not
+
+    proc._cursor = lambda start: NeverAbsorbs(proc, start)
+    state = instrument(proc, "_conditional_intensity")
+    proc.simulate(60)
+    with pytest.raises(AssertionError, match=r"violated|every candidate was accepted"):
+        _check(state, label="deliberately-broken-cursor")
