@@ -31,7 +31,7 @@ from hawkes_package.inference import (
     fit_mle,
     monotone_model,
     profile_interval,
-    warm_start_prior,
+    warm_start_proposal,
 )
 from hawkes_package.inference import _compensator as compensator
 
@@ -58,7 +58,7 @@ def test_the_optimum_agrees_with_a_grid_search(data):
     finds -312.3526 at ``(1.035, 0.254, 1.571)`` -- inside the grid's own spacing
     and very slightly higher, which is the only direction a finer search may go.
     """
-    model, likelihood, history = data
+    _, likelihood, history = data
     fit = fit_mle(likelihood, history, START)
 
     best, argmax = -math.inf, None
@@ -248,11 +248,11 @@ def test_an_unknown_level_is_refused(data):
 # ---------------------------------------------------------------------------
 
 
-def test_the_warm_start_prior_is_centred_on_the_mode(data):
+def test_the_warm_start_proposal_is_centred_on_the_mode(data):
     """On the *unconstrained* scale, which is where the sampler's proposals live."""
     _, likelihood, history = data
     fit = fit_mle(likelihood, history, START)
-    prior = warm_start_prior(fit, width=0.3)
+    prior = warm_start_proposal(fit, width=0.3)
 
     draws = prior.sample(4000, np.random.default_rng(0))
     assert draws.shape == (4000, 3)
@@ -261,10 +261,10 @@ def test_the_warm_start_prior_is_centred_on_the_mode(data):
     np.testing.assert_allclose(np.median(draws, axis=0), fit.theta, rtol=0.05)
 
 
-def test_the_warm_start_prior_has_a_finite_density_at_the_mode(data):
+def test_the_warm_start_proposal_has_a_finite_density_at_the_mode(data):
     _, likelihood, history = data
     fit = fit_mle(likelihood, history, START)
-    prior = warm_start_prior(fit)
+    prior = warm_start_proposal(fit)
     density = prior.log_pdf(np.atleast_2d(fit.theta))
     assert density.shape == (1,)
     assert np.isfinite(density).all()
@@ -277,7 +277,7 @@ def test_warm_starting_from_a_failed_fit_warns(data):
         warnings.simplefilter("ignore")
         fit = fit_mle(likelihood, history, START, max_iterations=3)
     with pytest.warns(UserWarning, match="did not converge"):
-        warm_start_prior(fit)
+        warm_start_proposal(fit)
 
 
 def test_the_fit_reports_itself_by_name(data):
