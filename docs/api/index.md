@@ -71,29 +71,6 @@ enters it -- but its **expectation** may not be, and
    SpatioTemporalHawkesProcess
 ```
 
-### A background that varies in time
-
-Diurnal, weekly and seasonal structure. A model without a cycle attributes the
-cycle to self-excitation, which is the same confusion a constant background
-makes with a spatially clustered one -- moved from space into time.
-
-`PeriodicBackground` carries ``time_varying = True``, which is how the simulator
-knows to hand it ``(t, x)``; anything without that attribute is called ``base(x)``
-exactly as before, so existing configurations are bit-identical. It must also
-supply ``supremum(x)``, and that is the load-bearing requirement: **the thinning
-bound is computed before the candidate is drawn**, so a rising background has to
-be bounded by where it is going rather than where it is.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-   :template: autosummary/class.rst
-   :nosignatures:
-
-   PeriodicSchedule
-   PeriodicBackground
-```
-
 ## Spatial domains
 
 Implement {class}`SpatialDomain` to simulate on your own geometry: the
@@ -338,7 +315,6 @@ per particle per move.
    CompactSpatial
    ConstantBase
    LogLinearBase
-   PeriodicBase
    LinearNonlinearity
    SoftPlusNonlinearity
 ```
@@ -358,59 +334,6 @@ per unit measure, with the covariates any vectorized callables on the domain.
 The link is logarithmic so the value is positive at every quadrature node, which
 is what keeps the cached spatio-temporal backend usable -- it raises rather than
 degrading where the pre-floor integrand goes negative.
-
-### Maximum likelihood
-
-Beside the sequential machinery, not instead of it. The package's position is
-that a posterior with diagnostics is the better answer; this exists so the
-library can be *compared* on the terms a reviewer will use, and so a cloud can be
-started at the mode.
-
-`profile_interval` is the uncertainty rather than an inverse Hessian, which at an
-optimum near the stationarity boundary can come back indefinite and report a
-confident number with no content. `warm_start_proposal` belongs in
-``fit_smc(..., proposal=)`` and **not** in ``prior=``: as a proposal it is
-corrected for by weight and the posterior is unchanged, while as a prior it is
-part of the model and pulls the answer to the maximum.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-   :template: autosummary/class.rst
-   :nosignatures:
-
-   HawkesMLE
-   MaximumLikelihoodFit
-```
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-   fit_mle
-   profile_interval
-   warm_start_proposal
-```
-
-### Reproducibility
-
-A recipe is a configuration, a seed and a reference to the data -- not the
-posterior, and not the events. Rerunning it is what reproduces the fit: exactly
-on the temporal path, distributionally on the spatio-temporal one. It refuses a
-`ProcessModel` object rather than writing an incomplete file, because that object
-is three closures.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: _autosummary
-   :nosignatures:
-
-   to_recipe
-   from_recipe
-   write_recipe
-   read_recipe
-```
 
 ### Fitting
 
