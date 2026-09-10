@@ -9,7 +9,7 @@ good place to centre an initial cloud, which
 :func:`~hawkes_package.inference.mle.warm_start_proposal` turns into a real saving.
 
 **SciPy is used here, and that widens a stated rule.** Runtime dependencies are
-still numpy and scipy only, but until 0.10.0 scipy was held to a single call
+still numpy and scipy only, but until 1.0.0 scipy was held to a single call
 site -- ``minimize_scalar`` in :mod:`hawkes_package._numerics` -- which is why
 :func:`~hawkes_package.inference.diagnostics.ks_exponential` hand-rolls the
 Kolmogorov series and :mod:`hawkes_package.inference.priors` hand-writes its
@@ -40,7 +40,7 @@ it reports is a plausible number with no content -- the same failure as a
 collapsed particle cloud reading as confidence. :func:`profile_interval` walks
 the likelihood instead.
 
-.. versionadded:: 0.10.0
+.. versionadded:: 1.0.0
 """
 
 from __future__ import annotations
@@ -237,7 +237,7 @@ def fit_mle(
     >>> fit.converged
     True
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     model = _model_of(likelihood)
     spec = model.spec
@@ -380,7 +380,7 @@ def profile_interval(
     tuple of float
         ``(lower, upper)`` on the model's own scale.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     if level not in _CHI2_HALF:
         raise ValueError(f"level must be one of {sorted(_CHI2_HALF)}, got {level!r}")
@@ -501,7 +501,7 @@ def warm_start_proposal(
         narrow is not a correctness problem here -- it is an effective sample
         size problem, which is visible.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     if not fit.converged:
         warnings.warn(
@@ -598,7 +598,7 @@ class HawkesMLE:
     >>> estimator.fit(History.from_simulation(process)).theta_.shape
     (3,)
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(

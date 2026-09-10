@@ -37,7 +37,7 @@ def spectral_radius(matrix: Any) -> float:
     it would refuse stationary processes near the boundary -- but it is what a
     guard should reach for when an eigensolve is not available or not certified.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
     return float(np.max(np.abs(np.linalg.eigvals(np.asarray(matrix, dtype=float)))))
 
@@ -130,7 +130,7 @@ class MultivariateHawkes(MultivariateTemporalHawkesProcess):
     >>> set(process.types.tolist()) <= {0, 1}
     True
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(
@@ -283,7 +283,7 @@ class MultivariateExponentialHawkes(MultivariateHawkes):
     >>> process.events.shape
     (2, 100)
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(

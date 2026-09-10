@@ -116,7 +116,7 @@ class MarkedComponents:
     :class:`~hawkes_package.inference.likelihood.TemporalLogLikelihood`, which
     would then fit the intensity while ignoring the mark density entirely.
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
 
     kernel: KernelFamily
@@ -149,7 +149,7 @@ class SpatialComponents:
     renormalises and the likelihood does not, the fit is biased by exactly the
     correction, and nothing raises.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     @property
@@ -613,7 +613,7 @@ def multivariate_model(
     >>> model.support(np.array([[0.4, 0.2, 0.3, 0.1, 0.5, 0.2, 2.0]])).tolist()
     [True]
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
     excitation: KernelFamily = UnitExponentialKernel() if kernel is None else kernel
     response: NonlinearityFamily = LinearNonlinearity() if nonlinearity is None else nonlinearity
@@ -703,7 +703,7 @@ def marked_model(*, m0: float = 0.0) -> ProcessModel:
     >>> model.support(np.array([[1.0, 0.3, 2.0, 0.5, 1.5], [1.0, 0.3, 2.0, 1.6, 1.5]])).tolist()
     [True, False]
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
     floor = float(m0)
     kernel = ExponentialKernel()

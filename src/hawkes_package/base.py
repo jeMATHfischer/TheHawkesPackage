@@ -64,7 +64,7 @@ class _EventBuffer:
         :meth:`replace` raises. A multivariate record's rows are not all
         coordinates, so the default wording would misdescribe it.
 
-        .. versionadded:: 0.6.0
+        .. versionadded:: 1.0.0
 
     .. versionadded:: 0.4.0
     """
@@ -366,9 +366,9 @@ class _IntensityCursor:
 
     One per :meth:`TemporalHawkesProcess._propagate` call. This default asks the
     two hooks at the cursor's current time, which is exactly what the loop did
-    inline before 0.9.0 -- so every class that does not override
-    :meth:`TemporalHawkesProcess._cursor` is bit-identical to 0.8.0, down to the
-    order the hooks are called in.
+    inline before the cursor existed -- so every class that does not override
+    :meth:`TemporalHawkesProcess._cursor` draws the same realisation the inline
+    loop drew, down to the order the hooks are called in.
 
     It exists so that a class whose kernel admits a recursion can carry state
     between steps *without* a second copy of the loop. Two copies of a thinning
@@ -376,7 +376,7 @@ class _IntensityCursor:
     of duplication that drifts, and there are already three of them in this
     module for the three record layouts.
 
-    .. versionadded:: 0.9.0
+    .. versionadded:: 1.0.0
     """
 
     __slots__ = ("process", "time")
@@ -441,8 +441,9 @@ class TemporalHawkesProcess(HawkesProcess):
         """Return the object the thinning loop reads the intensity through.
 
         The default asks the two hooks at the cursor's current time, which is
-        what the loop did inline before 0.9.0 -- so overriding *nothing* leaves
-        a class bit-identical. :class:`~hawkes_package.exponential.ExponentialHawkes`
+        what the loop did inline before the cursor existed -- so overriding
+        *nothing* leaves a class bit-identical.
+        :class:`~hawkes_package.exponential.ExponentialHawkes`
         overrides it with a cursor that carries the sum forward instead of
         rebuilding it, which is exact only because its kernel is memoryless.
         """
@@ -587,7 +588,7 @@ class MarkedTemporalHawkesProcess(TemporalHawkesProcess):
     marks : numpy.ndarray
         Row 1 of the record.
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(self, *, rng: SeedLike = None) -> None:
@@ -710,7 +711,7 @@ class MultivariateTemporalHawkesProcess(TemporalHawkesProcess):
     types : numpy.ndarray
         Row 1 of the record, as integers.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(self, n_types: int, *, rng: SeedLike = None) -> None:

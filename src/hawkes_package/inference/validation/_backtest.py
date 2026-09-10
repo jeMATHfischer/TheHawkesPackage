@@ -43,7 +43,7 @@ __all__ = ["Backtest", "OriginScore", "rolling_origin"]
 class OriginScore:
     """One origin's worth of out-of-sample performance.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     origin: float
@@ -67,7 +67,7 @@ class OriginScore:
 class Backtest:
     """The scores from every origin, in order.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     scores: tuple[OriginScore, ...]
@@ -136,7 +136,7 @@ def rolling_origin(
     a block on a likelihood that had been denied the earlier events would not be
     a stricter test, it would be a different model.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
     cuts = np.asarray(origins, dtype=float).ravel()
     if cuts.size == 0:

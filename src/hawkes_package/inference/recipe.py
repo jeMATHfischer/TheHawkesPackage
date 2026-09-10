@@ -25,7 +25,7 @@ recipe carries a reference -- a path, a URL, a DOI -- that the reader resolves.
 That keeps the artefact small enough to paste into a paper's appendix, which is
 the point of it.
 
-.. versionadded:: 0.10.0
+.. versionadded:: 1.0.0
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ from .priors import (
 __all__ = ["from_recipe", "read_recipe", "to_recipe", "write_recipe"]
 
 #: The recipe format's own version, which moves only when the *layout* changes.
-#: Separate from the package version on purpose: a recipe written by 0.10.0 and
+#: Separate from the package version on purpose: a recipe written by 1.0.0 and
 #: read by 0.11.0 is fine unless this number moved.
 RECIPE_FORMAT = 1
 
@@ -188,7 +188,7 @@ def to_recipe(estimator: HawkesEstimator, *, data: str | None = None) -> dict[st
     >>> recipe["estimator"]["rng"]
     7
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     params = estimator.get_params()
     model = params["model"]
@@ -253,7 +253,7 @@ def from_recipe(recipe: dict[str, Any]) -> HawkesEstimator:
     ValueError
         If the recipe's *format* version is not one this release reads.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     running = _package_version()
     stamp = str(recipe.get("hawkes_package", "unknown"))
@@ -310,7 +310,7 @@ def _is_newer(candidate: str, current: str) -> bool:
 def write_recipe(estimator: HawkesEstimator, path: str | Path, *, data: str | None = None) -> None:
     """Write :func:`to_recipe`'s output to `path` as JSON.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     Path(path).write_text(
         json.dumps(to_recipe(estimator, data=data), indent=2) + "\n", encoding="utf-8"
@@ -320,6 +320,6 @@ def write_recipe(estimator: HawkesEstimator, path: str | Path, *, data: str | No
 def read_recipe(path: str | Path) -> HawkesEstimator:
     """Read a recipe from `path` and rebuild its estimator.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     return from_recipe(json.loads(Path(path).read_text(encoding="utf-8")))

@@ -64,31 +64,32 @@ What is here
 ------------
 
 Each axis of the model has its own factory and its own likelihood, and each was
-added because leaving it out biases something specific.
+added because leaving it out biases something specific. All of them arrived in
+1.0.0, so a reader coming from 0.5.0 gets the whole list at once.
 
-* **Multivariate**, since 0.6.0 --
+* **Multivariate** --
   :func:`~hawkes_package.inference.models.multivariate_model` and
   :class:`~hawkes_package.inference.likelihood.MultivariateLogLikelihood`, with
   an ``O(n d)`` closed form for the shared exponential kernel. One kernel shape
   and a non-negative matrix of scales: cross-excitations share a decay rate, and
   inhibition is excluded by the thinning bound rather than by preference.
-* **Marks**, since 0.8.0 -- :func:`~hawkes_package.inference.models.marked_model`
+* **Marks** -- :func:`~hawkes_package.inference.models.marked_model`
   and :class:`~hawkes_package.inference.likelihood.MarkedLogLikelihood`. The mark
   density is part of the log-likelihood by default, and has to be: without it
   ``b_value`` does not move the likelihood at all.
-* **A background that varies over the domain**, since 0.8.0 --
+* **A background that varies over the domain** --
   :class:`~hawkes_package.inference.families.LogLinearBase`. A constant
   background attributes spatial clustering to self-excitation.
-* **A background that varies in time**, since 0.10.0 --
+* **A background that varies in time** --
   :class:`~hawkes_package.inference.families.PeriodicBase`, for the
   spatio-temporal path. A model without a daily cycle attributes the cycle to
   self-excitation.
-* **Maximum likelihood**, since 0.10.0 --
+* **Maximum likelihood** --
   :func:`~hawkes_package.inference.mle.fit_mle` and
   :class:`~hawkes_package.inference.mle.HawkesMLE`. It exists to be compared
   against on the terms a reviewer will use, not to be recommended: the
   sequential path is the one this package argues for.
-* **Recipes**, since 0.10.0 -- :func:`~hawkes_package.inference.recipe.to_recipe`
+* **Recipes** -- :func:`~hawkes_package.inference.recipe.to_recipe`
   writes the configuration, the seed and a reference to the data, which is what
   rerunning a fit needs.
 
@@ -111,14 +112,10 @@ in :mod:`hawkes_package.inference.mcmc`.
 
 .. versionadded:: 0.5.0
 
-.. versionchanged:: 0.6.0
-   Multivariate models are no longer out of scope.
-
-.. versionchanged:: 0.8.0
-   Marks and a spatially varying background are no longer out of scope.
-
-.. versionchanged:: 0.10.0
-   A periodic background, maximum likelihood and recipes were added.
+.. versionchanged:: 1.0.0
+   Multivariate processes, marks, a background varying over the domain, a
+   background varying in time, maximum likelihood and recipes are all no
+   longer out of scope.
 """
 
 from .diagnostics import KSResult, ks_exponential, posterior_report, residuals

@@ -34,7 +34,7 @@ this class computes once, and computes by a dense scan of a closed form rather
 than by a solver: an unvalidated numerical peak search is one of the two
 recurring root causes of a bound that is too small in this package's history.
 
-.. versionadded:: 0.10.0
+.. versionadded:: 1.0.0
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ class PeriodicSchedule:
     >>> round(schedule.supremum, 4)
     1.5
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(self, cosine: Any, sine: Any, *, period: float) -> None:
@@ -229,7 +229,7 @@ class PeriodicBackground:
     Carries ``time_varying = True``, which is how
     :class:`~hawkes_package.spatio_temporal.process.SpatioTemporalHawkesProcess`
     knows to hand it ``(t, x)``. Anything without that attribute is called as
-    ``base(x)`` exactly as before, so every configuration that predates 0.10.0
+    ``base(x)`` exactly as before, so every configuration that predates 1.0.0
     produces the same numbers.
 
     Parameters
@@ -252,7 +252,7 @@ class PeriodicBackground:
     >>> float(background.supremum([0.1]))
     0.75
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
 
     #: The opt-in flag the simulator dispatches on.

@@ -111,7 +111,7 @@ def independent_compensator(
     count rather than with knowledge of where the jumps are, precisely so that
     this integrator shares as little as possible with the one it is checking.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
     query = np.asarray(times, dtype=float).ravel()
     if query.size == 0:
@@ -195,7 +195,7 @@ def compensator_agreement(
     Quadrature disagreement of order 1e-6 is expected and means the two rules
     resolved the same integrand. Anything approaching a percent is a finding.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
     query = history.times if times is None else np.asarray(times, dtype=float).ravel()
     if query.size == 0:

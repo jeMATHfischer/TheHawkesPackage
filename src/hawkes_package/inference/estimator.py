@@ -1042,7 +1042,7 @@ def predictable_times(
 ) -> np.ndarray:
     """Return the times to evaluate an intensity at, refusing the ones that lie.
 
-    Module level since 0.10.0 so that
+    Module level since 1.0.0 so that
     :class:`~hawkes_package.inference.mle.HawkesMLE` refuses the same times with
     the same words. Two estimators that must reject the same input are two places
     for the explanation to drift, and the explanation is the useful part -- past
@@ -1050,7 +1050,7 @@ def predictable_times(
     *given that nothing has happened since*, which is a different quantity, not a
     less accurate one.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     if model.ndim > 0:
         raise ValueError(
@@ -1077,7 +1077,7 @@ def as_record(X: Any, ndim: int, *, caller: str) -> np.ndarray:
 
     Module level for the reason :func:`predictable_times` is.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     if isinstance(X, History):
         raise ValueError(f"{caller} takes an array of events here, not a History")

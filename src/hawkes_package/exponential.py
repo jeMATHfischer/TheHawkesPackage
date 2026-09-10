@@ -33,7 +33,7 @@ class _DecayCursor(_IntensityCursor):
     observation, not a guarantee -- see the class docstring of
     :class:`ExponentialHawkes` and ``docs/migration.md``.
 
-    .. versionadded:: 0.9.0
+    .. versionadded:: 1.0.0
     """
 
     __slots__ = ("alpha", "beta", "mu", "n_events", "sum")
