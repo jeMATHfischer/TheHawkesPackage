@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Make the intensity incremental for the two temporal classes that still rebuild it.
+  `ExponentialHawkes` has it as of 1.0.0; `MonotoneKernelHawkes` and `BellShapeHawkes` take an
+  arbitrary kernel and have no recursion to carry, so this needs a *kernel-aware* path rather
+  than a loop change — an exponential mixture is the case that would work.
+- Hyperbolic surfaces past twelve sides — genus 4, seven crosscaps — are refused at
+  construction, and reaching them needs a different search rather than a bigger budget. A
+  certified distance enumerates a deck-group window whose size grows like `exp(R)`, and the
+  radius scales with the polygon; the answer stays tiny (193 elements for genus 3) while the
+  search that certifies it does not. Searching outward from the *pair of points* instead of
+  from the polygon's centre would size the work to the answer.
+- Double precision is a second ceiling behind that one: a deck element at displacement 18 has
+  hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
+  sheet and its asymptotic cone.
+
+All ten of the point-process capabilities scoped under `docs/extensions/` have shipped, so
+what is left above is the whole of the roadmap. Five further items are recorded there as
+identified and deliberately **not** built — SMC vectorisation, an EM fit, a serialised posterior
+cloud, a periodic background for the three temporal classes, and exact neighbour skipping — each
+with the measurement or the argument that stopped it.
+
+
+## [1.0.0] — 2026-09-10
+
 ### Added
 
 - **A maximum-likelihood fit**, `fit_mle` and the sklearn-shaped `HawkesMLE`, beside the
@@ -238,7 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   assumes the spatial kernel has unit mass, which renormalisation is what makes true.
 - `SpatialDomain.has_boundary`, defaulting to `False`. **Not** the negation of `periodic`: `Sphere`
   and `FundamentalDomain` are already non-periodic and have no edge, so keying the correction off
-  `periodic` would rescale their intensity for nothing. Every domain that predates 0.7.0 takes the
+  `periodic` would rescale their intensity for nothing. Every domain that predates 1.0.0 takes the
   identical path.
 
 - **Multivariate, mutually-exciting processes**, in both the simulator and the inference
@@ -280,7 +305,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   8 000 events, and 157 µs → 6.0 µs per event, flat out to 16 000 rather than growing.
 
   A product of decays rounds differently from one exponential of the total lag, so the
-  realisation is **not bit-identical** to 0.8.0's. The size of that is the point, and is
+  realisation is **not bit-identical** to 0.5.0's — the re-summing loop is what 0.5.0 shipped,
+  and the recursion is the only change to `exponential.py` since. The size of that is the point,
+  and is
   measured over seeds 0–20 at 2 000 events under both stopping rules: **0 of 42 realisations
   changed length**, 1 983 of 2 000 event times in seed 0 are bit-identical, and the worst
   relative move in any event time is **3.7e-16** — under two units in the last place. Same
@@ -289,8 +316,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   could in principle flip, and one that did would differ from that point on.
 
   Nothing else moves. `MonotoneKernelHawkes`, `BellShapeHawkes`, `MarkedHawkes`, every
-  multivariate class and the whole spatio-temporal path are **byte-identical** to 0.8.0,
-  asserted by fingerprint rather than by argument.
+  multivariate class and the whole spatio-temporal path draw **byte-identical** realisations
+  before and after the recursion, asserted by fingerprint rather than by argument. (Only the
+  first two of those existed in 0.5.0; the rest are new here, so there is nothing older for
+  them to differ from.)
 - The temporal thinning loop reads its intensity through a cursor rather than calling
   `_upper_bound` and `_conditional_intensity` inline. A subclass implementing only the two
   hooks is unaffected — the default cursor calls them at the same times in the same order,
@@ -302,7 +331,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SpatioTemporalHawkesProcess` now checks that its quadrature rule **resolves the
   background**, not only the spatial kernel, and warns when doubling the node count moves
   the background integral by more than 1%. Nothing in the package could produce a varying
-  background before 0.8.0, but a caller has always been able to pass one as a plain
+  background before 1.0.0, but a caller has always been able to pass one as a plain
   callable — and a background lump narrower than a quadrature panel loses its mass between
   the nodes, in exactly the places the events are, so the simulated event rate comes out
   wrong by that fraction with nothing said. No number changes; a construction that was
@@ -333,7 +362,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An exponential kernel at the same default is exact to 7e-13, so this is a property of the
   shape rather than of the rule. A kernel family may now carry `quadrature_order`, which the
   likelihoods read when the caller does not name one; `OmoriUtsuKernel` asks for 16. Nothing
-  that predates 0.9.0 changes — a family without the attribute still gets 8. The order does
+  that predates 1.0.0 changes — a family without the attribute still gets 8. The order does
   not rescue a core four times narrower than the median inter-event gap, and there the
   order-`P`-versus-`2P` check fires and says the panel is the problem.
 
@@ -343,29 +372,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   right on a domain that fills its bounding box, where the spread *is* quadrature error, and
   useless on one with an edge, where it is real geometry -- 40.1% on a 4x3 rectangle -- and no node
   count reduces it. It now names the cause it has and points at `edge_correction`.
-
-### Planned
-
-- Make the intensity incremental for the two temporal classes that still rebuild it.
-  `ExponentialHawkes` has it as of 0.9.0; `MonotoneKernelHawkes` and `BellShapeHawkes` take an
-  arbitrary kernel and have no recursion to carry, so this needs a *kernel-aware* path rather
-  than a loop change — an exponential mixture is the case that would work.
-- Hyperbolic surfaces past twelve sides — genus 4, seven crosscaps — are refused at
-  construction, and reaching them needs a different search rather than a bigger budget. A
-  certified distance enumerates a deck-group window whose size grows like `exp(R)`, and the
-  radius scales with the polygon; the answer stays tiny (193 elements for genus 3) while the
-  search that certifies it does not. Searching outward from the *pair of points* instead of
-  from the polygon's centre would size the work to the answer.
-- Double precision is a second ceiling behind that one: a deck element at displacement 18 has
-  hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
-  sheet and its asymptotic cone.
-
-All ten of the point-process capabilities scoped under `docs/extensions/` have shipped, so
-what is left above is the whole of the roadmap. Five further items are recorded there as
-identified and deliberately **not** built — SMC vectorisation, an EM fit, a serialised posterior
-cloud, a periodic background for the three temporal classes, and exact neighbour skipping — each
-with the measurement or the argument that stopped it.
-
 
 ## [0.5.0] — 2026-09-04
 
@@ -930,7 +936,8 @@ First packaged release. The distribution is `the-hawkes-package`; the import nam
 
 Initial internal version. Never published.
 
-[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jeMATHfischer/TheHawkesPackage/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v1.0.0
 [0.5.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jeMATHfischer/TheHawkesPackage/releases/tag/v0.3.0
