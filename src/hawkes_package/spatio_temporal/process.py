@@ -38,10 +38,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     Parameters
     ----------
     base : callable
-        Background intensity ``mu(x)`` as a function of spatial coordinate. Since
-        0.10.0 it may instead carry ``time_varying = True`` and be a function of
-        ``(t, x)`` -- see :class:`~hawkes_package.periodic.PeriodicBackground` --
-        in which case it must also supply ``supremum(x)``.
+        Background intensity ``mu(x)`` as a function of spatial coordinate.
     spatial : callable
         Isotropic spatial kernel evaluated at a non-negative distance.
     temporal : callable
@@ -127,10 +124,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
     def __init__(
         self,
-        # `Callable[..., float]` for the reason `spatial` is: the signature is
-        # decided by an opt-in attribute on the callable itself, `time_varying`
-        # here and `pairwise` there, so no single arity describes both.
-        base: Callable[..., float],
+        base: Callable[[Any], float],
         spatial: Callable[..., Any],
         temporal: Callable[[float], float],
         domain: SpatialDomain | None = None,
@@ -147,23 +141,6 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         self.base = base
         self.spatial = spatial
         self.temporal = temporal
-        # Opt-in dispatch, in the `PairwiseKernel` style: a background carrying
-        # `time_varying = True` is handed `(t, x)`, everything else `(x)` exactly
-        # as before. Widening the signature for everyone would break every user
-        # callable and move every existing number; this way a configuration that
-        # predates 0.10.0 is bit-identical, which the tests assert.
-        self._time_varying_base = getattr(base, "time_varying", False) is True
-        if self._time_varying_base and not hasattr(base, "supremum"):
-            raise ValueError(
-                "a time-varying background must supply `supremum(x)`, the largest "
-                "value it takes at `x` over any later interval. The thinning bound "
-                "is computed before the candidate is drawn, so bounding by the "
-                "current value is smaller than the intensity the candidate meets: "
-                "every candidate is accepted and the output is a Poisson process "
-                "wearing a Hawkes costume, with nothing raising. See "
-                "hawkes_package.periodic.PeriodicSchedule for a background whose "
-                "supremum is closed form."
-            )
         self.domain = domain if domain is not None else Circle()
         self.monotone_temporal_kernel = monotone_temporal_kernel
 
@@ -318,23 +295,6 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
             self._edge_times = np.asarray(times[: self._edge_values.size], dtype=float).copy()
         return np.asarray(self._edge_values[:count], dtype=float)
 
-    def _base_at(self, x: Any, t: float, bound: bool = False) -> float:
-        """Evaluate the background at `x`, or bound it over every later time.
-
-        The `bound` branch is the one that matters. A candidate is drawn ahead
-        of `t`, so the bound has to dominate the background the candidate will
-        *meet*, not the one at the moment the bound is computed. For a periodic
-        background those differ by the whole amplitude of the cycle, and the
-        error is in the direction that accepts everything.
-        """
-        if not self._time_varying_base:
-            return as_float(self.base(x))
-        if bound:
-            # The constructor has already refused a time-varying background
-            # without this, which is the check mypy cannot see from a Callable.
-            return as_float(self.base.supremum(x))  # type: ignore[attr-defined]
-        return as_float(self.base(t, x))
-
     def _full_intensity(self, x: Any, t: float, bound: bool = False) -> float:
         # The single place a coordinate is normalised: `base` and `spatial` are
         # always handed a shape-(ndim,) point, whichever path called us.
@@ -342,7 +302,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         contrib = np.multiply(
             self._temporal_factors(t, bound=bound), self._dist_spatial(x, t, bound=bound)
         ).sum()
-        return max(0.0, self._base_at(x, t, bound=bound) + float(contrib))
+        return max(0.0, as_float(self.base(x)) + float(contrib))
 
     def _spatial_at(self, x: Any, y: Any) -> float:
         """Evaluate the spatial kernel between two points.
@@ -397,18 +357,13 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         # constructor runs once per particle per rejuvenation move, where a
         # doubled rule would be paid for nothing on every fit that predates a
         # varying background.
-        # At the bound, which is the time-supremum for a periodic background:
-        # that is the profile the quadrature has to resolve, and it is also the
-        # only one available before the first event time exists.
-        background = np.array(
-            [self._base_at(node, 0.0, bound=True) for node in self._quadrature.nodes]
-        )
+        background = np.array([as_float(self.base(node)) for node in self._quadrature.nodes])
         if background.size and float(np.ptp(background)) > 0.0:
             _integration.check_resolution(
                 self._quadrature,
                 make_rule,
                 self.n_quad,
-                lambda x: self._base_at(x, 0.0, bound=True),
+                lambda x: as_float(self.base(x)),
                 name="background",
             )
 

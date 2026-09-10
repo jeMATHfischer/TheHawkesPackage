@@ -47,7 +47,6 @@ from .marked import ExponentialMarkedHawkes, MarkedHawkes
 from .mcmc import mcmc_sampler
 from .monotone import MonotoneKernelHawkes
 from .multivariate import MultivariateExponentialHawkes, MultivariateHawkes
-from .periodic import PeriodicBackground, PeriodicSchedule
 from .spatio_temporal import (
     Circle,
     FundamentalDomain,
@@ -75,8 +74,6 @@ __all__ = [
     "MultivariateExponentialHawkes",
     "MultivariateHawkes",
     "MultivariateTemporalHawkesProcess",
-    "PeriodicBackground",
-    "PeriodicSchedule",
     "Polygon",
     "Rectangle",
     "SpatialDomain",
