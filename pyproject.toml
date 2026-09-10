@@ -179,7 +179,11 @@ convention = "numpy"
 # N803: scikit-learn's estimator protocol fixes the argument name `X`, and
 # `clone` reconstructs an estimator by passing every parameter by keyword -- so
 # renaming it to satisfy pep8-naming would break cloning rather than tidy it.
+# ARG002: the same protocol fixes `y` and `deep`, which these estimators must
+# accept and have nothing to do with -- `y` is refused rather than ignored, and
+# refusing it is the reason it is in the signature at all.
 "src/hawkes_package/inference/estimator.py" = ["N803"]
+"src/hawkes_package/inference/mle.py" = ["N803", "ARG002"]
 # Notebooks are narrative: throwaway kernel helpers do not need docstrings, and
 # demonstration loops legitimately ignore their index.
 "*.ipynb" = ["D", "ARG", "B007", "RET504", "E402", "N816"]

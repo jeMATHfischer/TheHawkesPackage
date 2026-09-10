@@ -935,32 +935,7 @@ class HawkesEstimator(_ParamsMixin):
 
     def _as_record(self, X: Any, ndim: int, *, caller: str) -> np.ndarray:
         """Return `X` in the layout an event record uses, refusing an ambiguous shape."""
-        if isinstance(X, History):
-            raise ValueError(f"{caller} takes an array of events here, not a History")
-        array = np.asarray(X, dtype=float)
-        if ndim == 0:
-            if array.size == 0:
-                return np.empty(0, dtype=float)
-            if array.ndim == 2 and array.shape[1] == 1:
-                # scikit-learn's column vector. Ravelled here rather than left to
-                # `History.from_events`, which reads any 2-D array as
-                # `(ndim + 1, n)` -- so a column of k times would be taken for a
-                # single event in k - 1 dimensions.
-                array = array.ravel()
-            if array.ndim != 1:
-                raise ValueError(
-                    f"{caller} expects event times of shape (n,) or (n, 1) for a temporal "
-                    f"model, got shape {array.shape}"
-                )
-            return array
-        if array.size == 0:
-            return np.empty((ndim + 1, 0), dtype=float)
-        if array.ndim != 2 or array.shape[0] != ndim + 1:
-            raise ValueError(
-                f"{caller} expects a spatio-temporal record of shape ({ndim + 1}, n) with "
-                f"times in row 0, got shape {array.shape}"
-            )
-        return array
+        return as_record(X, ndim, caller=caller)
 
     def _as_history(
         self,
@@ -996,24 +971,7 @@ class HawkesEstimator(_ParamsMixin):
     def _predictable_times(self, X: Any) -> np.ndarray:
         """Return the times to evaluate the intensity at, refusing the ones that lie."""
         self._check_fitted()
-        if self.model_.ndim > 0:
-            raise ValueError(
-                "predict is temporal: a spatio-temporal intensity is not defined without "
-                "a location, and the space-integrated one is a different quantity under "
-                "the same name. Use predict_counts or forecast."
-            )
-        times = self._as_record(X, 0, caller="predict")
-        if times.size and (times.min() < self.history_.start or times.max() > self.history_.end):
-            raise ValueError(
-                f"predict evaluates inside the observation window "
-                f"[{self.history_.start}, {self.history_.end}], but the times span "
-                f"[{times.min()}, {times.max()}]. Past the window the intensity computed "
-                "from the observed record is the intensity given that nothing has "
-                "happened since -- biased low by exactly the excitation of the events "
-                "that would have occurred. Use forecast, predict_counts or "
-                "predict_interval, which simulate forward instead."
-            )
-        return times
+        return predictable_times(self.model_, self.history_, X, caller="predict")
 
     def _bound_process(self, theta: np.ndarray) -> TemporalHawkesProcess:
         """Build the process at `theta` and condition it on the observed history."""
@@ -1077,3 +1035,73 @@ class HawkesEstimator(_ParamsMixin):
                 "expecting supervised semantics this estimator does not have, so it is "
                 "refused rather than ignored."
             )
+
+
+def predictable_times(
+    model: ProcessModel, history: History, X: Any, *, caller: str = "predict"
+) -> np.ndarray:
+    """Return the times to evaluate an intensity at, refusing the ones that lie.
+
+    Module level since 0.10.0 so that
+    :class:`~hawkes_package.inference.mle.HawkesMLE` refuses the same times with
+    the same words. Two estimators that must reject the same input are two places
+    for the explanation to drift, and the explanation is the useful part -- past
+    the window the intensity computed from the observed record is the intensity
+    *given that nothing has happened since*, which is a different quantity, not a
+    less accurate one.
+
+    .. versionadded:: 0.10.0
+    """
+    if model.ndim > 0:
+        raise ValueError(
+            f"{caller} is temporal: a spatio-temporal intensity is not defined without "
+            "a location, and the space-integrated one is a different quantity under "
+            "the same name. Use predict_counts or forecast."
+        )
+    times = as_record(X, 0, caller=caller)
+    if times.size and (times.min() < history.start or times.max() > history.end):
+        raise ValueError(
+            f"{caller} evaluates inside the observation window "
+            f"[{history.start}, {history.end}], but the times span "
+            f"[{times.min()}, {times.max()}]. Past the window the intensity computed "
+            "from the observed record is the intensity given that nothing has "
+            "happened since -- biased low by exactly the excitation of the events "
+            "that would have occurred. Use forecast, predict_counts or "
+            "predict_interval, which simulate forward instead."
+        )
+    return times
+
+
+def as_record(X: Any, ndim: int, *, caller: str) -> np.ndarray:
+    """Return `X` in the layout an event record uses, refusing an ambiguous shape.
+
+    Module level for the reason :func:`predictable_times` is.
+
+    .. versionadded:: 0.10.0
+    """
+    if isinstance(X, History):
+        raise ValueError(f"{caller} takes an array of events here, not a History")
+    array = np.asarray(X, dtype=float)
+    if ndim == 0:
+        if array.size == 0:
+            return np.empty(0, dtype=float)
+        if array.ndim == 2 and array.shape[1] == 1:
+            # scikit-learn's column vector. Ravelled here rather than left to
+            # `History.from_events`, which reads any 2-D array as
+            # `(ndim + 1, n)` -- so a column of k times would be taken for a
+            # single event in k - 1 dimensions.
+            array = array.ravel()
+        if array.ndim != 1:
+            raise ValueError(
+                f"{caller} expects event times of shape (n,) or (n, 1) for a temporal "
+                f"model, got shape {array.shape}"
+            )
+        return array
+    if array.size == 0:
+        return np.empty((ndim + 1, 0), dtype=float)
+    if array.ndim != 2 or array.shape[0] != ndim + 1:
+        raise ValueError(
+            f"{caller} expects a spatio-temporal record of shape ({ndim + 1}, n) with "
+            f"times in row 0, got shape {array.shape}"
+        )
+    return array

@@ -118,10 +118,11 @@ from .likelihood import (
 )
 from .mcmc import ChainResult, batch_posterior, metropolis_chain
 from .mle import (
+    HawkesMLE,
     MaximumLikelihoodFit,
     fit_mle,
     profile_interval,
-    warm_start_prior,
+    warm_start_proposal,
 )
 from .models import (
     MarkedComponents,
@@ -169,6 +170,7 @@ __all__ = [
     "GammaKernel",
     "GaussianSpatial",
     "HawkesEstimator",
+    "HawkesMLE",
     "History",
     "IndependentPrior",
     "KSResult",
@@ -226,5 +228,5 @@ __all__ = [
     "spatio_temporal_model",
     "stationarity",
     "systematic",
-    "warm_start_prior",
+    "warm_start_proposal",
 ]
