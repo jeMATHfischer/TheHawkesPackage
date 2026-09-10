@@ -421,6 +421,92 @@ the whole intensity, including excitation left by events generated under earlier
 ones. Good when the drift is slow compared with the kernel's memory, poor when it
 is not, and silent in both cases.
 
+## Maximum likelihood, for comparison
+
+The sequential path is the one this package argues for: it reports a posterior
+and its diagnostics say when it has failed. But a reviewer comparing
+point-process libraries runs a maximum-likelihood fit, and "we do SMC instead" is
+not an answer they can check.
+
+```{code-block} python
+from hawkes_package.inference import HawkesMLE
+
+mle = HawkesMLE("exponential", start=[1.0, 0.3, 1.0]).fit(history)
+mle.theta_                       # the estimate
+mle.profile_interval_("alpha")   # not an inverse Hessian
+```
+
+`profile_interval_` walks the likelihood, re-maximising the other coordinates at
+each step. An inverse Hessian at an optimum near the stationarity boundary can
+come back indefinite and report a confident number with no content — the same
+failure as a degenerate particle cloud reading as confidence. **An endpoint at
+the search boundary means the data did not bound that coordinate**, which is
+information: at 400 events `alpha`'s lower profile drops only 0.85 by the time
+`alpha` has fallen a hundredfold, because `beta` follows it down and the
+branching ratio is what the data actually pins.
+
+Expect the maximum and the posterior to differ, and read the difference rather
+than the disagreement. Over seeds 0–11 the mode was inside the 90% marginal on 34
+of 36 coordinate checks; both misses were one seed, where the maximum ran up the
+`(alpha, beta)` ridge to `beta = 12.8` while the posterior — which has a prior —
+stopped at 5.03. Their branching ratios were 0.095 and 0.117.
+
+### Starting a cloud at the mode
+
+```{code-block} python
+from hawkes_package.inference import fit_smc
+
+proposal = mle.warm_start_proposal_(width=0.5)
+smc = fit_smc(likelihood, prior, history, blocks=4, proposal=proposal)
+```
+
+**`proposal=`, never `prior=`.** As a proposal it is corrected for by weight and
+the target is unchanged; as a prior it *is* the model, and a tight distribution
+centred on the maximum pulls the answer there — measured on 300 events, the
+four-block mean moves from `(0.95, 0.21, 1.52)` to `(1.07, 0.30, 2.39)` and the
+log evidence rises two nats. What a proposal costs is effective sample size,
+which the diagnostics report; what it buys is the early blocks.
+
+## A background that repeats
+
+Crime, emergency calls and social data have a daily cycle, and a model without
+one attributes it to self-excitation.
+
+```{code-block} python
+from hawkes_package.inference import PeriodicBase, ConstantBase
+
+model = spatio_temporal_model(
+    hp.Circle(), base=PeriodicBase(ConstantBase(), n_harmonics=1, period=24.0)
+)
+model.spec.names   # ('mu', 'cos_1', 'sin_1', 'alpha', 'beta', 'sigma')
+```
+
+Zero coefficients are the constant background **exactly**, so "is there a cycle"
+is a question about a parameter rather than a comparison of two models.
+
+Whether a fit can *separate* a cycle from self-excitation is not assumed here.
+With each effect switched off in turn at 110 events, the amplitude's 90% interval
+is [1.40, 2.79] where a cycle exists and [0.07, 0.74] where it does not — no
+overlap. Two caveats come with that: the cycle-driven branching ratio does not
+reach zero and cannot, since `alpha` lives on an open interval; and the fitted
+amplitude runs above the truth, because a schedule floored at zero has a
+shallower trough than the series it came from.
+
+## Saving a fit
+
+```{code-block} python
+from hawkes_package.inference import write_recipe, read_recipe
+
+write_recipe(estimator, "fit.json", data="doi:10.5281/zenodo.0000000")
+rerun = read_recipe("fit.json").fit(history)
+```
+
+A recipe is the configuration, the seed and a *reference* to the data — small
+enough to paste into an appendix. It is not the posterior and not the events. It
+refuses an estimator built from a `ProcessModel` object rather than writing a
+file that looks complete: that object is three closures, and a closure cannot be
+written down.
+
 ## What it costs
 
 | Path | Full `ℓ(θ)` | Incremental |
