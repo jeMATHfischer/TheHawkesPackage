@@ -138,6 +138,8 @@ def _model_of(likelihood: LogLikelihood) -> ProcessModel:
             f"{type(likelihood).__name__} does not carry a `model`, so its "
             "parameters have no names, bounds or support to optimise inside"
         )
+    if not isinstance(model, ProcessModel):  # pragma: no cover - defensive
+        raise TypeError(f"{type(likelihood).__name__}.model is a {type(model).__name__}")
     return model
 
 
@@ -315,7 +317,9 @@ def _recheck(likelihood: LogLikelihood, theta: np.ndarray, history: History) -> 
         return
     # The flag belongs to this check: it exists so the doubling runs once, and
     # running it once *at the optimum* is more useful than once at the start.
-    likelihood._checked = False
+    # `LogLikelihood` is a Protocol and does not promise it -- the two lines
+    # above are exactly the test for whether this one is a member.
+    likelihood._checked = False  # type: ignore[attr-defined]
     likelihood.total(theta, history)
 
 
@@ -695,7 +699,12 @@ class HawkesMLE:
         times = predictable_times(self.model_, self.history_, X, caller="predict")
         process = self.model_(self.theta_)
         _bind_history(process, self.history_)
-        return np.array([float(process._conditional_intensity(float(t))) for t in times])
+        # The hook the simulator thins against, which is the only definition of
+        # the intensity in this package. `HawkesProcess` declares it on the
+        # temporal subclass, and `predictable_times` has already refused a
+        # spatio-temporal model, where it does not exist.
+        intensity = process._conditional_intensity  # type: ignore[attr-defined]
+        return np.array([float(intensity(float(t))) for t in times])
 
     def score(self, X: Any, y: Any = None, *, end: float) -> float:
         """Return the log-likelihood of a *later* block, at the fitted estimate.
