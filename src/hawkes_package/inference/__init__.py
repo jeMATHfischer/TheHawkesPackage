@@ -90,6 +90,7 @@ from .diagnostics import KSResult, ks_exponential, posterior_report, residuals
 from .estimator import HawkesEstimator
 from .evolution import Evolution, LiuWest, RandomWalkDrift, Static
 from .families import (
+    CompactSpatial,
     ConstantBase,
     ExcitationMatrix,
     ExponentialKernel,
@@ -98,6 +99,8 @@ from .families import (
     LinearNonlinearity,
     LogLinearBase,
     MultivariateBase,
+    OmoriUtsuKernel,
+    ParetoSpatial,
     SoftPlusNonlinearity,
     UnitExponentialKernel,
 )
@@ -149,6 +152,7 @@ from .smc import (
 
 __all__ = [
     "ChainResult",
+    "CompactSpatial",
     "ConstantBase",
     "ConstrainedPrior",
     "Evolution",
@@ -176,8 +180,10 @@ __all__ = [
     "MultivariateExponentialLogLikelihood",
     "MultivariateLogLikelihood",
     "Normal",
+    "OmoriUtsuKernel",
     "Parameter",
     "ParameterSpec",
+    "ParetoSpatial",
     "ParticleCloud",
     "Prior",
     "ProcessModel",
