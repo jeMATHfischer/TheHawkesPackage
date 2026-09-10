@@ -17,12 +17,15 @@ from scipy import integrate
 import hawkes_package as hp
 from hawkes_package._numerics import locate_peak
 from hawkes_package.inference import (
+    CompactSpatial,
     ConstantBase,
     ExponentialKernel,
     GammaKernel,
     GaussianSpatial,
     History,
     LinearNonlinearity,
+    OmoriUtsuKernel,
+    ParetoSpatial,
     SoftPlusNonlinearity,
     TemporalLogLikelihood,
     bell_shape_model,
@@ -35,6 +38,8 @@ TEMPORAL_KERNELS = {
     "gamma-1.5": (GammaKernel(), np.array([0.5, 1.5, 2.0])),
     "gamma-2.5": (GammaKernel(), np.array([0.4, 2.5, 2.0])),
     "gamma-4": (GammaKernel(), np.array([0.7, 4.0, 3.0])),
+    "omori-1.6": (OmoriUtsuKernel(), np.array([0.6, 0.2, 1.6])),
+    "omori-2.5": (OmoriUtsuKernel(), np.array([0.3, 0.05, 2.5])),
 }
 
 
@@ -67,13 +72,22 @@ def test_the_mass_matches_numerical_integration(temporal_kernel):
     assert float(family.mass(theta)) == pytest.approx(integral, rel=1e-6)
 
 
-def test_kernels_are_non_negative_and_vanish_at_infinity(temporal_kernel):
+def test_kernels_are_non_negative_and_decay(temporal_kernel):
+    """Non-negative everywhere, and small at lag 60 *relative to the peak*.
+
+    An absolute threshold used to stand here, and a power law is precisely the
+    shape it excludes: `OmoriUtsuKernel([0.6, 0.2, 1.6])` is 8.5e-04 at lag 60,
+    nine orders above the 1e-12 the exponential and gamma kernels reach, and
+    that is the family being correct rather than failing. A heavy tail is the
+    reason the family exists.
+    """
     family, theta = temporal_kernel
     kernel = family.build(theta)
     lags = np.linspace(0.0, 60.0, 5001)
     values = np.asarray(kernel(lags))
     assert np.all(values >= 0.0)
-    assert values[-1] < 1e-12
+    assert values[-1] < 1e-2 * family.peak(theta).value
+    assert values[-1] < values[len(values) // 4]
 
 
 def test_the_mass_is_batched(temporal_kernel):
@@ -114,6 +128,49 @@ def test_a_kernel_family_refuses_the_wrong_number_of_parameters():
         ExponentialKernel().build(np.array([1.0, 2.0, 3.0]))
 
 
+def test_the_omori_kernel_reports_an_infinite_mass_where_it_diverges():
+    """The check that would otherwise pass silently.
+
+    At ``p <= 1`` the integral does not converge: every event has infinitely
+    many offspring in expectation while any finite window looks entirely
+    ordinary. `spec` bounds `p` above 1, but
+    :meth:`ProcessModel.support` evaluates the branching callable on **every**
+    row of a batch before those bounds filter it -- so returning a plausible
+    finite number here would admit a parameter the process cannot be simulated
+    at, and the failure would surface as an explosion at simulation time.
+    """
+    family = OmoriUtsuKernel()
+    batch = np.array([[0.6, 0.2, 1.6], [0.6, 0.2, 1.0], [0.6, 0.2, 0.4]])
+    masses = family.mass(batch)
+    assert np.isfinite(masses[0])
+    assert np.all(np.isinf(masses[1:]))
+
+
+def test_the_omori_exponent_is_bounded_by_its_stationarity_condition():
+    family = OmoriUtsuKernel()
+    assert family.spec.names == ("alpha", "c", "p")
+    assert family.spec.parameters[2].lower == 1.0
+    assert family.monotone is True
+    contains = family.spec.contains(np.array([[0.6, 0.2, 1.6], [0.6, 0.2, 0.9]]))
+    np.testing.assert_array_equal(contains, [True, False])
+
+
+def test_the_omori_tail_is_heavier_than_any_exponential():
+    """The reason for the family, as a comparison rather than an adjective.
+
+    Matched at the peak and at their branching ratio, the power law still has
+    far more mass past lag 20 -- and that mass is where a real catalogue's late
+    aftershocks are.
+    """
+    omori = OmoriUtsuKernel().build(np.array([0.6, 0.2, 1.6]))
+    # An exponential with the same mass and the same value at lag zero.
+    mass = float(OmoriUtsuKernel().mass(np.array([0.6, 0.2, 1.6])))
+    peak = 0.6 * 0.2**-1.6
+    exponential = ExponentialKernel().build(np.array([peak, peak / mass]))
+    assert float(exponential(0.0)) == pytest.approx(peak)
+    assert float(omori(20.0)) > 1e6 * float(exponential(20.0))
+
+
 # ---------------------------------------------------------------------------
 # Spatial
 # ---------------------------------------------------------------------------
@@ -144,6 +201,90 @@ def test_the_spatial_scale_is_reported():
 def test_a_zero_dimensional_spatial_kernel_is_refused():
     with pytest.raises(ValueError, match="at least 1"):
         GaussianSpatial(0)
+
+
+@pytest.mark.parametrize("ndim", [1, 2])
+@pytest.mark.parametrize("theta", [np.array([0.5, 1.6]), np.array([1.3, 3.0])])
+def test_the_pareto_spatial_kernel_has_unit_mass_on_the_model_space(ndim, theta):
+    """Closed form against quadrature, in both dimensions and at both exponents.
+
+    The single test that catches a wrong normalisation and a divergent tail at
+    once, and for this family it is the binding one: the normaliser carries two
+    gamma functions and a dimension-dependent exponent, none of which is
+    obviously right by inspection.
+    """
+    family = ParetoSpatial(ndim)
+    if float(theta[1]) <= 0.5 * ndim:
+        pytest.skip("outside the family's own support")
+    kernel = family.build(theta)
+    if ndim == 1:
+        integral, _ = integrate.quad(lambda d: float(kernel(abs(d))), -np.inf, np.inf)
+    else:
+        integral, _ = integrate.quad(lambda r: 2 * np.pi * r * float(kernel(r)), 0, np.inf)
+    assert integral == pytest.approx(1.0, rel=1e-6)
+    assert float(family.mass(theta)) == 1.0
+
+
+@pytest.mark.parametrize("ndim", [1, 2])
+def test_the_pareto_exponent_is_bounded_by_the_dimension(ndim):
+    """``q > ndim/2`` is where the integral converges, not a matter of taste.
+
+    In the plane a `q` at or below 1 has infinite mass, so the branching ratio
+    it implies is infinite while every simulated catalogue looks ordinary.
+    """
+    family = ParetoSpatial(ndim)
+    assert family.spec.names == ("d", "q")
+    assert family.spec.parameters[1].lower == 0.5 * ndim
+    batch = np.array([[0.7, 0.5 * ndim + 0.2], [0.7, 0.5 * ndim], [0.7, 0.5 * ndim - 0.1]])
+    np.testing.assert_array_equal(family.spec.contains(batch), [True, False, False])
+    masses = family.mass(batch)
+    assert masses[0] == 1.0
+    assert np.all(np.isinf(masses[1:]))
+
+
+def test_the_pareto_spatial_kernel_is_strictly_positive():
+    """The precondition of the cached likelihood backend, which this family keeps."""
+    kernel = ParetoSpatial(2).build(np.array([0.4, 1.5]))
+    assert np.all(np.asarray(kernel(np.linspace(0.0, 500.0, 2001))) > 0.0)
+
+
+@pytest.mark.parametrize("ndim", [1, 2])
+def test_the_compact_spatial_kernel_has_unit_mass_on_its_support(ndim):
+    family = CompactSpatial(ndim)
+    kernel = family.build(np.array([1.5]))
+    if ndim == 1:
+        integral, _ = integrate.quad(lambda d: float(kernel(abs(d))), -3.0, 3.0)
+    else:
+        integral, _ = integrate.quad(lambda r: 2 * np.pi * r * float(kernel(r)), 0, 3.0)
+    assert integral == pytest.approx(1.0, rel=1e-8)
+    assert float(family.mass(np.array([1.5]))) == 1.0
+
+
+def test_the_compact_spatial_kernel_is_exactly_zero_past_its_radius():
+    """Exactly, not nearly: this is what makes skipping a distant pair *not* an
+    approximation.
+
+    A Gaussian at ten standard deviations is 1e-22 and a power law at ten scales
+    is 1e-3; both are small and neither is zero, so dropping them changes the
+    answer by an amount somebody has to bound. Here there is nothing to bound.
+    """
+    family = CompactSpatial(2)
+    kernel = family.build(np.array([2.0]))
+    assert float(family.cutoff(np.array([2.0]))) == 2.0
+    values = kernel(np.array([1.999, 2.0, 2.000001, 50.0, 1e12]))
+    assert values[0] > 0.0
+    np.testing.assert_array_equal(values[1:], np.zeros(4))
+
+
+def test_the_compact_kernel_reports_the_radius_as_its_scale():
+    """Both the length it varies on and where it ends, which coincide here."""
+    assert float(CompactSpatial(1).min_scale(np.array([0.8]))) == 0.8
+
+
+@pytest.mark.parametrize("family", [ParetoSpatial, CompactSpatial])
+def test_the_new_spatial_families_refuse_a_zero_dimension(family):
+    with pytest.raises(ValueError, match="at least 1"):
+        family(0)
 
 
 def test_the_constant_background_is_per_unit_measure():

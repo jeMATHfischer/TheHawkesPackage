@@ -36,6 +36,7 @@ from .parameters import Parameter, ParameterSpec
 
 __all__ = [
     "BaseFamily",
+    "CompactSpatial",
     "ConstantBase",
     "ExcitationMatrix",
     "ExponentialKernel",
@@ -46,6 +47,8 @@ __all__ = [
     "LogLinearBase",
     "MultivariateBase",
     "NonlinearityFamily",
+    "OmoriUtsuKernel",
+    "ParetoSpatial",
     "SoftPlusNonlinearity",
     "SpatialKernelFamily",
     "UnitExponentialKernel",
@@ -322,9 +325,90 @@ class GammaKernel:
         return _unbatch(values[:, 0].copy(), flat)
 
 
+@dataclass(frozen=True)
+class OmoriUtsuKernel:
+    r"""The power law :math:`\kappa(s) = \alpha\,(s + c)^{-p}`.
+
+    The applied standard for aftershock decay, and the reason the package needed
+    a second temporal shape: an exponential kernel says the excitation is gone
+    after a few multiples of :math:`1/\beta`, and real catalogues decay far more
+    slowly than that.
+
+    ``alpha`` is the **amplitude**, in the convention
+    :class:`ExponentialKernel` uses rather than :class:`GammaKernel`'s: the
+    kernel starts at :math:`\alpha c^{-p}` and the branching ratio is the mass,
+    :math:`\alpha c^{1-p} / (p - 1)`. Reading ``alpha`` as the branching ratio
+    understates or overstates the excitation by whatever that factor is, and no
+    fitted number says so.
+
+    Monotone decreasing, so the maximum is at lag zero and the thinning bound is
+    the value at the current time -- no peak search, and so none of the failure
+    the bell-shaped path exists to guard.
+
+    **The exponent is bounded above 1, and that bound is the stationarity
+    condition rather than a convenience.** At :math:`p \le 1` the integral
+    diverges: every event has infinitely many offspring in expectation while any
+    finite window looks ordinary. `spec` refuses that region and `mass` returns
+    ``inf`` there anyway, because
+    :meth:`~hawkes_package.inference.models.ProcessModel.support` evaluates the
+    branching callable on **every** row of a batch before the bounds filter it,
+    so a plausible finite number returned here would admit a parameter the
+    process cannot be simulated at.
+
+    .. versionadded:: 0.9.0
+    """
+
+    monotone: bool = True
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(alpha, c, p)``: amplitude and offset positive, exponent above 1."""
+        return ParameterSpec((Parameter("alpha"), Parameter("c"), Parameter("p", lower=1.0)))
+
+    def build(self, theta: Any) -> Callable[[Any], Any]:
+        """Return the kernel as a vectorized callable on non-negative lags."""
+        values, _ = _batch(theta, 3)
+        alpha, c, p = (float(v) for v in values[0])
+
+        def kernel(s: Any) -> np.ndarray:
+            lags = np.asarray(s, dtype=float)
+            # `c > 0`, so the base is bounded away from zero for every
+            # non-negative lag and no guard against `0 ** -p` is needed.
+            return np.asarray(alpha * (lags + c) ** (-p), dtype=float)
+
+        return kernel
+
+    def peak(self, theta: Any) -> PeakLocation:
+        """Return the maximum, at lag ``0`` with value ``alpha * c**-p``."""
+        values, _ = _batch(theta, 3)
+        alpha, c, p = (float(v) for v in values[0])
+        return PeakLocation(lag=0.0, value=alpha * c**-p)
+
+    def mass(self, theta: Any) -> np.ndarray:
+        r""":math:`\alpha c^{1-p}/(p-1)`, and ``inf`` where the integral diverges."""
+        values, flat = _batch(theta, 3)
+        alpha, c, p = values[:, 0], values[:, 1], values[:, 2]
+        out = np.full(values.shape[0], np.inf, dtype=float)
+        # Computed only where it converges: `np.where` would evaluate the
+        # division at `p == 1` as well and warn, which this suite turns into a
+        # failure -- the same shape as the marked model's divergent expectation.
+        usable = p > 1.0
+        out[usable] = alpha[usable] * c[usable] ** (1.0 - p[usable]) / (p[usable] - 1.0)
+        return _unbatch(out, flat)
+
+
 # ---------------------------------------------------------------------------
 # Spatial kernels
 # ---------------------------------------------------------------------------
+
+
+def _sphere_surface(ndim: int) -> float:
+    """Surface measure of the unit sphere in `ndim` dimensions.
+
+    ``2`` on the line, ``2*pi`` in the plane. The factor every isotropic
+    normalisation on this page shares, written once.
+    """
+    return 2.0 * math.pi ** (0.5 * ndim) / math.gamma(0.5 * ndim)
 
 
 @dataclass(frozen=True)
@@ -379,6 +463,183 @@ class GaussianSpatial:
 
     def min_scale(self, theta: Any) -> np.ndarray:
         """``sigma``, the length the kernel varies on."""
+        values, flat = _batch(theta, 1)
+        return _unbatch(values[:, 0].copy(), flat)
+
+
+@dataclass(frozen=True)
+class ParetoSpatial:
+    r"""Isotropic power law :math:`f(r) \propto (r^2 + d^2)^{-q}`, unit mass.
+
+    The Gaussian tail is too light for most real data: it puts almost nothing
+    past three standard deviations, so a fit to a catalogue with distant
+    offspring either widens `sigma` until the near field is wrong or attributes
+    the far field to the background. This is the shape that does not have to
+    choose.
+
+    Normalised to unit mass on :math:`\mathbb{R}^n`, like
+    :class:`GaussianSpatial` and for the same reason: it makes the *temporal*
+    kernel's mass a sufficient bound on the branching ratio, with no quadrature
+    and no dependence on which surface the process lives on. The normaliser is
+    closed form,
+
+    .. math::
+
+        \int_{\mathbb{R}^n} (r^2 + d^2)^{-q}\,\mathrm{d}x
+            = S_{n-1}\, d^{\,n-2q}\,
+              \frac{\Gamma(n/2)\,\Gamma(q - n/2)}{2\,\Gamma(q)},
+
+    which needs :math:`\Gamma` from the standard library and **not**
+    ``scipy.special`` -- runtime SciPy is held to one call site on purpose.
+
+    **The exponent is bounded by the dimension**, ``q > ndim / 2``, because that
+    is exactly where the integral above converges. In the plane a `q` at or below
+    1 is a kernel with infinite mass: the branching ratio it implies is infinite
+    while every simulated catalogue looks ordinary, so `spec` refuses it rather
+    than leaving it to be discovered as an explosion at simulation time.
+
+    Parameters
+    ----------
+    ndim : int
+        Dimension of the domain, which fixes both the normaliser and the lower
+        bound on ``q``.
+
+    .. versionadded:: 0.9.0
+    """
+
+    ndim: int
+
+    def __post_init__(self) -> None:
+        """Refuse a dimension the normalising constant is not written for."""
+        if self.ndim < 1:
+            raise ValueError(f"ndim must be at least 1, got {self.ndim}")
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(d, q)``: the core radius positive, the exponent above ``ndim/2``."""
+        return ParameterSpec((Parameter("d"), Parameter("q", lower=0.5 * self.ndim)))
+
+    def _normaliser(self, d: float, q: float) -> float:
+        """Return the integral of the unnormalised kernel over the model space."""
+        return (
+            _sphere_surface(self.ndim)
+            * d ** (self.ndim - 2.0 * q)
+            * math.gamma(0.5 * self.ndim)
+            * math.gamma(q - 0.5 * self.ndim)
+            / (2.0 * math.gamma(q))
+        )
+
+    def build(self, theta: Any) -> Callable[[Any], Any]:
+        """Return the kernel as a vectorized callable on non-negative distances."""
+        values, _ = _batch(theta, 2)
+        d, q = float(values[0, 0]), float(values[0, 1])
+        norm = 1.0 / self._normaliser(d, q)
+
+        def kernel(r: Any) -> np.ndarray:
+            distances = np.asarray(r, dtype=float)
+            return np.asarray(norm * (distances**2 + d**2) ** (-q), dtype=float)
+
+        return kernel
+
+    def mass(self, theta: Any) -> np.ndarray:
+        """``1.0`` where the integral converges, ``inf`` where it does not."""
+        values, flat = _batch(theta, 2)
+        out = np.full(values.shape[0], np.inf, dtype=float)
+        out[values[:, 1] > 0.5 * self.ndim] = 1.0
+        return _unbatch(out, flat)
+
+    def min_scale(self, theta: Any) -> np.ndarray:
+        """``d``: inside the core the kernel is flat, and outside it is a power law.
+
+        The length a quadrature rule has to resolve, which is what this feeds --
+        a heavy tail is easy to integrate and a narrow core is not.
+        """
+        values, flat = _batch(theta, 2)
+        return _unbatch(values[:, 0].copy(), flat)
+
+
+@dataclass(frozen=True)
+class CompactSpatial:
+    r"""Isotropic :math:`f(r) \propto 1 - (r/R)^2` on :math:`r \le R`, zero past it.
+
+    The one family here whose support ends. That is worth having for its own
+    sake -- an excitation that is genuinely local is a modelling statement, not
+    an approximation of one -- and it is what makes neighbour skipping **exact**:
+    dropping a pair separated by more than `R` is not truncating the sum, it is
+    declining to add zero.
+
+    Unit mass on :math:`\mathbb{R}^n`, with normaliser
+    :math:`S_{n-1} R^n \cdot 2 / (n(n+2))`.
+
+    Two things to know before using it.
+
+    It is **not** strictly positive, so it cannot be used with the cached
+    spatio-temporal backend's separability shortcut wherever the pre-floor
+    integrand would go negative -- that backend raises rather than degrading, and
+    a kernel that is zero over most of a large domain is the most likely thing to
+    meet it.
+
+    And it puts a floating-point comparison inside the intensity sum. On the
+    spatio-temporal path that is already accepted and exact-value reproducibility
+    is not asserted; a *temporal* compact kernel would be a different question,
+    which is why there is not one here.
+
+    Parameters
+    ----------
+    ndim : int
+        Dimension of the domain, which fixes the normalising constant.
+
+    .. versionadded:: 0.9.0
+    """
+
+    ndim: int
+
+    def __post_init__(self) -> None:
+        """Refuse a dimension the normalising constant is not written for."""
+        if self.ndim < 1:
+            raise ValueError(f"ndim must be at least 1, got {self.ndim}")
+
+    @property
+    def spec(self) -> ParameterSpec:
+        """``(radius,)``, positive. Past it the kernel is exactly zero."""
+        return ParameterSpec((Parameter("radius"),))
+
+    def build(self, theta: Any) -> Callable[[Any], Any]:
+        """Return the kernel as a vectorized callable on non-negative distances."""
+        values, _ = _batch(theta, 1)
+        radius = float(values[0, 0])
+        norm = 1.0 / (
+            _sphere_surface(self.ndim) * radius**self.ndim * 2.0 / (self.ndim * (self.ndim + 2.0))
+        )
+
+        def kernel(r: Any) -> np.ndarray:
+            distances = np.asarray(r, dtype=float)
+            inside = distances < radius
+            # `np.where` on the *result* rather than a masked expression: the
+            # quadratic is finite everywhere, so both branches are safe to
+            # evaluate and nothing warns.
+            return np.asarray(
+                np.where(inside, norm * (1.0 - (distances / radius) ** 2), 0.0), dtype=float
+            )
+
+        return kernel
+
+    def cutoff(self, theta: Any) -> np.ndarray:
+        """Return the distance past which the kernel is **exactly** zero.
+
+        The presence of this method is the contract: a family that declares a
+        cutoff may have pairs beyond it skipped, and one that does not may not.
+        """
+        values, flat = _batch(theta, 1)
+        return _unbatch(values[:, 0].copy(), flat)
+
+    def mass(self, theta: Any) -> np.ndarray:
+        """``1.0``: unit mass on the model space, and at most that on a domain."""
+        values, flat = _batch(theta, 1)
+        return _unbatch(np.ones(values.shape[0], dtype=float), flat)
+
+    def min_scale(self, theta: Any) -> np.ndarray:
+        """``radius``, which is both where the kernel ends and the length it varies on."""
         values, flat = _batch(theta, 1)
         return _unbatch(values[:, 0].copy(), flat)
 
