@@ -337,17 +337,9 @@ This is the section that matters. None of the following raises when violated.
 - numpydoc docstrings, line length 100. `D105`/`D107` are ignored because
   constructor parameters are documented on the class. Carry `.. versionadded::` /
   `.. versionchanged::` / `.. deprecated::` directives with the version.
-- Runtime dependencies are **numpy and scipy only**. Until 0.10.0 scipy was held
-  to exactly one call site; the maintainer widened that rule to admit an
-  optimiser for the maximum-likelihood fit, and the rule it became is *scipy is
-  reached for where a hand-written version would be worse, not wherever it is
-  convenient*. There are two sites — `minimize_scalar` in `_numerics.py` and
-  `optimize.minimize` in `inference/mle.py` — and
-  `tests/test_api_surface.py::test_scipy_is_reached_for_deliberately` asserts the
-  set, so a third is a decision rather than a diff. `ks_exponential` still
-  hand-rolls the Kolmogorov series and `priors.py` still hand-writes its
-  marginals, because those are twenty lines and `scipy.stats` is a large surface
-  to acquire for them. Tests may use scipy
+- Runtime dependencies are **numpy and scipy only** — scipy in exactly one place
+  (`minimize_scalar` in `_numerics.py`), which is why `ks_exponential` hand-rolls
+  the Kolmogorov series rather than importing `scipy.stats`. Tests may use scipy
   freely, and check the hand-rolled versions against it. Do not reach for pandas, numba or jax;
   matplotlib is a docs extra, not a runtime dependency, and **plotly is a `[viz]`
   extra** on the same footing: `viz/_plotly.py` imports it inside `_backend()` and
