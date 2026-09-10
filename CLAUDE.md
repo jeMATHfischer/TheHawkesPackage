@@ -433,9 +433,11 @@ literal filename `release.yml`.
   hard-fails when there is no `## [<version>]` section, but it is
   `needs: [build, publish-testpypi, publish-pypi]` — it runs *after* the upload,
   so on a final tag PyPI has already accepted the files and the version is burnt.
-  The rc rehearsal does not cover it either: the prerelease path falls back to a
-  "Rehearsal build of …" note and passes. **Verify the section by reading
-  `CHANGELOG.md` before tagging**, not by a green rc.
+  **Verify the section by reading `CHANGELOG.md` before tagging**, not by a green
+  rc: a prerelease resolves the section against the *base* version, so
+  `v1.0.0rc1` does extract the real `## [1.0.0]` body — but when that body is
+  missing it writes a "Rehearsal build of …" note and passes anyway. The rc is
+  evidence only if you read the notes it produced; the tick alone is not.
 
 - **Never rename `release.yml`.** Both publishers are bound to that filename, and
   renaming it silently breaks every future release on both indexes.
