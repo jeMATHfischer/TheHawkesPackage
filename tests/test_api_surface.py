@@ -43,6 +43,10 @@ MODULES = [
     "hawkes_package.inference.forecast",
     "hawkes_package.inference.likelihood",
     "hawkes_package.inference.mcmc",
+    # Since 0.10.0, and the one module that reaches for `scipy.optimize`.
+    # Listed rather than left implicit, because the rule it widens was
+    # asserted here: see `test_scipy_is_reached_for_deliberately`.
+    "hawkes_package.inference.mle",
     "hawkes_package.inference.models",
     "hawkes_package.inference.parameters",
     "hawkes_package.inference.priors",
@@ -143,3 +147,61 @@ def test_only_one_top_level_package_ships():
     and two tool overrides all had to go with it.
     """
     assert importlib.util.find_spec("TheHawkesPackage") is None
+
+
+#: Every module in `src` that imports scipy at module scope, with what it uses.
+#: Until 0.10.0 there was exactly one, and the docstring of `_numerics` says so;
+#: the maintainer widened the rule to admit an optimiser for the maximum
+#: likelihood fit. The list is here rather than in a docstring because a rule
+#: nobody checks becomes a rule nobody keeps -- and the *point* of the rule is
+#: not the count but the reason: scipy is reached for where a hand-written
+#: version would be worse, which is true of an optimiser and false of a
+#: twenty-line series.
+SCIPY_CALL_SITES = {
+    "hawkes_package._numerics": "optimize.minimize_scalar",
+    "hawkes_package.inference.mle": "optimize.minimize",
+}
+
+
+def test_scipy_is_reached_for_deliberately():
+    """The runtime scipy surface is exactly the two sanctioned sites.
+
+    A new import here is not forbidden -- it is a decision, and this test is what
+    makes it one. `ks_exponential` hand-rolls the Kolmogorov series and
+    `priors.py` hand-writes its marginals precisely so that `scipy.stats` never
+    becomes a runtime dependency by accident.
+    """
+    found = {}
+    root = Path(hp.__file__).parent
+    for path in sorted(root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        prefixes = ("import scipy", "from scipy")
+        lines = [line for line in source.splitlines() if line.startswith(prefixes)]
+        if lines:
+            module = ".".join(path.relative_to(root.parent).with_suffix("").parts)
+            found[module] = "; ".join(lines)
+
+    assert set(found) == set(SCIPY_CALL_SITES), (
+        f"the runtime scipy surface changed: {sorted(found)} against "
+        f"{sorted(SCIPY_CALL_SITES)}. Widening it is a decision -- record it in "
+        "CLAUDE.md and here, in the same commit as the first use."
+    )
+
+
+def test_no_module_imports_scipy_stats_at_runtime():
+    """The specific import the hand-written pieces exist to avoid.
+
+    `ks_exponential` reimplements the Kolmogorov series and `priors.py` writes
+    its own marginals rather than reaching here, and the tests check both
+    against `scipy.stats` -- where SciPy is a development dependency and may be
+    used freely.
+    """
+    root = Path(hp.__file__).parent
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            imports_scipy = stripped.startswith(("import scipy", "from scipy"))
+            if imports_scipy and "stats" in stripped:
+                offenders.append(f"{path.name}: {stripped}")
+    assert offenders == [], f"scipy.stats is imported at runtime by {offenders}"
