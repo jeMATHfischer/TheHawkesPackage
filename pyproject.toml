@@ -72,7 +72,7 @@ docs = [
   "numpydoc>=1.7",
   "sphinx-copybutton>=0.5",
   "sphinx-design>=0.6",
-  "matplotlib>=3.7",
+  "matplotlib>=3.10.9",
   # myst-nb executes the example notebooks and needs a kernel to do it.
   "ipykernel>=6.29",
   # `docs/examples/intensity_surfaces.ipynb` renders live figures, so the docs
