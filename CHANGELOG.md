@@ -353,14 +353,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hyperboloid coordinates near `5e7`, where the spacing of doubles exceeds the gap between the
   sheet and its asymptotic cone.
 
-Beyond those three, the point-process capabilities the package does not have yet, listed in
-the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
-kept beside the docs and not published; the summaries here are the roadmap.
+All ten of the point-process capabilities scoped under `docs/extensions/` have shipped, so
+what is left above is the whole of the roadmap. Five further items are recorded there as
+identified and deliberately **not** built — SMC vectorisation, an EM fit, a serialised posterior
+cloud, a periodic background for the three temporal classes, and exact neighbour skipping — each
+with the measurement or the argument that stopped it.
 
-1. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
-   test that simulates from known parameters, refits and checks the credible intervals. Seeding
-   is already done. Coverage is a statistical threshold like any other — a collapsed particle
-   cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.
 
 ## [0.5.0] — 2026-09-04
 
