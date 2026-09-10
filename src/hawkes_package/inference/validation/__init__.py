@@ -25,7 +25,7 @@ the simulator thins against rather than from the likelihood's cached
 rearrangement. Two routes to one number. Where they disagree, one is wrong, and
 saying so is more useful than averaging them.
 
-.. versionadded:: 0.7.0
+.. versionadded:: 1.0.0
 """
 
 from __future__ import annotations

@@ -100,10 +100,10 @@ class SpatialDomain(ABC):
         translations -- and neither has a boundary. Keying the correction off
         ``periodic`` would rescale their intensity for no reason.
 
-        Defaults to ``False``, so every domain that predates 0.7.0 takes the
+        Defaults to ``False``, so every domain that predates 1.0.0 takes the
         identical path and no previously produced number moves.
 
-        .. versionadded:: 0.7.0
+        .. versionadded:: 1.0.0
     """
 
     periodic: bool = False
@@ -402,7 +402,7 @@ class Rectangle(SpatialDomain):
     >>> bool(domain.contains(np.array([9.0, 1.0])))
     False
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     periodic = False
@@ -526,7 +526,7 @@ class Polygon(SpatialDomain):
     >>> bool(triangle.contains(np.array([3.0, 3.0])))
     False
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     periodic = False

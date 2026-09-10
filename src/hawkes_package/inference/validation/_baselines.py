@@ -66,7 +66,7 @@ def homogeneous_log_likelihood(likelihood: LogLikelihood, history: History) -> f
         ``-inf`` for a window with no events, which is what a Poisson process
         with rate zero assigns to anything.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
     n = history.n_events
     measure = _window_measure(likelihood, history)
@@ -79,7 +79,7 @@ def homogeneous_log_likelihood(likelihood: LogLikelihood, history: History) -> f
 class BaselineComparison:
     """A fitted model beside the constant-rate process it has to beat.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     fitted: float
@@ -137,7 +137,7 @@ def compare_with_baseline(
     usual asymptotics apply, and the number is reported as a margin rather than
     dressed as a p-value.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
     return BaselineComparison(
         fitted=float(likelihood.total(theta, history)),

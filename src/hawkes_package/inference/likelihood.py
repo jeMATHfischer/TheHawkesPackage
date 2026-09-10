@@ -105,7 +105,7 @@ class History:
         Event type per event, for a multivariate history. ``None`` for a
         single-type one.
 
-        .. versionadded:: 0.6.0
+        .. versionadded:: 1.0.0
     n_types : int, optional
         How many types the model has. **Required whenever `types` is given, and
         never inferred from** ``types.max() + 1``: a type that happens to
@@ -114,13 +114,13 @@ class History:
         and the fit would come back converged on a smaller process than the one
         asked for. Undefaulted for the same reason `end` is.
 
-        .. versionadded:: 0.6.0
+        .. versionadded:: 1.0.0
     marks : array_like of shape (n,), optional
         A continuous mark per event, scaling its productivity. Unlike `types`
         this carries no companion count: a mark is a real number and there is
         nothing about the mark *law* the history can be asked to declare.
 
-        .. versionadded:: 0.8.0
+        .. versionadded:: 1.0.0
 
     Raises
     ------
@@ -291,11 +291,11 @@ class History:
         types : array_like of shape (n,), optional
             Event types, when they are held separately from `events`.
 
-            .. versionadded:: 0.6.0
+            .. versionadded:: 1.0.0
         n_types : int, optional
             Required whenever `types` is given.
 
-            .. versionadded:: 0.6.0
+            .. versionadded:: 1.0.0
         """
         record = np.asarray(events, dtype=float)
         if record.ndim == 1:
@@ -331,7 +331,7 @@ class History:
         is read there as a *one-dimensional spatio-temporal* history, silently,
         and the shape alone cannot say which of the three layouts it is.
 
-        .. versionadded:: 0.8.0
+        .. versionadded:: 1.0.0
         """
         record = np.asarray(events, dtype=float)
         if record.ndim != 2 or record.shape[0] != 2:
@@ -367,7 +367,7 @@ class History:
         end : float
             End of it. Required.
 
-        .. versionadded:: 0.6.0
+        .. versionadded:: 1.0.0
         """
         record = np.asarray(events, dtype=float)
         if record.ndim != 2 or record.shape[0] < 2:
@@ -563,9 +563,9 @@ def _quadrature_order(model: ProcessModel, order: int | None) -> int:
     compensator too small biases the excitation upward with nothing raising.
     Families that do not carry the attribute get
     :data:`~hawkes_package.inference._compensator.DEFAULT_ORDER`, so nothing that
-    predates 0.9.0 changes.
+    predates 1.0.0 changes.
 
-    .. versionadded:: 0.9.0
+    .. versionadded:: 1.0.0
     """
     if order is not None:
         return int(order)
@@ -826,7 +826,7 @@ class MarkedLogLikelihood:
         ``b_value`` fixed and wants the constant out of the way; it is not a
         cheaper way to get the same answer.
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(
@@ -983,7 +983,7 @@ def _multivariate_types(history: History, n_types: int, owner: str) -> np.ndarra
     deeper by ``_EventBuffer.replace``, complaining about a row count rather than
     about the thing that is actually missing.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
     if history.types is None:
         raise ValueError(
@@ -1043,7 +1043,7 @@ class MultivariateLogLikelihood:
     check : bool
         Compare order ``P`` against ``2P`` once and warn if they disagree.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(
@@ -1362,7 +1362,7 @@ class MultivariateExponentialLogLikelihood:
         background, and applying it to any other kernel would return a
         plausible number for the wrong model.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(self, model: ProcessModel) -> None:
@@ -1532,7 +1532,7 @@ def _time_factor(base: Any, theta: Any, times: np.ndarray) -> np.ndarray:
     isinstance for the reason the simulator dispatches on `time_varying`: the
     protocol is what a family declares, not what it inherits.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     factor = getattr(base, "time_factor", None)
     if factor is None:
@@ -1546,7 +1546,7 @@ def _time_integral(base: Any, theta: Any, start: float, end: float) -> float:
     Closed form for the families that have one, which is the point: the
     background is the term whose under-integration the excitation absorbs.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
     integral = getattr(base, "time_integral", None)
     if integral is None:
@@ -1768,7 +1768,7 @@ class SpatioTemporalLogLikelihood:
         renormalised by a different rule than the simulator did would be biased
         by the ratio of the two.
 
-        .. versionadded:: 0.7.0
+        .. versionadded:: 1.0.0
         """
         if not self.components.renormalises or n == 0:
             return None
@@ -1867,7 +1867,7 @@ class SpatioTemporalLogLikelihood:
         # `at` is the background's *spatial* shape. A time-varying family
         # multiplies it by the schedule at each event; a constant one has no
         # `time_factor` and this is the identity, so nothing that predates
-        # 0.10.0 changes.
+        # 1.0.0 changes.
         shape = np.asarray(base.at(theta[self._base_slice], _located(history).T), dtype=float)
         at_events = shape * _time_factor(base, theta[self._base_slice], times) + np.sum(
             factors * pair, axis=1

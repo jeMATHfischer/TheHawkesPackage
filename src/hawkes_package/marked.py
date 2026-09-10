@@ -49,7 +49,7 @@ def expected_productivity(scale: float, b_value: float) -> float:
     the branching ratio multiplies the kernel mass by, and the one that can be
     infinite while every mark in a realisation is finite.
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
     a, b = float(scale), float(b_value)
     if not b > 0:
@@ -111,7 +111,7 @@ class MarkedHawkes(MarkedTemporalHawkesProcess):
     >>> process.events.shape
     (2, 30)
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(
@@ -247,7 +247,7 @@ class ExponentialMarkedHawkes(MarkedHawkes):
     >>> process.events.shape
     (2, 40)
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
 
     def __init__(

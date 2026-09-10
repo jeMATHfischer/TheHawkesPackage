@@ -607,7 +607,7 @@ class SMCSampler:
             rather than quietly filtering -- wrap it in a
             :class:`~hawkes_package.inference.priors.ConstrainedPrior`.
 
-        .. versionchanged:: 0.10.0
+        .. versionchanged:: 1.0.0
            Gained `proposal`.
         """
         source = self.prior if proposal is None else proposal
@@ -972,7 +972,7 @@ def fit_smc(
     **kwargs :
         Passed to :class:`SMCSampler`.
 
-    .. versionchanged:: 0.10.0
+    .. versionchanged:: 1.0.0
        Gained `proposal`.
 
     .. versionadded:: 0.5.0

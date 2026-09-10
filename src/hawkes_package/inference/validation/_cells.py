@@ -60,7 +60,7 @@ class CellResiduals:
         Boolean, shape ``(n_cells,)``: whether the expected count is large
         enough for the standardised residual to mean anything.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
 
     edges: np.ndarray
@@ -151,7 +151,7 @@ def cell_residuals(
     boundaries where the events are, which makes every cell's observed count the
     same by construction and hides exactly the clustering a Hawkes model is for.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 1.0.0
     """
     cells = int(n_cells)
     if cells < 1:

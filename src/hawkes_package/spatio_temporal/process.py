@@ -39,7 +39,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
     ----------
     base : callable
         Background intensity ``mu(x)`` as a function of spatial coordinate. Since
-        0.10.0 it may instead carry ``time_varying = True`` and be a function of
+        1.0.0 it may instead carry ``time_varying = True`` and be a function of
         ``(t, x)`` -- see :class:`~hawkes_package.periodic.PeriodicBackground` --
         in which case it must also supply ``supremum(x)``.
     spatial : callable
@@ -92,14 +92,14 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
 
         ``'auto'`` -- the default -- renormalises exactly when the domain sets
         :attr:`~hawkes_package.SpatialDomain.has_boundary`. Every domain that
-        predates 0.7.0 does not, so nothing existing changes.
+        predates 1.0.0 does not, so nothing existing changes.
 
         :math:`S_i` is computed on the **same quadrature the bound and the
         acceptance test share**, which is what keeps ``M >= lambda`` exact: it is
         a per-event constant, so it divides both sides by the same positive
         number.
 
-        .. versionadded:: 0.7.0
+        .. versionadded:: 1.0.0
 
     Attributes
     ----------
@@ -151,7 +151,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         # `time_varying = True` is handed `(t, x)`, everything else `(x)` exactly
         # as before. Widening the signature for everyone would break every user
         # callable and move every existing number; this way a configuration that
-        # predates 0.10.0 is bit-identical, which the tests assert.
+        # predates 1.0.0 is bit-identical, which the tests assert.
         self._time_varying_base = getattr(base, "time_varying", False) is True
         if self._time_varying_base and not hasattr(base, "supremum"):
             raise ValueError(
@@ -174,7 +174,7 @@ class SpatioTemporalHawkesProcess(HawkesProcess):
         self.edge_correction = edge_correction
         # "auto" means "correct exactly where there is an edge to correct for",
         # which is what `has_boundary` declares. Every domain that predates
-        # 0.7.0 reports False, so this resolves to `False` for all of them and
+        # 1.0.0 reports False, so this resolves to `False` for all of them and
         # no previously produced number moves.
         self._renormalise = edge_correction == "renormalise" or (
             edge_correction == "auto" and bool(self.domain.has_boundary)

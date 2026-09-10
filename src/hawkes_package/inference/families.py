@@ -125,7 +125,7 @@ class SpatialKernelFamily(Protocol):
     rather than the distance between them -- rather than a wider version of this
     one.
 
-    .. versionchanged:: 0.9.0
+    .. versionchanged:: 1.0.0
        Unit mass is stated as a requirement, and ``mass`` may report ``inf``
        where a family's own integral diverges.
     """
@@ -255,7 +255,7 @@ class UnitExponentialKernel:
     :class:`~hawkes_package.multivariate.MultivariateExponentialHawkes` is
     parameterised by.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     monotone: bool = True
@@ -386,7 +386,7 @@ class OmoriUtsuKernel:
     so a plausible finite number returned here would admit a parameter the
     process cannot be simulated at.
 
-    .. versionadded:: 0.9.0
+    .. versionadded:: 1.0.0
     """
 
     monotone: bool = True
@@ -564,7 +564,7 @@ class ParetoSpatial:
         Dimension of the domain, which fixes both the normaliser and the lower
         bound on ``q``.
 
-    .. versionadded:: 0.9.0
+    .. versionadded:: 1.0.0
     """
 
     ndim: int
@@ -649,7 +649,7 @@ class CompactSpatial:
     ndim : int
         Dimension of the domain, which fixes the normalising constant.
 
-    .. versionadded:: 0.9.0
+    .. versionadded:: 1.0.0
     """
 
     ndim: int
@@ -802,7 +802,7 @@ class LogLinearBase:
     >>> base.at(np.array([0.0, 1.0]), np.array([[0.0], [1.0]]))
     array([1.        , 2.71828183])
 
-    .. versionadded:: 0.8.0
+    .. versionadded:: 1.0.0
     """
 
     covariates: tuple[Callable[[Any], Any], ...] = ()
@@ -1004,7 +1004,7 @@ def spectral_radii(matrices: Any) -> np.ndarray:
     reject anyway into a crashed fit, on a proposal that is drawn hundreds of
     times per move.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
     batch = np.asarray(matrices, dtype=float)
     if batch.ndim != 3 or batch.shape[1] != batch.shape[2]:
@@ -1030,7 +1030,7 @@ class ExcitationMatrix:
     Parameters are named ``a_i_j`` and laid out **row-major**, matching
     :func:`numpy.reshape`, so ``theta.reshape(d, d)`` is the matrix.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     n_types: int
@@ -1085,7 +1085,7 @@ class MultivariateBase:
     there is no domain to be per unit measure of, so ``mu_i`` is the background
     event rate of type *i* directly.
 
-    .. versionadded:: 0.6.0
+    .. versionadded:: 1.0.0
     """
 
     n_types: int
@@ -1146,7 +1146,7 @@ class PeriodicBase:
         multimodal -- every integer fraction of the truth is a local maximum --
         and applied users have a period they know.
 
-    .. versionadded:: 0.10.0
+    .. versionadded:: 1.0.0
     """
 
     shape: BaseFamily
