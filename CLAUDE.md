@@ -266,6 +266,16 @@ This is the section that matters. None of the following raises when violated.
   test — and the residuals for that test must use a compensator that does *not*
   share the estimator's bug, because a fit made with a compensator 20% too small
   inflates the intensity by 25% and the two errors cancel exactly.
+- **A kernel's shape decides how many quadrature nodes its compensator needs,
+  and the default is calibrated for an exponential.** A power law's compensator
+  at the package default of 8 nodes per panel is 2.6e-03 *too small* on a core
+  of 0.2 -- and low at every point, not scattered -- where an exponential is
+  exact to 7e-13. So `OmoriUtsuKernel` carries `quadrature_order = 16` and the
+  likelihoods read it when the caller names no order. A new family with a sharp
+  feature owes the same measurement against a closed form; the
+  order-`P`-versus-`2P` check catches only what is worse than 1e-3 on the
+  *whole-window* integral, where an exactly integrated background dilutes a bias
+  concentrated in the excitation term.
 - **`SpatioTemporalLogLikelihood`'s cached backend has a precondition, and it
   raises rather than degrading.** `_full_intensity` floors *after* summing, so the
   separability identity `∫_D λ = ∫_D μ + Σ κ_t·S_i` holds only where the pre-floor

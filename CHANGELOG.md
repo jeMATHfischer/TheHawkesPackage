@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ten sigma is 1e-22 and a power law at ten scales is 1e-3 — both small, neither zero — so
   dropping such a pair changes the answer by an amount somebody has to bound. Here there is
   nothing to bound.
+
+  How hard each is to *integrate* differs by five orders, which is what to know before
+  choosing `n_quad`. The two spatio-temporal backends compute one number two ways, and at
+  `n_quad = 64` they agree to 2.2e-10 for the Gaussian, 2.3e-07 for the power law and 3.1e-05
+  for the compact kernel, whose kink at the radius is the hardest of the three. All three
+  converge as the rule is refined, which is what says the gap is quadrature error rather than
+  two implementations disagreeing.
 - **A recorded benchmark harness**, `benchmarks/run.py` and `benchmarks/RESULTS.md`. Not a CI
   check: a wall-clock threshold on a shared runner measures the runner. The first recording
   says that one log-likelihood at 2 000 events is 1.1 ms closed-form against 543 ms through
@@ -233,6 +240,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the nodes, since this constructor runs once per particle per rejuvenation move.
 
 ### Fixed
+
+- **A power-law kernel's compensator was too small at the package's default quadrature
+  order**, which is the direction that matters: every unit of `∫λ` that goes missing is a
+  penalty on a high intensity that never gets applied, so the excitation comes back too large
+  and the fit looks converged. Measured against the closed-form Omori–Utsu compensator on a
+  300-event history, worst relative error, and every point *low* rather than scattered:
+
+  | core `c` | `P=8` | `P=12` | `P=16` | `P=20` |
+  |---|---|---|---|---|
+  | 0.5 | 1.5e-04 | 2.4e-06 | 3.4e-08 | 4.5e-10 |
+  | 0.2 | 2.6e-03 | 1.7e-04 | 1.0e-05 | 5.6e-07 |
+  | 0.05 | 3.0e-02 | 7.6e-03 | 1.7e-03 | 3.5e-04 |
+
+  An exponential kernel at the same default is exact to 7e-13, so this is a property of the
+  shape rather than of the rule. A kernel family may now carry `quadrature_order`, which the
+  likelihoods read when the caller does not name one; `OmoriUtsuKernel` asks for 16. Nothing
+  that predates 0.9.0 changes — a family without the attribute still gets 8. The order does
+  not rescue a core four times narrower than the median inter-event gap, and there the
+  order-`P`-versus-`2P` check fires and says the panel is the problem.
 
 - `_EventBuffer`'s error message told a two-row record that its second row should be a coordinate.
   Multivariate records put the event type there.
