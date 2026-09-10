@@ -63,19 +63,6 @@ separability precondition raises there rather than degrading. There is no separa
 kernel-density family because `exp(b0 + b log f)` is `exp(b0) f**b`: a density is a
 covariate, and the normaliser is what the intercept absorbs.
 
-Since 0.10.0 the background may also vary **in time**: `PeriodicSchedule` is a
-Fourier cycle on a declared period and `PeriodicBackground` multiplies a spatial
-shape by it, dispatched on an opt-in `time_varying` attribute exactly as
-`PairwiseKernel` is. The temporal classes do **not** have it: they fold the
-background into the nonlinearity, which takes no time either, so giving it to
-them is a second signature change and a second place for the background to live
-— and two places that define one quantity is a documented past defect here.
-
-**Maximum likelihood** arrived with it (`fit_mle`, `HawkesMLE`,
-`profile_interval`), which is what widened the SciPy rule. It exists to be
-compared against, not to be recommended: the sequential path is still the one
-this package argues for.
-
 **Visualization** (`hawkes_package.viz`, 0.5.0) is a third area, and was a
 deliberate scope addition rather than a roadmap item — it is not on the `###
 Planned` list. It draws four of the closed surfaces, colours them by the
@@ -318,28 +305,6 @@ This is the section that matters. None of the following raises when violated.
   through the total count, so a coefficient profiled at a fixed intercept comes
   back systematically low (0.583 against a truth of 0.9) and reads as a weaker
   spatial trend rather than as a bad fit.
-- **A rising background must be bounded by where it is going.** The thinning
-  bound is computed before the candidate is drawn, so for a time-varying
-  background the bound needs the supremum over every later time and not the
-  value at the current one. Bounding by the current value reads correct and
-  violates `M >= λ` in 3 of 131 acceptance tests — each one an over-accepted
-  event. `PeriodicSchedule.supremum` is a *certificate*: a dense scan of the
-  closed form plus the series' own Lipschitz bound over half a grid step, since
-  an unvalidated peak search is one of the two recurring causes of an
-  under-bound here.
-- **A background whose cycle is shorter than a quadrature panel is aliased, not
-  approximated.** The compensator's panels sit at the events; a period of 0.20
-  against a panel width of 0.58 comes out 10.7% too *large*, and at 0.10 raising
-  the order from 8 to 16 changes the sign without changing the size. So the
-  background's time integral is taken in closed form and never through the
-  panels. Note the direction: an over-integrated background is a penalty
-  over-applied, and the excitation absorbs it downward — the mirror of the usual
-  worry, equally silent.
-- **An unconstrained maximiser has no prior to protect it.** Every unit of `∫λ`
-  a compensator loses is a penalty never applied, and SMC is partly shielded by
-  its prior while `fit_mle` is not — it will take all of it and report a
-  confident wrong answer. That is why the resolution check re-runs at the
-  optimum rather than only at the starting value.
 - **Particle degeneracy reads as confidence.** A collapsed cloud reports a very
   tight posterior centred wherever the resampling noise left it. Neither obvious
   diagnostic catches a frozen rejuvenation kernel: the effective sample size is
