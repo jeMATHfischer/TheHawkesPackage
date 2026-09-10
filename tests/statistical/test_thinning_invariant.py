@@ -21,6 +21,7 @@ import pytest
 from _pytest.mark.structures import ParameterSet
 
 import hawkes_package as hp
+from hawkes_package.inference import CompactSpatial, OmoriUtsuKernel, ParetoSpatial
 
 
 def total(value):
@@ -172,6 +173,12 @@ TEMPORAL = [
     # search returned 0 here, collapsing the peak value to 0 and silently
     # disabling the bell-shaped bound: 46% of steps violated M >= lambda.
     "DelayedBellShapeHawkes",
+    # A power-law kernel, 0.9.0. Monotone, so its bound is the value at the
+    # current time -- but the *reason* it needs a case is the tail: every past
+    # event still contributes at every later step, where an exponential's
+    # contribution has underflowed to nothing. A bound that quietly dropped old
+    # events would pass every exponential case here and fail this one.
+    "OmoriKernelHawkes",
 ]
 
 #: Spatio-temporal cases. Before 0.2.0 only `st-circle` was covered, which is
@@ -189,6 +196,14 @@ SPATIO_TEMPORAL = [
     # and that shared node set is the whole reason M >= lambda holds.
     "st-hexagon",
     "st-hexagon-periodic",  # the same, through make_periodic's orbit branch
+    # The two spatial families added in 0.9.0. The power law puts real mass at
+    # every distance the domain reaches, so the space-integrated bound cannot
+    # rely on the kernel having decayed by the boundary; the compact one is
+    # exactly zero over most of the domain, which is the opposite stress -- a
+    # quadrature rule that misses its support entirely would report the
+    # background integral and accept everything.
+    "st-pareto",
+    "st-compact",
     pytest.param("st-rectangle", marks=pytest.mark.slow),
     # Bounded, non-periodic. Every other case here is a closed surface.
     pytest.param("st-bounded-rect", marks=pytest.mark.slow),
@@ -335,6 +350,22 @@ def build(
                 nonlinearity=lambda x: x + 2,
                 rng=seed,
             )
+        if name == "OmoriKernelHawkes":
+            # Mass 0.9 * 0.3**-0.8 / 0.8 = 2.99 at these parameters, which with
+            # the default phi(x) = x + 2 is supercritical -- and deliberately
+            # so: `simulate` stops counting, and a heavily excited run is where
+            # an under-bound shows.
+            return hp.MonotoneKernelHawkes(
+                OmoriUtsuKernel().build(np.array([0.9, 0.3, 1.8])), rng=seed
+            )
+        if name == "st-pareto":
+            return _spatio_temporal(spatial=ParetoSpatial(1).build(np.array([0.5, 1.4])), rng=seed)
+        if name == "st-compact":
+            # The radius is comfortably above the quadrature's resolution floor
+            # on a unit circle; below it the rule would miss the support and the
+            # process would silently degenerate towards Poisson in time, which
+            # `check_resolution` warns about at construction.
+            return _spatio_temporal(spatial=CompactSpatial(1).build(np.array([1.2])), rng=seed)
         if name == "st-circle":
             return _spatio_temporal(rng=seed)
         if name == "st-torus":
