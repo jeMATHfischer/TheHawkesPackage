@@ -309,12 +309,24 @@ per particle per move.
 
    ExponentialKernel
    GammaKernel
+   OmoriUtsuKernel
    GaussianSpatial
+   ParetoSpatial
+   CompactSpatial
    ConstantBase
    LogLinearBase
    LinearNonlinearity
    SoftPlusNonlinearity
 ```
+
+Three shapes for the tail, and the choice matters more than it looks.
+`ExponentialKernel` and `GaussianSpatial` decay fast enough that a fit to data
+with distant offspring either widens the scale until the near field is wrong or
+hands the far field to the background. `OmoriUtsuKernel` and `ParetoSpatial` are
+the power laws that do not have to choose; each bounds its exponent where the
+integral *converges*, and reports an infinite mass below that rather than a
+plausible finite one. `CompactSpatial` ends: it is exactly zero past its radius,
+which is a modelling statement rather than an approximation of one.
 
 `ConstantBase` says events are equally likely everywhere on the domain.
 `LogLinearBase` is the background that does not: `exp(b0 + sum_k b_k z_k(x))`,

@@ -2,6 +2,81 @@
 
 One section per release that requires action. Newest first.
 
+## Migrating to 0.9.0
+
+One thing requires action, and it is smaller than the headline suggests:
+**`ExponentialHawkes` now carries its intensity forward instead of rebuilding
+it, so a seeded realisation moves in the last bits.** Everything else in the
+release is additive.
+
+### `ExponentialHawkes` is linear in the number of events, and moves in the last bits
+
+The loop used to re-sum every past event twice per thinning step -- 2.36 `O(n)`
+reductions per accepted event. It now carries
+`S(t) = Σ e^{-β(t - t_i)}` and advances it with one multiply, which is exact for
+this kernel and for no other shape in the package.
+
+| n | 0.8.0 | 0.9.0 | |
+|---|---|---|---|
+| 500 | 0.014 s | 0.003 s | ×5 |
+| 2 000 | 0.074 s | 0.011 s | ×7 |
+| 8 000 | 1.258 s | 0.048 s | ×26 |
+| 16 000 | ~5 s (extrapolated) | 0.088 s | ×57 |
+
+Per event that is 157 µs at 8 000 events before and 6.0 µs after, and flat out
+to 16 000 rather than growing.
+
+A product of decays rounds differently from one exponential of the total lag, so
+**the realisation is not bit-identical to 0.8.0's.** Measured over seeds 0–20,
+2 000 events each, under both stopping rules:
+
+| | |
+|---|---|
+| Realisations that changed length | **0 of 42** |
+| Event times that moved at all (seed 0, 2 000 events) | 17 of 2 000 |
+| Worst relative move in any event time | **3.7e-16**, under two units in the last place |
+
+So the same seed still gives the same number of events at the same horizon, the
+same clustering, and times that agree to fifteen significant figures. What it
+does *not* give is the same floats, and if you have a stored realisation or a
+test asserting exact event times from 0.8.0, regenerate it.
+
+The caveat that cannot be measured away: the acceptance test is `u·M ≤ λ(t)`, so
+a perturbation of 1e-16 flips a decision when `u` lands within 1e-16 of the
+ratio — about one chance in 1e16 per test. None of the 42 realisations above hit
+it. One that did would differ from that point on, not in the last bits.
+
+**Nothing else moves.** `MonotoneKernelHawkes`, `BellShapeHawkes`,
+`MarkedHawkes`, every multivariate class and the whole spatio-temporal path are
+byte-identical to 0.8.0 — asserted by fingerprint, not by argument, over five
+classes × six seeds × three drivers.
+
+### If you subclass a temporal process
+
+The thinning loop now reads the intensity through a cursor rather than calling
+`_upper_bound` and `_conditional_intensity` inline. **A subclass that implements
+only the two hooks needs no change**: the default cursor calls them at the same
+times in the same order.
+
+Two things to know if you go further. `_bound_at`'s non-positive-bound check now
+lives in `_require_positive_bound`, so a class computing its bound another way
+can fail the same way with the same message. And a class that carries state
+derived from the record should override `_record_replaced`, which fires when
+`process.events = history` replaces the record wholesale — a replacement with the
+same length and last time would otherwise be described by state belonging to the
+record that is gone.
+
+If you instrument a temporal process the way
+`tests/statistical/test_thinning_invariant.py` does, patching the two hooks is no
+longer enough for a class with its own cursor: the loop never calls them. That
+harness now wraps the cursor, and its `assert len(pairs) > 0` is what caught the
+blind spot rather than passing vacuously.
+
+### Everything else is new
+
+`OmoriUtsuKernel`, `ParetoSpatial` and `CompactSpatial` are additions; no
+existing call changes meaning. See [the API reference](api/index.md).
+
 ## Migrating to 0.5.0
 
 Mostly additive -- a whole inference subpackage, `simulate_until`, and every
