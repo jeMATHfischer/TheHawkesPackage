@@ -25,7 +25,7 @@ Euclidean distance on a `Torus2D`.
 
 **Scope boundaries.** Simulation, plus — since 0.5.0 — **inference**, which lives
 entirely in `hawkes_package.inference` and is built on the same intensity hooks the
-simulator thins against. Since 0.6.0 both cover **multivariate, mutually-exciting**
+simulator thins against. Since 1.0.0 both cover **multivariate, mutually-exciting**
 processes: `MultivariateHawkes` and `MultivariateExponentialHawkes` simulate them,
 `multivariate_model` fits them, and `MultivariateExponentialLogLikelihood` is the
 `O(n·d)` closed form. One kernel shape and a non-negative `(d, d)` matrix of
@@ -38,7 +38,7 @@ the floor moving from after-the-sum to per-component and the type drawn before t
 location — a second bound argument, not a wider version of the first, and one with
 no exact-value safety net because that reordering changes the draw stream.
 
-Since 0.8.0 there are also **marks**: `MarkedHawkes` and `ExponentialMarkedHawkes`
+Since 1.0.0 there are also **marks**: `MarkedHawkes` and `ExponentialMarkedHawkes`
 attach a magnitude that scales the excitation an event produces, `marked_model` and
 `MarkedLogLikelihood` fit them. Marks are **temporal and single-type** for the same
 reason: marks crossed with types, and marks crossed with space, are cross-products
@@ -53,7 +53,7 @@ path and nothing else; inference has its own chain in `inference/mcmc.py`, named
 it cannot read as a drop-in. Adding anything in the out-of-scope list is new
 territory, not a gap to fill in by analogy with what is already here.
 
-Since 0.8.0 the spatio-temporal background may also **vary over the domain**:
+Since 1.0.0 the spatio-temporal background may also **vary over the domain**:
 `LogLinearBase` is `exp(b0 + sum b_k z_k(x))` per unit measure, beside `ConstantBase`.
 It needed no plumbing — the simulator already took a callable base rate and the
 cached likelihood backend already evaluated the background at the nodes — and the
@@ -63,7 +63,7 @@ separability precondition raises there rather than degrading. There is no separa
 kernel-density family because `exp(b0 + b log f)` is `exp(b0) f**b`: a density is a
 covariate, and the normaliser is what the intercept absorbs.
 
-Since 0.10.0 the background may also vary **in time**: `PeriodicSchedule` is a
+Since 1.0.0 the background may also vary **in time**: `PeriodicSchedule` is a
 Fourier cycle on a declared period and `PeriodicBackground` multiplies a spatial
 shape by it, dispatched on an opt-in `time_varying` attribute exactly as
 `PairwiseKernel` is. The temporal classes do **not** have it: they fold the
@@ -132,7 +132,7 @@ guarantees; run `pre-commit run --all-files` before pushing.
 
 ## Architecture
 
-**The loop reads through a cursor, since 0.9.0.**
+**The loop reads through a cursor, since 1.0.0.**
 `TemporalHawkesProcess._propagate` asks a small cursor object for the bound and
 the intensity instead of calling the hooks inline. The default cursor calls the
 same two hooks at the same times, so a class that overrides nothing is
@@ -180,7 +180,7 @@ argument only ever required the bound and the acceptance test to share one node 
 with strictly positive weights, never that the nodes fill a box. `_confined_density`
 returning 0 off-domain is what confines the location sampler to such a domain.
 
-**`has_boundary` is a third flag, and not the negation of `periodic`.** Since 0.7.0
+**`has_boundary` is a third flag, and not the negation of `periodic`.** Since 1.0.0
 `Rectangle` and `Polygon` have a real edge, and `SpatioTemporalHawkesProcess`
 renormalises each event's spatial kernel by its own in-domain mass there — an event
 near the boundary otherwise produces fewer offspring than the model says, and
@@ -245,7 +245,7 @@ This is the section that matters. None of the following raises when violated.
   `docs/migration.md` is written from so the documentation cannot drift from
   behaviour.
 - Simulation is O(n²) in the intensity sum **except for `ExponentialHawkes`**,
-  which carries the sum forward since 0.9.0 and is linear: 7.8 µs per event at
+  which carries the sum forward since 1.0.0 and is linear: 7.8 µs per event at
   8 000 events against `MonotoneKernelHawkes`'s 81 µs at 2 000 and rising. The
   spatio-temporal path is untouched by that — eight events on a 2-D domain
   already takes ~12 s, and 60 events on a `Circle` takes ~65 s. Budget test sizes
@@ -262,7 +262,7 @@ This is the section that matters. None of the following raises when violated.
   replaces. The likelihood cannot sparsify either: `GeometryCache` is
   theta-independent by design and the cutoff is a fitted parameter.
 - **The validation harness must not reuse the estimator's compensator.** Since
-  0.7.0 `inference/validation/` exists for exactly one reason: `residuals` takes
+  1.0.0 `inference/validation/` exists for exactly one reason: `residuals` takes
   its integral from the likelihood it is handed, and a fit made with a
   compensator 20% too small inflates the intensity so that rescaling through
   that same broken integral gives unit-rate gaps. Measured — the broken
@@ -372,7 +372,7 @@ This is the section that matters. None of the following raises when violated.
 - numpydoc docstrings, line length 100. `D105`/`D107` are ignored because
   constructor parameters are documented on the class. Carry `.. versionadded::` /
   `.. versionchanged::` / `.. deprecated::` directives with the version.
-- Runtime dependencies are **numpy and scipy only**. Until 0.10.0 scipy was held
+- Runtime dependencies are **numpy and scipy only**. Until 1.0.0 scipy was held
   to exactly one call site; the maintainer widened that rule to admit an
   optimiser for the maximum-likelihood fit, and the rule it became is *scipy is
   reached for where a hand-written version would be worse, not wherever it is
@@ -453,67 +453,41 @@ literal filename `release.yml`.
 
 ## Current state and roadmap
 
-Released: **0.5.0** — `hawkes_package.inference`,
-`HawkesProcess.simulate_until`, `HawkesEstimator`, `hawkes_package.viz`, and the
-removal of every name 0.4.0 dated for that release. 0.4.0 before it reached every
-closed surface through `FundamentalDomain` and the three constant-curvature model
-spaces. The plan the inference work was built from is
-`docs/plans/bayesian_module.md`; where the plan and the code differ, the code
-records the measurement that decided it.
+Released: **0.5.0**. **1.0.0 is prepared and not yet tagged** — `__version__`
+says 1.0.0, `CHANGELOG.md` carries a `## [1.0.0]` section, and every
+`versionadded` directive in `src/` names it. Nothing is published until a `v*`
+tag is pushed, and that step is the maintainer's.
 
-Nothing from 0.5.0 is outstanding. The roadmap **past** it has two parts, and all
-of it is under `### Planned` in `CHANGELOG.md`, which is the source.
+1.0.0 is one release carrying everything built since 0.5.0. During development
+the work was staged under labels `0.6.0` through `0.10.0` — multivariate,
+bounded domains and diagnostics, marks and a varying background, performance and
+kernels, the periodic background and MLE and reproducibility — and **none of
+those was ever tagged**. They survive only in `docs/plans/` and
+`docs/extensions/`, which are gitignored, as the record of the sequencing. Do
+not reintroduce them into `src/`, `docs/` or `CHANGELOG.md`: a directive naming a
+version no index carries is a promise a user cannot act on.
 
-The first part is the three code-level items below — narrow, measured, and about
-the code that exists. The second is ten point-process **capabilities** the package
-does not have, split out of a maintainer note and scoped one file each under
-`docs/extensions/`, which is gitignored and excluded from the Sphinx build exactly
-as `docs/plans/` is. A file there says what a capability is, where in `src/` it
-plugs in, and what it must not break; it says nothing about how. **A package that
-gets picked up is rewritten as a `docs/plans/` design document first**, the way
+The ten point-process capabilities scoped one file each under
+`docs/extensions/` have all shipped. That register is still worth reading before
+proposing work, because it records **why** the things that were not built were
+not built — five items are marked identified and deliberately rejected, each
+with the measurement or the argument that stopped it. `docs/extensions/index.md`
+is the register; `docs/plans/extensions-programme.md` staged it and answered its
+44 open questions; each stage has its own design document (`multivariate.md`,
+`bounded-domains.md`, `diagnostics.md`, `marks.md`, `varying-background.md`,
+`performance-and-kernels.md`, `stage-5.md`). **A capability that gets picked up
+is rewritten as a `docs/plans/` design document first**, the way
 `bayesian_module.md` preceded 0.5.0.
 
-They are staged into releases by `docs/plans/extensions-programme.md`, which also
-recommends an answer to each of their 44 open questions: **0.6.0** multivariate,
-**0.7.0** bounded domains and diagnostics, **0.8.0** marks and a varying
-background, **0.9.0** performance and kernels, **1.0.0** the periodic background,
-the MLE baseline and reproducibility. Those versions are sequencing intent rather
-than commitment — `all-compact-surfaces.md` planned four releases and all four
-landed inside 0.4.0 — with two fixed points: 0.6.0 cannot absorb a second package,
-because its `d = 1` bit-identity proof is the evidence that the Ogata loop did not
-shift, and 0.9.0 is the only stage that moves previously produced numbers, so it
-is the only one owing `docs/migration.md` a section. The diagnostics package
-depends on nothing and can be pulled forward at any time.
-
-**Stages 1 to 4 have shipped**, each from its own design document:
-`multivariate.md`, `bounded-domains.md`, `diagnostics.md`, `marks.md`,
-`varying-background.md` and `performance-and-kernels.md`. Stage 5 — the periodic
-background, the MLE baseline and reproducibility — is the remainder, and
-`09-mle-baseline` carries the one blocking question left in the programme:
-whether to widen the SciPy rule past its single call site, or declare MLE out of
-scope.
-
-Their build order is `1 → 3 → 7 → 2 → 5 → 9` as the note authored it, with the
-four items it left unsequenced placed after by its own tiers — so the files are
-`01-multivariate`, `02-bounded-domains`, `03-diagnostics`, `04-marks`,
-`05-varying-background`, `06-performance`, `07-kernel-library`,
-`08-periodic-background`, `09-mle-baseline`, `10-reproducibility`, and
-`docs/extensions/index.md` is the register. Reading them against the code moved
-four sizes and no priorities: 05 is nearly free (the simulator already takes a
-callable base rate and the likelihood already integrates it numerically), 08 is
-blocked by a signature rather than by mathematics, 09's cost is widening SciPy
-past its one call site rather than any code, and 06 is half done in the place
-nobody looks — the `O(n)` exponential recursion already exists in
-`ExponentialLogLikelihood`, and it is the *simulators* that rebuild the full sum.
-
-That last reading proved right and incomplete. The recursion did port straight
-across in 0.9.0, and `ExponentialHawkes` is now linear. What the sizing missed is
-that **06's other three pieces do not pay here**: exact neighbour skipping cannot
-avoid the distance computation that dominates a pair (0.8% of it is the kernel),
-a spatial index cannot help a domain whose `distance` is a deck-group search, and
-the `GeometryCache` cannot be sparsified because it is theta-independent while a
-cutoff is fitted. SMC vectorisation is the piece that remains, and it is the
-largest of the four.
+What the roadmap has left is under `### Planned` in `CHANGELOG.md`, which is the
+source, plus the three code-level items below. One item from the performance
+package is recorded as genuinely outstanding rather than rejected: **SMC
+vectorisation across particles**, the largest of that package's four pieces. The
+other three do not pay, and the numbers are in the register — exact neighbour
+skipping cannot avoid the distance computation that dominates a pair (0.8% of it
+is the kernel), a spatial index cannot help a domain whose `distance` is a
+deck-group search, and the `GeometryCache` cannot be sparsified because it is
+theta-independent while a cutoff is fitted.
 
 The three code-level items:
 
@@ -521,7 +495,7 @@ The three code-level items:
   `np.append` with a doubling buffer — 7× faster at 5 000 events, 17× at 50 000,
   and linear rather than quadratic — and it changed no simulation's running time
   measurably, because the record was never where the time went. Making the
-  intensity incremental was the real fix, and 0.9.0 made it: `ExponentialHawkes`
+  intensity incremental was the real fix, and 1.0.0 made it: `ExponentialHawkes`
   carries its sum and is linear. What remains is `MonotoneKernelHawkes` and
   `BellShapeHawkes`, which take an arbitrary kernel and so have no recursion to
   carry — a *kernel-aware* path rather than a loop change, and an exponential
