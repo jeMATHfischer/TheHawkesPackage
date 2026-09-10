@@ -9,6 +9,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A maximum-likelihood fit**, `fit_mle` and the sklearn-shaped `HawkesMLE`, beside the
+  sequential machinery rather than instead of it. The package's position is unchanged — SMC
+  reports a posterior and says when it has failed — but a reviewer comparing point-process
+  libraries runs an MLE, and "we do SMC instead" is not an answer they can check.
+
+  **This widens a stated rule.** SciPy was held to a single call site; it is now held to the
+  principle behind that rule — reached for where a hand-written version would be *worse*, not
+  wherever it is convenient. Two sites: `minimize_scalar` and `optimize.minimize`.
+  `ks_exponential` still hand-rolls the Kolmogorov series and `priors.py` still writes its own
+  marginals, and `tests/test_api_surface.py` now asserts the set, so a third is a decision
+  rather than a diff.
+
+  Three things are less obvious than the fit. **The Jacobian is deliberately absent**: the
+  optimisation runs on the unconstrained scale and adding the log-determinant — which the
+  sampler does — would silently return a MAP estimate under a flat prior on the wrong scale.
+  **The compensator's resolution check re-runs at the optimum**, because an unconstrained
+  maximiser has no prior to protect it from an under-integrated compensator and will take every
+  unit of penalty that goes missing. And outside the support the objective is a large *finite*
+  wall rather than `inf`, because `inf` makes Nelder-Mead's own convergence test compute
+  `inf - inf`, so numpy warns and a suite running `filterwarnings = ["error"]` fails inside
+  SciPy on a fit that was going fine.
+
+  `profile_interval` is the uncertainty, not an inverse Hessian: at an optimum near the
+  stationarity boundary a differenced Hessian can come back indefinite and report a confident
+  number with no content. An endpoint at the search boundary means *the data did not bound this
+  coordinate*, which is information — `alpha`'s lower profile at 400 events drops only 0.85 by
+  the time `alpha` has fallen a hundredfold, because `beta` follows it down.
+- **`SMCSampler.initialise` gained `proposal=`**, and `warm_start_proposal` produces one from a
+  maximum-likelihood fit. Against an eight-block reference the warm cloud's mean after one block
+  is 0.284 away where a cold one is 0.506, and after two blocks 0.073 against 0.438.
+
+  It is a *proposal*, corrected for by weight, and the name is load-bearing. Handing the same
+  distribution to `prior=` does not start a fit closer to the answer — it is a different model:
+  measured on 300 events, the four-block posterior mean moves from `(0.95, 0.21, 1.52)` to
+  `(1.07, 0.30, 2.39)` and the log evidence rises two nats, because a prior concentrated where
+  the likelihood is fits better by construction. What a proposal costs is effective sample size,
+  which the diagnostics already report.
+- **A background that varies in time.** `PeriodicSchedule` is a truncated Fourier series on a
+  declared period; `PeriodicBackground` multiplies a spatial shape by it for the simulator, and
+  `PeriodicBase` fits it. A model without a daily cycle attributes that cycle to
+  self-excitation — the same confusion a constant background makes with a spatially clustered
+  one, moved from space into time.
+
+  **The bound is the whole package.** Ogata draws a candidate ahead in time and accepts it
+  against a bound computed before the draw, so a rising background has to be bounded by where it
+  is *going*. Measured by making the mistake on purpose: bounding by the value at the current
+  time violates `M >= λ` in 3 of 131 acceptance tests over three seeds, against 0 for the
+  supremum. Since the schedule is periodic that supremum is a constant, and it is *certified*
+  rather than searched — a dense scan of the closed form inflated by the series' own Lipschitz
+  bound over half a step.
+
+  Dispatch is opt-in, in the `PairwiseKernel` style: a background carrying `time_varying = True`
+  is handed `(t, x)` and must supply `supremum(x)`. So a schedule with no harmonics reproduces a
+  constant background **bit for bit**, in the simulator and in the likelihood.
+
+  The background's time integral is taken in **closed form**, not through the compensator's
+  panels, and the measurement is the argument. On a 13-event history with panels of median width
+  0.58, the panelled integral of a schedule at period 0.20 is **10.7% above** the exact one, and
+  at period 0.10 it is 5.7% below at order 8 and 5.8% *above* at order 16 — raising the order
+  stops helping once the rule is aliasing a cycle it cannot see. The error goes both ways, and a
+  background integrated too large is a penalty over-applied, so the excitation comes back too
+  small.
+
+  Whether a fit can separate a cycle from self-excitation is not assumed. With each effect
+  switched off in turn at 110 events, the cycle amplitude's 90% interval is [1.40, 2.79] where a
+  cycle exists and [0.07, 0.74] where it does not — no overlap. Two honest caveats come with
+  that: the cycle-driven branching ratio does not reach zero and cannot, since `alpha` lives on
+  an open interval, and the fitted amplitude runs above the truth, because a schedule floored at
+  zero has a shallower trough than the series it came from.
+
 - **Power-law and compact-support kernels.** `OmoriUtsuKernel` is
   `alpha (s + c)**-p`, the applied standard for aftershock decay; `ParetoSpatial` is
   `(r**2 + d**2)**-q` in space; both are normalised or parameterised so the existing
@@ -287,15 +357,7 @@ Beyond those three, the point-process capabilities the package does not have yet
 the order they would be built. Each is scoped as a work package under `docs/extensions/`, which is
 kept beside the docs and not published; the summaries here are the roadmap.
 
-1. **A periodic time background** for diurnal, weekly and seasonal structure. Blocked by a
-   signature rather than by mathematics: the background is a function of position only, and
-   adding time to it also moves the thinning bound, which must then use the supremum over the
-   remaining interval rather than the current value.
-2. **An MLE/EM baseline beside the sequential machinery**, so the package can be benchmarked
-   against other libraries on equal terms. `LogLikelihood.total` is already a scalar objective
-   and `ParameterSpec` already supplies the unconstrained transform; the real cost is widening
-   SciPy past the single call site it is deliberately held to.
-3. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
+1. **Reproducibility**: serialisation of a fitted model with a version stamp, and a coverage
    test that simulates from known parameters, refits and checks the credible intervals. Seeding
    is already done. Coverage is a statistical threshold like any other — a collapsed particle
    cloud reports a tight posterior, and only `StepRecord.move_size` tells it from a real one.

@@ -101,6 +101,7 @@ from .families import (
     MultivariateBase,
     OmoriUtsuKernel,
     ParetoSpatial,
+    PeriodicBase,
     SoftPlusNonlinearity,
     UnitExponentialKernel,
 )
@@ -194,6 +195,7 @@ __all__ = [
     "ParameterSpec",
     "ParetoSpatial",
     "ParticleCloud",
+    "PeriodicBase",
     "Prior",
     "ProcessModel",
     "RandomWalkDrift",

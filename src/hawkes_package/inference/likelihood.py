@@ -1524,6 +1524,36 @@ class MultivariateExponentialLogLikelihood:
 # ---------------------------------------------------------------------------
 
 
+def _time_factor(base: Any, theta: Any, times: np.ndarray) -> np.ndarray:
+    """Return the background's periodic multiplier at `times`, or ones.
+
+    A `BaseFamily` that varies in time carries `time_factor`; one that does not
+    is constant in time and contributes `1`. Read by attribute rather than by
+    isinstance for the reason the simulator dispatches on `time_varying`: the
+    protocol is what a family declares, not what it inherits.
+
+    .. versionadded:: 0.10.0
+    """
+    factor = getattr(base, "time_factor", None)
+    if factor is None:
+        return np.ones(np.asarray(times).size, dtype=float)
+    return np.asarray(factor(theta, times), dtype=float)
+
+
+def _time_integral(base: Any, theta: Any, start: float, end: float) -> float:
+    """Return that multiplier's integral over ``[start, end]``, or the interval length.
+
+    Closed form for the families that have one, which is the point: the
+    background is the term whose under-integration the excitation absorbs.
+
+    .. versionadded:: 0.10.0
+    """
+    integral = getattr(base, "time_integral", None)
+    if integral is None:
+        return float(end) - float(start)
+    return float(integral(theta, start, end))
+
+
 class SpatioTemporalLogLikelihood:
     r"""The log-likelihood of a spatio-temporal model, by hooks or by cached geometry.
 
@@ -1834,10 +1864,37 @@ class SpatioTemporalLogLikelihood:
         lags = times[:, None] - times[None, :]
         earlier = lags > 0.0
         factors = np.where(earlier, np.asarray(kappa_t(np.where(earlier, lags, 0.0))), 0.0)
-        at_events = np.asarray(
-            base.at(theta[self._base_slice], _located(history).T), dtype=float
-        ) + np.sum(factors * pair, axis=1)
+        # `at` is the background's *spatial* shape. A time-varying family
+        # multiplies it by the schedule at each event; a constant one has no
+        # `time_factor` and this is the identity, so nothing that predates
+        # 0.10.0 changes.
+        shape = np.asarray(base.at(theta[self._base_slice], _located(history).T), dtype=float)
+        at_events = shape * _time_factor(base, theta[self._base_slice], times) + np.sum(
+            factors * pair, axis=1
+        )
         return at_events, masses, background_integral
+
+    def _excitation_at(
+        self,
+        nodes: np.ndarray,
+        times: np.ndarray,
+        masses: np.ndarray,
+        kappa_t: Any,
+    ) -> np.ndarray:
+        """Evaluate the space-integrated *excitation* at every time in `nodes`.
+
+        The background is added by the caller, because the two are integrated
+        differently once it varies in time: this term needs the quadrature and
+        the background does not.
+        """
+        out = np.empty(nodes.size, dtype=float)
+        for start in range(0, nodes.size, _NODE_CHUNK):
+            stop = min(start + _NODE_CHUNK, nodes.size)
+            lags = nodes[start:stop, None] - times[None, :]
+            earlier = lags > 0.0
+            factors = np.where(earlier, np.asarray(kappa_t(np.where(earlier, lags, 0.0))), 0.0)
+            out[start:stop] = factors @ masses
+        return out
 
     def _integrated_intensity_at(
         self,
@@ -1846,16 +1903,13 @@ class SpatioTemporalLogLikelihood:
         masses: np.ndarray,
         kappa_t: Any,
         background_integral: float,
+        schedule: np.ndarray | float = 1.0,
     ) -> np.ndarray:
-        """Evaluate the space-integrated intensity at every time in `nodes`, in chunks."""
-        out = np.empty(nodes.size, dtype=float)
-        for start in range(0, nodes.size, _NODE_CHUNK):
-            stop = min(start + _NODE_CHUNK, nodes.size)
-            lags = nodes[start:stop, None] - times[None, :]
-            earlier = lags > 0.0
-            factors = np.where(earlier, np.asarray(kappa_t(np.where(earlier, lags, 0.0))), 0.0)
-            out[start:stop] = background_integral + factors @ masses
-        return out
+        """Evaluate the space-integrated intensity at every time in `nodes`."""
+        excitation = self._excitation_at(nodes, times, masses, kappa_t)
+        return np.asarray(
+            background_integral * np.asarray(schedule, dtype=float) + excitation, dtype=float
+        )
 
     # -- the hooks path ----------------------------------------------------
 
@@ -1947,10 +2001,18 @@ class SpatioTemporalLogLikelihood:
         nodes, weights = _compensator.panels(edges, self.order)
         if nodes.size == 0:
             return log_sum, 0.0
-        rate = self._integrated_intensity_at(
-            nodes, history.times, masses, kappa_t, background_integral
+        # The background's time integral is closed form for every family that
+        # has one -- exactly `right - left` for a constant background, and a
+        # Fourier sum for a periodic one. Taking it that way rather than through
+        # the panels is not a micro-optimisation: a cycle whose period is short
+        # against the inter-event gaps is precisely the integrand a fixed panel
+        # count under-resolves, and an under-integrated background is a penalty
+        # on a high intensity that never gets applied.
+        background = background_integral * _time_integral(
+            self.components.base, theta[self._base_slice], left, right
         )
-        return log_sum, float(np.dot(weights, rate))
+        excitation = self._excitation_at(nodes, history.times, masses, kappa_t)
+        return log_sum, background + float(np.dot(weights, excitation))
 
     def _hooks_block(
         self,
@@ -2001,10 +2063,10 @@ class SpatioTemporalLogLikelihood:
                 edges = _compensator.breakpoints(left, float(right), history.times, self.extra_lags)
                 nodes, weights = _compensator.panels(edges, self.order)
                 if nodes.size:
-                    rate = self._integrated_intensity_at(
-                        nodes, history.times, masses, kappa_t, background_integral
-                    )
-                    running += float(np.dot(weights, rate))
+                    excitation = self._excitation_at(nodes, history.times, masses, kappa_t)
+                    running += background_integral * _time_integral(
+                        self.components.base, values[self._base_slice], left, float(right)
+                    ) + float(np.dot(weights, excitation))
                 out[k] = running
                 left = float(right)
             return out
