@@ -408,7 +408,7 @@ def _sphere_surface(ndim: int) -> float:
     ``2`` on the line, ``2*pi`` in the plane. The factor every isotropic
     normalisation on this page shares, written once.
     """
-    return 2.0 * math.pi ** (0.5 * ndim) / math.gamma(0.5 * ndim)
+    return float(2.0 * math.pi ** (0.5 * ndim) / math.gamma(0.5 * ndim))
 
 
 @dataclass(frozen=True)
@@ -521,7 +521,7 @@ class ParetoSpatial:
 
     def _normaliser(self, d: float, q: float) -> float:
         """Return the integral of the unnormalised kernel over the model space."""
-        return (
+        return float(
             _sphere_surface(self.ndim)
             * d ** (self.ndim - 2.0 * q)
             * math.gamma(0.5 * self.ndim)
