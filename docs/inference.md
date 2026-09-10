@@ -532,10 +532,10 @@ every *cross-product* of the axes — marks crossed with types, marks crossed wi
 space, and spatio-temporal multivariate processes. Each of those needs its own
 thinning bound rather than a wider version of an existing one.
 
-The axes themselves **are** here. Multivariate and mutually-exciting processes
-since 0.6.0, through
+The axes themselves **are** here, all of them since 1.0.0. Multivariate and
+mutually-exciting processes through
 {func}`~hawkes_package.inference.models.multivariate_model` and the two
-multivariate likelihoods; marks since 0.8.0, through
+multivariate likelihoods; marks through
 {func}`~hawkes_package.inference.models.marked_model` and
 {class}`~hawkes_package.inference.likelihood.MarkedLogLikelihood`.
 

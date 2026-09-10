@@ -2,12 +2,26 @@
 
 One section per release that requires action. Newest first.
 
-## Migrating to 0.9.0
+## Migrating to 1.0.0
 
-One thing requires action, and it is smaller than the headline suggests:
-**`ExponentialHawkes` now carries its intensity forward instead of rebuilding
-it, so a seeded realisation moves in the last bits.** Everything else in the
-release is additive.
+You are arriving from **0.5.0** — 0.6.0 through 0.10.0 were staging labels
+during development and were never released, so this section is the whole
+distance between the two versions that exist.
+
+The release is overwhelmingly additive: multivariate processes, marks, bounded
+domains, a background that varies over space and over time, power-law kernels, a
+validation harness, a maximum-likelihood fit and recipes are all new names that
+change no existing call's meaning. **Three things ask something of you**, and
+only the first changes a number:
+
+1. `ExponentialHawkes` carries its intensity forward instead of rebuilding it,
+   so a seeded realisation moves in the last bits.
+2. `SpatioTemporalHawkesProcess` warns when its quadrature rule does not resolve
+   a varying background. No number changes; a construction that was silently
+   wrong now says so — and under `filterwarnings = ["error"]` that warning is
+   fatal.
+3. A subclass that *instruments* the two temporal hooks must instrument the
+   cursor instead. A subclass that merely implements them needs no change.
 
 ### `ExponentialHawkes` is linear in the number of events, and moves in the last bits
 
@@ -16,7 +30,7 @@ reductions per accepted event. It now carries
 `S(t) = Σ e^{-β(t - t_i)}` and advances it with one multiply, which is exact for
 this kernel and for no other shape in the package.
 
-| n | 0.8.0 | 0.9.0 | |
+| n | 0.5.0 | 1.0.0 | |
 |---|---|---|---|
 | 500 | 0.014 s | 0.003 s | ×5 |
 | 2 000 | 0.074 s | 0.011 s | ×7 |
@@ -27,7 +41,9 @@ Per event that is 157 µs at 8 000 events before and 6.0 µs after, and flat out
 to 16 000 rather than growing.
 
 A product of decays rounds differently from one exponential of the total lag, so
-**the realisation is not bit-identical to 0.8.0's.** Measured over seeds 0–20,
+**the realisation is not bit-identical to 0.5.0's.** The recursion is the only
+change to `exponential.py` since that release, so the measurement below — taken
+across the change — is also the measurement across the two versions. Seeds 0–20,
 2 000 events each, under both stopping rules:
 
 | | |
@@ -39,17 +55,33 @@ A product of decays rounds differently from one exponential of the total lag, so
 So the same seed still gives the same number of events at the same horizon, the
 same clustering, and times that agree to fifteen significant figures. What it
 does *not* give is the same floats, and if you have a stored realisation or a
-test asserting exact event times from 0.8.0, regenerate it.
+test asserting exact event times from 0.5.0, regenerate it.
 
 The caveat that cannot be measured away: the acceptance test is `u·M ≤ λ(t)`, so
 a perturbation of 1e-16 flips a decision when `u` lands within 1e-16 of the
 ratio — about one chance in 1e16 per test. None of the 42 realisations above hit
 it. One that did would differ from that point on, not in the last bits.
 
-**Nothing else moves.** `MonotoneKernelHawkes`, `BellShapeHawkes`,
-`MarkedHawkes`, every multivariate class and the whole spatio-temporal path are
-byte-identical to 0.8.0 — asserted by fingerprint, not by argument, over five
-classes × six seeds × three drivers.
+**Nothing else moves.** `MonotoneKernelHawkes`, `BellShapeHawkes` and the whole
+spatio-temporal path draw byte-identical realisations across the change —
+asserted by fingerprint, not by argument, over five classes × six seeds × three
+drivers. The other classes in that fingerprint, `MarkedHawkes` and the
+multivariate ones, are new in this release and have no 0.5.0 behaviour to
+differ from.
+
+### The background resolution check
+
+`SpatioTemporalHawkesProcess` now doubles its quadrature node count at
+construction and warns if the **background** integral moves by more than 1%. It
+used to check only the spatial kernel.
+
+Nothing in 0.5.0 could produce a varying background, but a caller has always
+been able to pass one as a plain callable — and a background lump narrower than
+a quadrature panel loses its mass between the nodes, in exactly the places the
+events are, so the simulated event rate comes out wrong by that fraction with
+nothing said. **If this warns, your 0.5.0 results from that configuration were
+wrong by roughly the reported fraction**; raise `n_quad` until it clears. The
+check is skipped when the background is constant across the nodes.
 
 ### If you subclass a temporal process
 
@@ -72,10 +104,31 @@ longer enough for a class with its own cursor: the loop never calls them. That
 harness now wraps the cursor, and its `assert len(pairs) > 0` is what caught the
 blind spot rather than passing vacuously.
 
+### If you wrote a custom spatial kernel family
+
+Unit mass on the model space is now stated as a **requirement** of
+{class}`~hawkes_package.inference.families.SpatialKernelFamily` rather than a
+property every shipped family happened to have. It is what makes the temporal
+kernel's mass a sufficient bound on the branching ratio, with no quadrature and
+no dependence on the surface. A family normalised some other way leaves
+`ProcessModel.support` admitting supercritical parameters, and the failure
+appears as an explosion during simulation rather than as a rejected proposal.
+`mass` may now report `inf` where a family's own integral diverges.
+
+### If you wrote a custom domain
+
+`SpatialDomain` gained `has_boundary`, defaulting to `False`. A domain that
+predates 1.0.0 therefore takes the same path it always did: the new edge
+correction — which renormalises each event's spatial kernel by its own in-domain
+mass — resolves to off for all of them under the default
+`edge_correction="auto"`, and no previously produced number moves. Set it to
+`True` on a domain with a real edge; omitting the correction over-estimates the
+excitation by 64% on a 4×3 rectangle.
+
 ### Everything else is new
 
-`OmoriUtsuKernel`, `ParetoSpatial` and `CompactSpatial` are additions; no
-existing call changes meaning. See [the API reference](api/index.md).
+No existing call changes meaning. See [the API reference](api/index.md) and
+[Fitting a process to data](inference.md).
 
 ## Migrating to 0.5.0
 
